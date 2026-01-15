@@ -8,18 +8,19 @@
 #include "debug_uart.h"
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
+#include "stm32h7xx_nucleo.h"
 #include <stdio.h>
 #include <stdarg.h>
 
-/* External UART handle (defined in main.c) */
-extern UART_HandleTypeDef huart3;
+/* Use BSP COM port (initialized in main.c) */
+extern UART_HandleTypeDef hcom_uart[COMn];
 
 /**
  * @brief Initialize debug UART
  */
 int32_t Debug_Init(void)
 {
-    /* UART is initialized in main.c via CubeMX */
+    /* UART is initialized in main.c via BSP_COM_Init() */
     /* This function is here for future expansion (e.g., DMA mode) */
     return 0;
 }
@@ -32,7 +33,8 @@ int _write(int file, char *ptr, int len)
 {
     (void)file; /* Unused parameter */
 
-    if (HAL_UART_Transmit(&huart3, (uint8_t*)ptr, len, HAL_MAX_DELAY) == HAL_OK) {
+    /* Use BSP COM1 UART handle */
+    if (HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*)ptr, len, HAL_MAX_DELAY) == HAL_OK) {
         return len;
     } else {
         return -1;

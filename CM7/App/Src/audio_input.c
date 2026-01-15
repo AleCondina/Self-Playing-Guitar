@@ -7,6 +7,7 @@
  */
 
 #include "audio_input.h"
+#include <stddef.h>
 
 /* Placeholder implementation */
 

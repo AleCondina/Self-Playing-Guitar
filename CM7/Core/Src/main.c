@@ -107,10 +107,7 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
-  /* Enable AXI SRAM clock for shared memory */
-  __HAL_RCC_D1SRAM1_CLK_ENABLE();
-
-  /* Initialize shared memory to zero */
+  /* Initialize shared memory to zero (AXI SRAM enabled by default) */
   memset((void*)&g_shared_memory, 0, sizeof(SharedMemory_t));
   __DSB(); /* Data synchronization barrier */
   /* USER CODE END Init */

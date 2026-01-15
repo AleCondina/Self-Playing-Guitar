@@ -6,6 +6,7 @@
  */
 
 #include "inter_core_cm7.h"
+#include "application_config.h"
 #include "stm32h7xx_hal.h"
 #include <string.h>
 
