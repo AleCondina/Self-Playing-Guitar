@@ -9,6 +9,7 @@
 #include "app_cm4.h"
 #include "inter_core_cm4.h"
 #include "motor_control.h"
+#include "solenoid_control.h"
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
 
@@ -30,6 +31,11 @@ void App_CM4_Main(void)
 
     /* Initialize motor control system */
     Motor_Init();
+
+    /* Initialize solenoid control system */
+    if (Solenoid_Init() != 0) {
+        g_shared_memory.motor_errors |= ERROR_INVALID_COMMAND;
+    }
 
     /* Signal ready to CM7 */
     g_shared_memory.motor_status_flags = MOTOR_STATUS_READY;
@@ -86,8 +92,48 @@ void App_CM4_Main(void)
 
             /* Process solenoid trigger */
             if (commands & CMD_TRIGGER_SOLENOID) {
-                /* TODO: Implement solenoid control */
+                uint8_t sol_id = g_shared_memory.solenoid_id;
+                uint8_t string = g_shared_memory.solenoid_string;
+                uint8_t fret = g_shared_memory.solenoid_fret;
+                uint8_t duty = g_shared_memory.solenoid_duty_cycle;
+
+                /* Validate solenoid ID and string/fret */
+                if (sol_id < 3 && string < 3 && fret < 8) {
+                    /* Set frequency for target solenoid */
+                    if (Solenoid_SetFrequency(sol_id, string, fret) == 0) {
+                        /* Set duty cycle if non-zero */
+                        if (duty > 0 && duty < 100) {
+                            Solenoid_SetDutyCycle(sol_id, duty);
+                        }
+                        /* Start PWM output */
+                        Solenoid_Start(sol_id);
+
+                        /* Update active mask in shared memory */
+                        g_shared_memory.solenoid_active_mask = Solenoid_GetActiveMask();
+                    } else {
+                        g_shared_memory.motor_errors |= ERROR_INVALID_COMMAND;
+                    }
+                } else {
+                    g_shared_memory.motor_errors |= ERROR_INVALID_COMMAND;
+                }
+
                 InterCore_AckCommand(CMD_TRIGGER_SOLENOID);
+            }
+
+            /* Process solenoid stop */
+            if (commands & CMD_STOP_SOLENOID) {
+                uint8_t sol_id = g_shared_memory.solenoid_id;
+
+                if (sol_id < 3) {
+                    Solenoid_Stop(sol_id);
+                    g_shared_memory.solenoid_active_mask = Solenoid_GetActiveMask();
+                } else if (sol_id == 0xFF) {
+                    /* 0xFF = stop all */
+                    Solenoid_StopAll();
+                    g_shared_memory.solenoid_active_mask = 0;
+                }
+
+                InterCore_AckCommand(CMD_STOP_SOLENOID);
             }
         }
 

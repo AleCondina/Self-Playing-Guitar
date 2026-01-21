@@ -29,7 +29,7 @@
 
 /* Application constants */
 #define NUM_MOTORS              6   /* 6 guitar strings */
-#define NUM_SOLENOIDS           6   /* 6 string dampers */
+/* NUM_SOLENOIDS defined in application_config.h (currently 3, expandable to 6) */
 
 /* Command flags: CM7 → CM4 (bit field) */
 #define CMD_UPDATE_MOTOR_SPEED  (1U << 0)   /* Update motor target speeds */
@@ -37,6 +37,7 @@
 #define CMD_HOME_MOTORS         (1U << 2)   /* Home all motors to reference */
 #define CMD_EMERGENCY_STOP      (1U << 3)   /* Emergency stop all motion */
 #define CMD_RESET_ERRORS        (1U << 4)   /* Clear error flags */
+#define CMD_STOP_SOLENOID       (1U << 5)   /* Stop solenoid(s) */
 
 /* Status flags: CM4 → CM7 (bit field) */
 #define MOTOR_STATUS_READY      (1U << 0)   /* Motors initialized and ready */
@@ -57,6 +58,13 @@ typedef struct {
     volatile int32_t motor_speeds[NUM_MOTORS];          /* Target speeds (steps/sec) */
     volatile uint32_t solenoid_triggers;                /* Solenoid bit field */
     volatile uint32_t solenoid_duration_ms;             /* Solenoid hold time (ms) */
+
+    /* ===== Solenoid Frequency Control (PWM-based) ===== */
+    volatile uint8_t solenoid_id;                       /* Solenoid index (0-2 for 3 solenoids) */
+    volatile uint8_t solenoid_string;                   /* String index (0-2: E2, A2, D3) */
+    volatile uint8_t solenoid_fret;                     /* Fret index (0-7: open to fret 7) */
+    volatile uint8_t solenoid_duty_cycle;               /* Duty cycle 1-99% (0 = use default 50%) */
+    volatile uint8_t solenoid_active_mask;              /* Bit field: which solenoids are running */
 
     /* ===== CM4 → CM7 Status Channel ===== */
     volatile uint32_t motor_status_flags;               /* Status bit field */

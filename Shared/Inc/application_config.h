@@ -14,7 +14,7 @@
 /* ===== Guitar Controller Configuration ===== */
 #define NUM_STRINGS             6       /* Number of guitar strings */
 #define NUM_MOTORS              6       /* One motor per string */
-#define NUM_SOLENOIDS           6       /* One solenoid per string */
+#define NUM_SOLENOIDS           3       /* Initial: 3 solenoids (expandable to 6) */
 
 /* ===== Motor Control Parameters ===== */
 #define MOTOR_MIN_STEP_FREQ     200     /* Minimum steps/sec */
@@ -26,6 +26,9 @@
 #define SOLENOID_MIN_DURATION_MS    10  /* Minimum solenoid on-time */
 #define SOLENOID_MAX_DURATION_MS    500 /* Maximum solenoid on-time */
 #define SOLENOID_DEFAULT_DURATION_MS 50 /* Default solenoid duration */
+#define SOLENOID_DEFAULT_DUTY_CYCLE  50 /* Default duty cycle (%) - validated at 82 Hz */
+#define SOLENOID_MIN_FREQ_HZ         82 /* Minimum frequency: E2 (low E string) */
+#define SOLENOID_MAX_FREQ_HZ        220 /* Maximum frequency: D3 fret 7 */
 
 /* ===== Audio Processing Parameters ===== */
 #define AUDIO_SAMPLE_RATE_HZ    44100   /* ADC sample rate */
@@ -39,7 +42,7 @@
 /* ===== System Clock Configuration ===== */
 #define SYSTEM_CLOCK_MHZ        480     /* CM7 system clock */
 #define CM4_CLOCK_MHZ           240     /* CM4 clock */
-#define TIM_CLOCK_MHZ           240     /* Timer peripheral clock */
+#define TIM_CLOCK_MHZ           64      /* Timer peripheral clock (ACTUAL measured: 64 MHz, not 240) */
 
 /* ===== Error Codes (bit field) ===== */
 #define ERROR_MOTOR_STALL       (1U << 0)   /* Motor stall detected */

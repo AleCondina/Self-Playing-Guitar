@@ -57,10 +57,17 @@
 
 /* USER CODE BEGIN PV */
 
+/* Timer handles for solenoid PWM control */
+TIM_HandleTypeDef htim12;
+TIM_HandleTypeDef htim13;
+
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
 /* USER CODE BEGIN PFP */
+
+static void MX_TIM12_Init(void);
+static void MX_TIM13_Init(void);
 
 /* USER CODE END PFP */
 
@@ -116,6 +123,11 @@ int main(void)
 
   /* Initialize all configured peripherals */
   /* USER CODE BEGIN 2 */
+
+  /* Initialize timers for solenoid PWM control */
+  MX_TIM12_Init();
+  MX_TIM13_Init();
+
   /* Call application main (never returns) */
   App_CM4_Main();
   /* USER CODE END 2 */
@@ -132,6 +144,80 @@ int main(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/**
+ * @brief TIM12 Initialization Function
+ * @note  2-channel timer for solenoids 0 and 1 (E2 and A2 strings)
+ * @note  PWM frequency controlled by ARR, duty cycle by CCR
+ */
+static void MX_TIM12_Init(void)
+{
+    TIM_OC_InitTypeDef sConfigOC = {0};
+
+    htim12.Instance = TIM12;
+    htim12.Init.Prescaler = 99;  /* 64 MHz / 100 = 640 kHz count frequency */
+    htim12.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim12.Init.Period = 7764;   /* Default: 82.41 Hz (E2 open string) */
+    htim12.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    htim12.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+
+    if (HAL_TIM_PWM_Init(&htim12) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    /* Configure PWM Channel 1: Solenoid 0 (E2 string) */
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.Pulse = 3882;  /* 50% duty cycle (7764 / 2) */
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+
+    if (HAL_TIM_PWM_ConfigChannel(&htim12, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    /* Configure PWM Channel 2: Solenoid 1 (A2 string) */
+    sConfigOC.Pulse = 2909;  /* 50% duty cycle (5817 / 2) */
+
+    if (HAL_TIM_PWM_ConfigChannel(&htim12, &sConfigOC, TIM_CHANNEL_2) != HAL_OK)
+    {
+        Error_Handler();
+    }
+}
+
+/**
+ * @brief TIM13 Initialization Function
+ * @note  1-channel timer for solenoid 2 (D3 string)
+ * @note  PWM frequency controlled by ARR, duty cycle by CCR
+ */
+static void MX_TIM13_Init(void)
+{
+    TIM_OC_InitTypeDef sConfigOC = {0};
+
+    htim13.Instance = TIM13;
+    htim13.Init.Prescaler = 99;  /* 64 MHz / 100 = 640 kHz count frequency */
+    htim13.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim13.Init.Period = 4358;   /* Default: 146.83 Hz (D3 open string) */
+    htim13.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
+    htim13.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+
+    if (HAL_TIM_PWM_Init(&htim13) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    /* Configure PWM Channel 1: Solenoid 2 (D3 string) */
+    sConfigOC.OCMode = TIM_OCMODE_PWM1;
+    sConfigOC.Pulse = 2179;  /* 50% duty cycle (4358 / 2) */
+    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
+    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
+
+    if (HAL_TIM_PWM_ConfigChannel(&htim13, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
+    {
+        Error_Handler();
+    }
+}
 
 /* USER CODE END 4 */
 
