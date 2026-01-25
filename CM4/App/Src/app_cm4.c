@@ -13,6 +13,10 @@
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
 
+/* External timer handles for debug access */
+extern TIM_HandleTypeDef htim12;
+extern TIM_HandleTypeDef htim13;
+
 /* Control loop timing */
 #define CONTROL_LOOP_PERIOD_MS  1   /* 1ms = 1kHz control loop */
 
@@ -36,6 +40,70 @@ void App_CM4_Main(void)
     if (Solenoid_Init() != 0) {
         g_shared_memory.motor_errors |= ERROR_INVALID_COMMAND;
     }
+
+    /* TEST: Direct timer register manipulation for debugging */
+    /* Bypass HAL entirely to verify hardware is working */
+
+    /* Method 1: HAL-based approach - Test High E string (string 5) */
+    Solenoid_SetFrequency(0, 0, 0);  // Solenoid 0: E2 string (Low E), open (82.41Hz)
+    Solenoid_SetFrequency(1, 1, 0);  // Solenoid 1: A2 string , open (110Hz)
+    Solenoid_SetFrequency(2, 2, 0);  // Solenoid 2: D3 string , open (146.83 )
+    Solenoid_Start(0);                // This actually starts the PWM!
+    Solenoid_Start(1);                // This actually starts the PWM!
+    Solenoid_Start(2);                // This actually starts the PWM!
+
+    /* Method 2: Direct GPIO configuration (needed for PWM output) */
+    /* Ensure GPIOB and TIM12 clocks are enabled */
+    __HAL_RCC_GPIOB_CLK_ENABLE();
+    __HAL_RCC_TIM12_CLK_ENABLE();
+
+    /* Configure PB14 as AF2 (TIM12_CH1) */
+    GPIOB->MODER &= ~(0x3UL << (14 * 2));  // Clear mode bits for PB14
+    GPIOB->MODER |= (0x2UL << (14 * 2));   // Set alternate function mode
+    GPIOB->AFR[1] &= ~(0xFUL << ((14-8) * 4));  // Clear AF bits for PB14
+    GPIOB->AFR[1] |= (0x2UL << ((14-8) * 4));   // Set AF2 (TIM12)
+    GPIOB->OTYPER &= ~(1UL << 14);         // Push-pull output
+    GPIOB->OSPEEDR |= (0x3UL << (14 * 2)); // High speed
+
+    /* DEBUG: Read back all configuration */
+    volatile uint32_t debug_arr = __HAL_TIM_GET_AUTORELOAD(&htim12);
+    volatile uint32_t debug_ccr = __HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_1);
+    volatile uint32_t debug_freq = Solenoid_GetFrequency(0);
+    volatile uint8_t debug_active = Solenoid_GetActiveMask();
+
+    /* Read TIM12 control registers for verification */
+    volatile uint32_t debug_tim12_cr1 = TIM12->CR1;       // Expected: 0x0081 (CEN + ARPE)
+    volatile uint32_t debug_tim12_cnt = TIM12->CNT;       // Expected: counting (0 to 7764)
+    volatile uint32_t debug_tim12_psc = TIM12->PSC;       // Expected: 99
+    volatile uint32_t debug_tim12_arr = TIM12->ARR;       // Expected: 7764
+    volatile uint32_t debug_tim12_ccr1 = TIM12->CCR1;     // Expected: 3882
+    volatile uint32_t debug_tim12_ccmr1 = TIM12->CCMR1;   // Expected: 0x0068
+    volatile uint32_t debug_tim12_ccer = TIM12->CCER;     // Expected: 0x0001
+
+    /* GPIO configuration readback */
+    volatile uint32_t debug_gpiob_moder = GPIOB->MODER;   // Check PB14 is in AF mode (bit 28-29 = 10)
+    volatile uint32_t debug_gpiob_afrh = GPIOB->AFR[1];   // Check PB14 AF2 setting (bits 24-27 = 0010)
+    volatile uint32_t debug_gpiob_otyper = GPIOB->OTYPER; // Should be 0 for PB14 (push-pull)
+
+    /* RCC clock enable status */
+    volatile uint32_t debug_rcc_apb1lenr = RCC->APB1LENR; // Bit 6 should be set (TIM12EN)
+
+    /* Prevent compiler optimization */
+    (void)debug_arr;
+    (void)debug_ccr;
+    (void)debug_freq;
+    (void)debug_active;
+    (void)debug_tim12_cr1;
+    (void)debug_tim12_cnt;
+    (void)debug_tim12_psc;
+    (void)debug_tim12_arr;
+    (void)debug_tim12_ccr1;
+    (void)debug_tim12_ccmr1;
+    (void)debug_tim12_ccer;
+    (void)debug_gpiob_moder;
+    (void)debug_gpiob_afrh;
+    (void)debug_gpiob_otyper;
+    (void)debug_rcc_apb1lenr;
 
     /* Signal ready to CM7 */
     g_shared_memory.motor_status_flags = MOTOR_STATUS_READY;
@@ -98,7 +166,7 @@ void App_CM4_Main(void)
                 uint8_t duty = g_shared_memory.solenoid_duty_cycle;
 
                 /* Validate solenoid ID and string/fret */
-                if (sol_id < 3 && string < 3 && fret < 8) {
+                if (sol_id < 3 && string < 6 && fret < 8) {
                     /* Set frequency for target solenoid */
                     if (Solenoid_SetFrequency(sol_id, string, fret) == 0) {
                         /* Set duty cycle if non-zero */
@@ -165,6 +233,28 @@ void App_CM4_Main(void)
 
         /* Update heartbeat */
         InterCore_UpdateHeartbeat();
+
+        /* TEST MODE: Cycle through all strings and frets every 2 seconds */
+        // if ((now - last_test_change) >= 2000) {
+        //     /* Update test parameters */
+        //     test_fret++;
+        //     if (test_fret >= 8) {
+        //         test_fret = 0;
+        //         test_string++;
+        //         if (test_string >= 6) {
+        //             test_string = 0;  /* Loop back to E2 (low E) */
+        //         }
+        //     }
+
+        //     /* Update solenoid 0 with new frequency */
+        //     Solenoid_SetFrequency(0, test_string, test_fret);
+
+        //     /* Store current test state in shared memory for debugging */
+        //     g_shared_memory.solenoid_string = test_string;
+        //     g_shared_memory.solenoid_fret = test_fret;
+
+        //     last_test_change = now;
+        // }
 
         /* ===== Control Loop End ===== */
 

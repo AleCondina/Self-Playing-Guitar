@@ -40,11 +40,12 @@ int32_t Solenoid_Init(void);
 /**
  * @brief Set frequency for a specific solenoid by string and fret
  * @param solenoid_id Solenoid index (0-2)
- * @param string String index (0-2: E2, A2, D3)
+ * @param string String index (0-5: E2, A2, D3, G3, B3, E4)
  * @param fret Fret index (0-7: open string to fret 7)
  * @return 0 on success, -1 if invalid parameters
  * @note  Does NOT start PWM - call Solenoid_Start() to activate
  * @note  Updates ARR and CCR registers atomically to avoid glitches
+ * @note  String mapping: 0=E2(low), 1=A2, 2=D3, 3=G3, 4=B3, 5=E4(high)
  */
 int32_t Solenoid_SetFrequency(uint8_t solenoid_id, uint8_t string, uint8_t fret);
 

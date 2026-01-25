@@ -30,18 +30,21 @@ typedef struct {
 static SolenoidState_t solenoid_states[SOLENOID_COUNT];
 
 /**
- * @brief Frequency lookup table: 3 strings × 8 frets → ARR values
+ * @brief Frequency lookup table: 6 strings × 8 frets → ARR values
  * @note  ARR = (640,000 / target_frequency) - 1
  * @note  Timer clock: 64 MHz, Prescaler: 99 (÷100) → 640 kHz count frequency
  *
- * Musical Note Reference:
+ * Musical Note Reference (Standard Guitar Tuning):
  * String | Open Note | Freq (Hz) | Fret 7 (Hz)
  * -------|-----------|-----------|-------------
  *   0    | E2        |   82.41   |   123.47
  *   1    | A2        |  110.00   |   164.81
  *   2    | D3        |  146.83   |   220.00
+ *   3    | G3        |  196.00   |   293.66
+ *   4    | B3        |  246.94   |   369.99
+ *   5    | E4        |  329.63   |   493.88
  */
-static const uint16_t SOLENOID_FREQ_TABLE[3][8] = {
+static const uint16_t SOLENOID_FREQ_TABLE[6][8] = {
     /* String 0: E2 (82.41 Hz) - Low E */
     {7764, 7329, 6918, 6530, 6163, 5816, 5488, 5179},  /* Frets 0-7 */
 
@@ -50,6 +53,15 @@ static const uint16_t SOLENOID_FREQ_TABLE[3][8] = {
 
     /* String 2: D3 (146.83 Hz) */
     {4358, 4113, 3882, 3664, 3459, 3265, 3082, 2910},  /* Frets 0-7 */
+
+    /* String 3: G3 (196.00 Hz) */
+    {3264, 3081, 2909, 2746, 2592, 2446, 2309, 2179},  /* Frets 0-7 */
+
+    /* String 4: B3 (246.94 Hz) */
+    {2591, 2445, 2308, 2179, 2056, 1941, 1832, 1729},  /* Frets 0-7 */
+
+    /* String 5: E4 (329.63 Hz) - High E */
+    {1941, 1832, 1729, 1632, 1540, 1454, 1372, 1295},  /* Frets 0-7 */
 };
 
 /**
@@ -98,7 +110,7 @@ int32_t Solenoid_Init(void)
 int32_t Solenoid_SetFrequency(uint8_t solenoid_id, uint8_t string, uint8_t fret)
 {
     /* Validate inputs */
-    if (solenoid_id >= SOLENOID_COUNT || string >= 3 || fret >= 8) {
+    if (solenoid_id >= SOLENOID_COUNT || string >= 6 || fret >= 8) {
         return -1;
     }
 
