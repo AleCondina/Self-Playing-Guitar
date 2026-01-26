@@ -11,6 +11,11 @@
 
 #include <stdint.h>
 #include "application_config.h"
+#include "arm_math.h"
+
+
+// TODO: remove
+void test(void);
 
 /**
  * @brief Initialize audio input (ADC + DMA)

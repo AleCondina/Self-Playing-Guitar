@@ -11,6 +11,15 @@
 
 /* Placeholder implementation */
 
+// Checking if DSP fft library is working
+void test(void) {
+    float32_t a[4] = {1,2,3,4};
+    float32_t b[4] = {1,1,1,1};
+    float32_t c[4];
+
+    arm_add_f32(a, b, c, 4);
+}
+
 int32_t Audio_Init(void)
 {
     /* TODO: Initialize ADC3 + DMA */
