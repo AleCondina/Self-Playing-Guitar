@@ -1,11 +1,10 @@
-# Motor Control API - Custom Configuration Guide
+# Motor Control API - Usage Guide
 
-This document describes the enhanced motor control API for the self-playing guitar project, supporting 6 independently configurable stepper motors.
+This document describes the motor control API for the self-playing guitar project.
 
 ## Table of Contents
 - [Overview](#overview)
-- [Key Features](#key-features)
-- [Configuration Structures](#configuration-structures)
+- [Pin Configuration](#pin-configuration)
 - [API Functions](#api-functions)
 - [Usage Examples](#usage-examples)
 - [Integration Guide](#integration-guide)
@@ -15,75 +14,26 @@ This document describes the enhanced motor control API for the self-playing guit
 ## Overview
 
 The motor control system provides:
-- **6 independently configurable stepper motors** (one per guitar string)
-- **Custom pin assignments** (STEP, DIR, ENABLE pins)
-- **Flexible step resolution** (configurable step angle and microstepping)
-- **Individual speed and acceleration limits** per motor
+- **Stepper motor control** with acceleration limiting
 - **Two control modes**: Position control and velocity control
 - **Real-time step pulse generation** using Bresenham-style accumulator
+- **Pre-configured GPIO pins** (PE10-PE13 for 2 motors)
+
+### Current Pin Configuration
+
+Pin assignments are **hardcoded** in `motor_control.c` for simplicity:
+
+| Motor | STEP Pin | DIR Pin | Status |
+|-------|----------|---------|--------|
+| 0     | PE10     | PE11    | Configured |
+| 1     | PE12     | PE13    | Configured |
+| 2-5   | —        | —       | Not configured (future expansion) |
+
+**To add more motors:** Modify `Motor_Init()` in `motor_control.c` to add GPIO configuration for additional motors.
 
 ---
 
-## Key Features
-
-### 1. Custom Pin Configuration
-Each motor can use any available GPIO pins for:
-- **STEP pin**: Generates step pulses
-- **DIR pin**: Controls direction (forward/reverse)
-- **ENABLE pin**: Enables/disables driver (optional)
-
-### 2. Configurable Step Resolution
-- **Step angle**: 0.9°, 1.8°, or custom
-- **Microstepping**: 1, 2, 4, 8, 16, or 32x
-- **Effective resolution**: Automatically calculated (steps_per_rev × microsteps)
-
-### 3. Individual Motor Limits
-Each motor can have custom:
-- Maximum speed (steps/sec)
-- Maximum acceleration (steps/sec²)
-- Direction inversion flag
-
-### 4. Dual Control Modes
-
-#### Position Control Mode
-- Move to absolute position: `Motor_MoveToPosition(motor_id, steps)`
-- Move relative: `Motor_MoveRelative(motor_id, steps)`
-- Automatic speed calculation with proportional control
-- Automatic stop when target reached
-
-#### Velocity Control Mode
-- Constant speed: `Motor_SetSpeed(motor_id, speed)`
-- Smooth acceleration/deceleration
-- Bidirectional (positive = forward, negative = reverse)
-
----
-
-## Configuration Structures
-
-### MotorPinConfig_t
-```c
-typedef struct {
-    GPIO_TypeDef* step_port;    /* STEP pin GPIO port */
-    uint16_t step_pin;          /* STEP pin number */
-    GPIO_TypeDef* dir_port;     /* DIR pin GPIO port */
-    uint16_t dir_pin;           /* DIR pin number */
-    GPIO_TypeDef* enable_port;  /* ENABLE pin GPIO port (optional) */
-    uint16_t enable_pin;        /* ENABLE pin number (0 if unused) */
-} MotorPinConfig_t;
-```
-
-### MotorConfig_t
-```c
-typedef struct {
-    MotorPinConfig_t pins;      /* Pin configuration */
-    uint16_t steps_per_rev;     /* Steps per revolution (e.g., 200, 400) */
-    uint8_t microsteps;         /* Microstepping factor (1, 2, 4, 8, 16, 32) */
-    float step_angle;           /* Step angle in degrees (e.g., 1.8°) */
-    int32_t max_speed;          /* Maximum speed in steps/sec */
-    int32_t max_accel;          /* Maximum acceleration in steps/sec² */
-    uint8_t invert_dir;         /* 1 to invert direction pin logic */
-} MotorConfig_t;
-```
+## Data Structure
 
 ### MotorState_t
 ```c
@@ -100,61 +50,15 @@ typedef struct {
 
 ## API Functions
 
-### Configuration Functions
+### Initialization
 
-#### Motor_Configure()
+#### Motor_Init()
 ```c
-int32_t Motor_Configure(uint8_t motor_id, const MotorConfig_t* config);
+int32_t Motor_Init(void);
 ```
-Configure a motor with custom parameters. Must be called before using the motor.
-
-**Parameters:**
-- `motor_id`: Motor index (0-5)
-- `config`: Pointer to configuration structure
+Initialize motor control system and configure GPIO pins (PE10-PE13).
 
 **Returns:** 0 on success, -1 on error
-
----
-
-#### Motor_GetConfig()
-```c
-const MotorConfig_t* Motor_GetConfig(uint8_t motor_id);
-```
-Get the current configuration of a motor.
-
-**Returns:** Pointer to config (NULL if not configured)
-
----
-
-#### Motor_SetStepAngle()
-```c
-int32_t Motor_SetStepAngle(uint8_t motor_id, float step_angle);
-```
-Change the step angle (useful when swapping motors).
-
-**Example:** `Motor_SetStepAngle(0, 0.9f);` // Switch to 0.9° motor (400 steps/rev)
-
----
-
-#### Motor_SetMicrostepping()
-```c
-int32_t Motor_SetMicrostepping(uint8_t motor_id, uint8_t microsteps);
-```
-Change microstepping mode (must match driver configuration).
-
-**Valid values:** 1, 2, 4, 8, 16, 32
-
-**Example:** `Motor_SetMicrostepping(0, 32);` // Switch to 32x microstepping
-
----
-
-#### Motor_SetLimits()
-```c
-int32_t Motor_SetLimits(uint8_t motor_id, int32_t max_speed, int32_t max_accel);
-```
-Set custom speed and acceleration limits.
-
-**Example:** `Motor_SetLimits(0, 10000, 2500);`
 
 ---
 
@@ -167,6 +71,7 @@ void Motor_SetSpeed(uint8_t motor_id, int32_t speed);
 Set target speed (velocity control mode).
 
 **Parameters:**
+- `motor_id`: Motor index (0-5)
 - `speed`: Steps/sec (positive = forward, negative = reverse, 0 = stop)
 
 **Example:**
@@ -214,19 +119,22 @@ Reset position counter to zero (typically after homing).
 
 ---
 
-#### Motor_Enable()
+#### Motor_SetLimits()
 ```c
-int32_t Motor_Enable(uint8_t motor_id);
+int32_t Motor_SetLimits(uint8_t motor_id, int32_t max_speed, int32_t max_accel);
 ```
-Enable motor driver (pulls ENABLE pin LOW).
+Set custom speed and acceleration limits.
+
+**Example:** `Motor_SetLimits(0, 10000, 2500);`
 
 ---
 
-#### Motor_Disable()
+#### Motor_Enable() / Motor_Disable()
 ```c
+int32_t Motor_Enable(uint8_t motor_id);
 int32_t Motor_Disable(uint8_t motor_id);
 ```
-Disable motor driver and stop movement (pulls ENABLE pin HIGH).
+Enable or disable motor (currently no ENABLE pin configured).
 
 ---
 
@@ -234,7 +142,7 @@ Disable motor driver and stop movement (pulls ENABLE pin HIGH).
 ```c
 void Motor_EmergencyStop(void);
 ```
-Immediately stop all motors and disable all drivers.
+Immediately stop all motors.
 
 ---
 
@@ -249,8 +157,10 @@ Get current motor state (position, speed, moving status).
 **Example:**
 ```c
 MotorState_t* state = Motor_GetState(0);
-int32_t current_position = state->position;
-uint8_t is_moving = state->is_moving;
+if (state != NULL) {
+    int32_t current_position = state->position;
+    uint8_t is_moving = state->is_moving;
+}
 ```
 
 ---
@@ -259,69 +169,27 @@ uint8_t is_moving = state->is_moving;
 ```c
 uint8_t Motor_IsConfigured(uint8_t motor_id);
 ```
-Check if motor has been configured.
+Check if motor has been configured with GPIO pins.
 
 **Returns:** 1 if configured, 0 if not
 
 ---
 
-#### Motor_GetEffectiveStepsPerRev()
-```c
-uint32_t Motor_GetEffectiveStepsPerRev(uint8_t motor_id);
-```
-Get total steps per revolution (steps_per_rev × microsteps).
+### Update Function
 
-**Example:** For 200 steps/rev @ 16x microstepping = 3200 steps/rev
+#### Motor_Update()
+```c
+void Motor_Update(MotorState_t states[NUM_MOTORS]);
+```
+Update motor control loop (called every 1ms). **This generates the step pulses!**
+
+**Important:** This must be called regularly in the control loop.
 
 ---
 
 ## Usage Examples
 
-### Example 1: Configure All 6 Motors
-
-```c
-#include "motor_control.h"
-
-void setup_motors(void)
-{
-    /* Enable GPIO clocks */
-    __HAL_RCC_GPIOD_CLK_ENABLE();
-    __HAL_RCC_GPIOG_CLK_ENABLE();
-    __HAL_RCC_GPIOC_CLK_ENABLE();
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-
-    /* Configure Motor 0 (String E2) */
-    MotorConfig_t motor0 = {
-        .pins = {
-            .step_port = GPIOD,
-            .step_pin = GPIO_PIN_12,
-            .dir_port = GPIOD,
-            .dir_pin = GPIO_PIN_13,
-            .enable_port = GPIOD,
-            .enable_pin = GPIO_PIN_14
-        },
-        .steps_per_rev = 200,
-        .microsteps = 16,
-        .step_angle = 1.8f,
-        .max_speed = 8000,
-        .max_accel = 2000,
-        .invert_dir = 0
-    };
-    Motor_Configure(0, &motor0);
-
-    /* Configure remaining motors 1-5 similarly... */
-
-    /* Initialize motor control system */
-    Motor_Init();
-
-    /* Enable all motors */
-    for (uint8_t i = 0; i < 6; i++) {
-        Motor_Enable(i);
-    }
-}
-```
-
-### Example 2: Play a Note (Position Control)
+### Example 1: Play a Note (Position Control)
 
 ```c
 /* Move to fret position to play a note */
@@ -333,13 +201,14 @@ void play_note(uint8_t string, uint8_t fret)
     Motor_MoveToPosition(string, target_position);
 
     /* Wait for motor to reach position */
-    while (Motor_GetState(string)->is_moving) {
+    MotorState_t* state = Motor_GetState(string);
+    while (state != NULL && state->is_moving) {
         /* Motor_Update() is called in main control loop */
     }
 }
 ```
 
-### Example 3: Continuous Movement (Velocity Control)
+### Example 2: Continuous Movement (Velocity Control)
 
 ```c
 /* Move motor at constant speed for tuning/calibration */
@@ -355,41 +224,18 @@ void calibrate_motor(uint8_t motor_id)
 }
 ```
 
-### Example 4: Homing Sequence
-
-```c
-/* Home motor to zero position using limit switch */
-void home_motor(uint8_t motor_id, GPIO_TypeDef* limit_port, uint16_t limit_pin)
-{
-    /* Move slowly backward until limit switch triggered */
-    Motor_SetSpeed(motor_id, -500);  // Slow reverse
-
-    /* Wait for limit switch (active LOW) */
-    while (HAL_GPIO_ReadPin(limit_port, limit_pin) == GPIO_PIN_SET) {
-        /* Continue moving */
-    }
-
-    /* Stop and zero position */
-    Motor_SetSpeed(motor_id, 0);
-    HAL_Delay(100);  // Wait for complete stop
-    Motor_ZeroPosition(motor_id);
-
-    /* Move slightly away from limit */
-    Motor_MoveRelative(motor_id, 100);
-}
-```
-
-### Example 5: Check Motor Status
+### Example 3: Check Motor Status
 
 ```c
 void monitor_motors(void)
 {
-    for (uint8_t i = 0; i < 6; i++) {
+    for (uint8_t i = 0; i < NUM_MOTORS; i++) {
         if (Motor_IsConfigured(i)) {
             MotorState_t* state = Motor_GetState(i);
-
-            printf("Motor %d: pos=%ld, speed=%ld, moving=%d\n",
-                   i, state->position, state->current_speed, state->is_moving);
+            if (state != NULL) {
+                printf("Motor %d: pos=%ld, speed=%ld, moving=%d\n",
+                       i, state->position, state->current_speed, state->is_moving);
+            }
         }
     }
 }
@@ -399,99 +245,69 @@ void monitor_motors(void)
 
 ## Integration Guide
 
-### Step 1: Enable GPIO Clocks in main.c
+### Control Loop Integration
 
-Add in `main.c` before calling motor configuration:
-
-```c
-/* USER CODE BEGIN 2 */
-__HAL_RCC_GPIOD_CLK_ENABLE();
-__HAL_RCC_GPIOG_CLK_ENABLE();
-__HAL_RCC_GPIOC_CLK_ENABLE();
-__HAL_RCC_GPIOA_CLK_ENABLE();
-/* USER CODE END 2 */
-```
-
-### Step 2: Configure Motors
-
-Call your motor configuration function:
+In `CM4/App/Src/app_cm4.c`, `Motor_Update()` is called in the 1kHz control loop:
 
 ```c
-/* USER CODE BEGIN 2 */
-Motor_ConfigureAll_Example();  // From motor_config_example.h
-Motor_Init();
-/* USER CODE END 2 */
-```
-
-### Step 3: Call Motor_Update() in Control Loop
-
-In `CM4/App/Src/app_cm4.c`, the `Motor_Update()` function is already called in the 1kHz control loop:
-
-```c
-void App_CM4_ControlLoop(void)
+void App_CM4_Main(void)
 {
-    /* Update motors (this generates step pulses) */
-    Motor_Update(motor_states);
+    Motor_Init();  // Initialize motors
 
-    /* ... rest of control loop ... */
+    while (1) {
+        /* Update motors (generates step pulses) */
+        Motor_Update(Motor_GetState(0));
+
+        /* ... rest of control loop ... */
+    }
 }
 ```
 
-### Step 4: Send Commands from CM7 (Optional)
+### Adding More Motors
 
-If using inter-core communication, add motor control fields to `shared_memory.h`:
+To add motors 2-5, modify `Motor_Init()` in `motor_control.c`:
 
 ```c
-/* Motor control commands */
-volatile uint8_t motor_id;
-volatile int32_t motor_target_position;
-volatile int32_t motor_target_speed;
-volatile uint8_t motor_command;  // 0=none, 1=set_speed, 2=move_to_pos
+int32_t Motor_Init(void)
+{
+    /* Enable GPIO clocks */
+    __HAL_RCC_GPIOE_CLK_ENABLE();
+    __HAL_RCC_GPIOD_CLK_ENABLE();  // Add for additional ports
+
+    /* Motor 0: PE10/PE11 (already configured) */
+    /* Motor 1: PE12/PE13 (already configured) */
+
+    /* Add Motor 2: Example with PD0/PD1 */
+    motor_configs[2].pins.step_port = GPIOD;
+    motor_configs[2].pins.step_pin = GPIO_PIN_0;
+    motor_configs[2].pins.dir_port = GPIOD;
+    motor_configs[2].pins.dir_pin = GPIO_PIN_1;
+    motor_configs[2].max_speed = MOTOR_MAX_STEP_FREQ;
+    motor_configs[2].max_accel = MOTOR_MAX_ACCEL;
+    motor_configs[2].configured = 1;
+
+    Motor_InitGPIO(GPIOD, GPIO_PIN_0);
+    Motor_InitGPIO(GPIOD, GPIO_PIN_1);
+
+    return 0;
+}
 ```
 
 ---
 
-## Hardware Considerations
+## Hardware Notes
 
 ### Step Pulse Timing
-- Minimum pulse width: 1-2 µs (most drivers)
-- Current implementation: ~40ns pulse (10 NOPs @ 240 MHz)
-- Compatible with A4988, DRV8825, TMC2208, and similar drivers
+- Pulse width: ~40ns (10 NOPs @ 240 MHz)
+- Compatible with A4988, DRV8825, TMC2208 drivers
 
-### Enable Pin Logic
-- Most drivers use **active-LOW enable** (LOW = enabled, HIGH = disabled)
-- If your driver uses active-HIGH, modify `Motor_Enable()` and `Motor_Disable()`
-
-### Microstepping Configuration
-- **Hardware**: Set MS1, MS2, MS3 pins on driver board
-- **Software**: Must match `microsteps` parameter in `MotorConfig_t`
-- Common settings:
-  - Full step: MS1=L, MS2=L, MS3=L → `microsteps = 1`
-  - 1/16 step: MS1=H, MS2=H, MS3=H → `microsteps = 16`
-
-### Current Limiting
-- Set driver potentiometer for appropriate motor current
-- Typical NEMA 17: 0.4A - 1.7A per phase
-- Formula: `Vref = Imax × 8 × Rsense` (check driver datasheet)
-
----
-
-## Performance Notes
-
-### Control Loop Timing
+### Control Loop
 - Update rate: 1 kHz (1ms period)
-- Step pulse generation overhead: ~10-50 µs per active motor
-- Maximum step rate per motor: Limited by GPIO toggle speed (~50 kHz practical)
-
-### Position Control
-- Uses simple P-controller: `speed = error × 10`
-- Gain of 10 provides good balance of speed and stability
-- For faster response, increase gain in `Motor_Update()` (line with `position_error * 10`)
+- Maximum practical step rate: ~10 kHz per motor
 
 ### Acceleration Limiting
+- Default: `MOTOR_MAX_ACCEL` from application_config.h
 - Prevents motor stalling and missed steps
-- Default: 1000-2000 steps/sec²
-- Adjust based on motor load and inertia
 
 ---
 
@@ -499,24 +315,17 @@ volatile uint8_t motor_command;  // 0=none, 1=set_speed, 2=move_to_pos
 
 ### Motor not moving
 1. Check if motor is configured: `Motor_IsConfigured(motor_id)`
-2. Check if motor is enabled: `Motor_Enable(motor_id)`
-3. Verify GPIO clocks are enabled
-4. Check ENABLE pin polarity (some drivers are active-HIGH)
+2. Verify `Motor_Update()` is being called in control loop
+3. Check GPIO connections
 
 ### Motor moves wrong direction
-1. Set `invert_dir = 1` in motor configuration
+1. Swap STEP and DIR pins in configuration
 2. Or swap motor coil wires physically
 
 ### Motor stalls or skips steps
-1. Reduce `max_speed` or `max_accel`
-2. Increase motor current (driver potentiometer)
-3. Check mechanical load/friction
-4. Reduce microstepping (more torque at lower resolution)
-
-### Jittery movement
-1. Increase microstepping for smoother motion
-2. Check for loose connections
-3. Verify stable power supply
+1. Reduce speed using `Motor_SetLimits()`
+2. Increase motor driver current
+3. Check mechanical load
 
 ---
 
@@ -524,26 +333,27 @@ volatile uint8_t motor_command;  // 0=none, 1=set_speed, 2=move_to_pos
 
 | Function | Purpose | Mode |
 |----------|---------|------|
-| `Motor_Configure()` | Set up motor pins and parameters | Setup |
-| `Motor_Init()` | Initialize motor control system | Setup |
-| `Motor_Enable()` | Enable motor driver | Control |
-| `Motor_SetSpeed()` | Constant velocity movement | Velocity |
+| `Motor_Init()` | Initialize system | Setup |
+| `Motor_SetSpeed()` | Constant velocity | Velocity |
 | `Motor_MoveToPosition()` | Move to absolute position | Position |
 | `Motor_MoveRelative()` | Move by relative steps | Position |
 | `Motor_ZeroPosition()` | Reset position counter | Position |
+| `Motor_SetLimits()` | Adjust speed/accel limits | Config |
 | `Motor_GetState()` | Query current state | Query |
-| `Motor_EmergencyStop()` | Stop all motors immediately | Safety |
+| `Motor_IsConfigured()` | Check if motor ready | Query |
+| `Motor_Update()` | Generate step pulses | Control |
+| `Motor_EmergencyStop()` | Stop all motors | Safety |
 
 ---
 
 ## See Also
 
-- [motor_control.h](CM4/App/Inc/motor_control.h) - Full API reference
-- [motor_config_example.h](CM4/App/Inc/motor_config_example.h) - Configuration examples
+- [motor_control.h](CM4/App/Inc/motor_control.h) - Header file
+- [motor_control.c](CM4/App/Src/motor_control.c) - Implementation
+- [motor_config_example.h](CM4/App/Inc/motor_config_example.h) - Usage examples
 - [PROJECT_CONTEXT.md](PROJECT_CONTEXT.md) - Overall project documentation
 
 ---
 
-**Last Updated:** 2026-01-25
-**Version:** 1.0
-**Author:** Claude Code
+**Last Updated:** 2026-01-26
+**Version:** 2.0
