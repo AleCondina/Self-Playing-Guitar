@@ -8,12 +8,14 @@ include(ExternalProject)
 # User is free to modify the file as much as necessary
 #
 
+# ----Section for rebuilding CMSIS-DSP from scratch (Might need for actual chip)----#
 #setting CMSIS directory variables
 set(CMSISDSP ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/DSP)
 set(CMSISCORE ${CMAKE_SOURCE_DIR}/Drivers/CMSIS/)
 
-#enabling compiling the CMSIS-DSP library
-add_subdirectory(${CMSISDSP}/Source bin_dsp)
+# #enabling compiling the CMSIS-DSP library
+# add_subdirectory(${CMSISDSP}/Source bin_dsp)
+#------------------------------------------------
 
 # In order to use CMake for cross-compiling
 set(CMAKE_CXX_COMPILER_FORCED "true")

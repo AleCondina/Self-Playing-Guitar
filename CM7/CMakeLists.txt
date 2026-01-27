@@ -65,6 +65,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/inter_core_cm7.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/debug_uart.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/audio_input.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/fft_processing.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../Shared/Src/shared_memory.c
 )
 
@@ -76,6 +77,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add linked libraries
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined libraries
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Drivers/CMSIS/DSP/Lib/libarm_cortexM7lfsp_math.a
 )
 
 # Remove wrong libob.a library dependency when using cpp files

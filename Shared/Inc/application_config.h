@@ -34,6 +34,9 @@
 #define AUDIO_SAMPLE_RATE_HZ    44100   /* ADC sample rate */
 #define AUDIO_BUFFER_SIZE       2048    /* Power of 2 for FFT */
 #define AUDIO_FFT_SIZE          2048    /* FFT size (must match buffer) */
+#define FFT_SIZE              2048
+#define FFT_HALF_SIZE         (FFT_SIZE / 2)
+#define MAX_HARMONICS         8
 
 /* ===== Timing Parameters ===== */
 #define CM4_CONTROL_LOOP_FREQ_HZ    1000    /* CM4 control loop: 1kHz (1ms) */
