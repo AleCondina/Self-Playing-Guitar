@@ -30,7 +30,6 @@ static AppState_t app_state = STATE_INIT;
 void App_CM7_Main(void)
 {
     uint32_t last_debug_time = 0;
-    uint32_t test_counter = 0;
 
     printf("\r\n\r\n");
     printf("=========================================\r\n");
@@ -79,17 +78,6 @@ void App_CM7_Main(void)
 
             case STATE_RUNNING:
                 /* Main application logic */
-
-                /* Test: Send motor speed commands every 5 seconds */
-                if ((HAL_GetTick() % 5000) < 10) {
-                    test_counter++;
-
-                    /* Alternate motor speeds for testing */
-                    int32_t speed = (test_counter % 2 == 0) ? 1000 : 500;
-
-                    printf("[CM7] Test: Setting motor 0 to %ld steps/s\r\n", speed);
-                    InterCore_SendMotorSpeed(0, speed);
-                }
 
                 /* Check CM4 health */
                 if (!InterCore_IsCM4Alive()) {

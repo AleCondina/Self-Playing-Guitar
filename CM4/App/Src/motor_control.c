@@ -24,6 +24,9 @@
 /* Number of motors currently configured with GPIO pins */
 #define NUM_CONFIGURED_MOTORS   1
 
+/* Step pulse width in microseconds (DRV8825 minimum: 1.9us) */
+#define STEP_PULSE_US           3
+
 /* Motor pin configuration for DRV8825 driver (internal) */
 typedef struct {
     GPIO_TypeDef* step_port;    /* STEP pin GPIO port */
@@ -57,6 +60,18 @@ static int32_t target_positions[NUM_MOTORS] = {0};
 static uint8_t position_mode[NUM_MOTORS] = {0}; /* 1 if in position control mode */
 
 /**
+ * @brief Microsecond delay using DWT cycle counter
+ * @param us Delay in microseconds
+ * @note  Requires DWT to be enabled (done in Motor_Init)
+ */
+static void Motor_DelayUs(uint32_t us)
+{
+    uint32_t start = DWT->CYCCNT;
+    uint32_t cycles = us * (CM4_CLOCK_MHZ); /* 240 cycles per us at 240 MHz */
+    while ((DWT->CYCCNT - start) < cycles);
+}
+
+/**
  * @brief Initialize GPIO for motor control
  * @param port GPIO port
  * @param pin GPIO pin number
@@ -78,6 +93,11 @@ static void Motor_InitGPIO(GPIO_TypeDef* port, uint16_t pin)
  */
 int32_t Motor_Init(void)
 {
+    /* Enable DWT cycle counter for microsecond-precision step pulse timing */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
     /* Enable GPIO clocks for PE10-PE14 and PD11 */
     __HAL_RCC_GPIOE_CLK_ENABLE();
     __HAL_RCC_GPIOD_CLK_ENABLE();
@@ -240,10 +260,8 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
                 HAL_GPIO_WritePin(motor_configs[i].pins.step_port,
                                 motor_configs[i].pins.step_pin, GPIO_PIN_SET);
 
-                /* Short delay for step pulse width (minimum 1-2us for most drivers) */
-                /* At 240 MHz, each NOP is ~4ns, so 10 NOPs ≈ 40ns (sufficient) */
-                __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-                __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+                /* DRV8825 requires minimum 1.9us HIGH pulse on STEP */
+                Motor_DelayUs(STEP_PULSE_US);
 
                 HAL_GPIO_WritePin(motor_configs[i].pins.step_port,
                                 motor_configs[i].pins.step_pin, GPIO_PIN_RESET);
@@ -261,8 +279,8 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
             step_accumulator[i] = 0;
         }
 
-        /* Update is_moving flag */
-        states[i].is_moving = (states[i].current_speed != 0);
+        /* Update is_moving flag: moving if speed is non-zero OR still in position mode */
+        states[i].is_moving = (states[i].current_speed != 0) || position_mode[i];
     }
 }
 
@@ -354,6 +372,7 @@ int32_t Motor_MoveToPosition(uint8_t motor_id, int32_t position)
 
     target_positions[motor_id] = position;
     position_mode[motor_id] = 1;
+    motor_states[motor_id].is_moving = 1;  /* Mark moving immediately to avoid race */
 
     return 0;
 }
@@ -369,6 +388,7 @@ int32_t Motor_MoveRelative(uint8_t motor_id, int32_t steps)
 
     target_positions[motor_id] = motor_states[motor_id].position + steps;
     position_mode[motor_id] = 1;
+    motor_states[motor_id].is_moving = 1;  /* Mark moving immediately to avoid race */
 
     return 0;
 }

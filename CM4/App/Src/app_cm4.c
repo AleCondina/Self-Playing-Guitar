@@ -20,6 +20,18 @@ extern TIM_HandleTypeDef htim13;
 /* Control loop timing */
 #define CONTROL_LOOP_PERIOD_MS  1   /* 1ms = 1kHz control loop */
 
+/* Motor test state machine */
+typedef enum {
+    MOTOR_TEST_FORWARD,     /* Rotating 360° forward */
+    MOTOR_TEST_PAUSE_1,     /* Brief pause between directions */
+    MOTOR_TEST_REVERSE,     /* Rotating 360° back */
+    MOTOR_TEST_PAUSE_2,     /* Brief pause before repeating */
+    MOTOR_TEST_DONE         /* Test complete */
+} MotorTestState_t;
+
+static MotorTestState_t motor_test_state = MOTOR_TEST_FORWARD;
+static uint32_t motor_test_timer = 0;
+
 /* Application state */
 static uint32_t loop_start_time = 0;
 static uint32_t loop_count = 0;
@@ -35,6 +47,18 @@ void App_CM4_Main(void)
 
     /* Initialize motor control system */
     Motor_Init();
+
+    /* ================================================================
+     * Motor Test Setup: 360° forward, then 360° back
+     *
+     * MOTOR_STEPS_PER_REV = 200 (full step, 1.8° per step)
+     * Speed: 400 steps/sec = 2 revolutions/sec = 120 RPM
+     * Microstepping: Full step
+     * ================================================================ */
+    Motor_SetMicrostepMode(0, MOTOR_MICROSTEP_FULL);   /* Full step mode */
+    Motor_Enable(0);                                    /* Enable DRV8825 (EN LOW) */
+    Motor_SetLimits(0, 400, 500);                       /* 400 steps/sec max, 500 accel */
+    Motor_MoveRelative(0, MOTOR_STEPS_PER_REV);         /* Move 360° forward (200 steps) */
 
     /* Initialize solenoid control system */
     if (Solenoid_Init() != 0) {
@@ -202,6 +226,48 @@ void App_CM4_Main(void)
                 }
 
                 InterCore_AckCommand(CMD_STOP_SOLENOID);
+            }
+        }
+
+        /* ===== Motor Test State Machine ===== */
+        if (motor_test_state != MOTOR_TEST_DONE) {
+            MotorState_t *m0 = Motor_GetState(0);
+
+            switch (motor_test_state) {
+                case MOTOR_TEST_FORWARD:
+                    /* Wait for forward move to complete */
+                    if (m0 != NULL && !m0->is_moving) {
+                        motor_test_timer = now;
+                        motor_test_state = MOTOR_TEST_PAUSE_1;
+                    }
+                    break;
+
+                case MOTOR_TEST_PAUSE_1:
+                    /* 500ms pause before reversing */
+                    if ((now - motor_test_timer) >= 500) {
+                        Motor_MoveRelative(0, -MOTOR_STEPS_PER_REV);  /* 360° back */
+                        motor_test_state = MOTOR_TEST_REVERSE;
+                    }
+                    break;
+
+                case MOTOR_TEST_REVERSE:
+                    /* Wait for reverse move to complete */
+                    if (m0 != NULL && !m0->is_moving) {
+                        motor_test_timer = now;
+                        motor_test_state = MOTOR_TEST_PAUSE_2;
+                    }
+                    break;
+
+                case MOTOR_TEST_PAUSE_2:
+                    /* 500ms pause, then loop back to forward (line 265 = infinite loop) */
+                    if ((now - motor_test_timer) >= 500) {
+                        Motor_MoveRelative(0, MOTOR_STEPS_PER_REV);  /* 360° forward again */
+                        motor_test_state = MOTOR_TEST_FORWARD;       /* LINE 265: change to MOTOR_TEST_DONE to stop */
+                    }
+                    break;
+
+                default:
+                    break;
             }
         }
 
