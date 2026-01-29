@@ -11,8 +11,12 @@
 #include "stm32h7xx_hal.h"
 
 /* External timer handles (defined in main.c) */
-extern TIM_HandleTypeDef htim12;
-extern TIM_HandleTypeDef htim13;
+extern TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 string (PB14) */
+extern TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 string (PA6) */
+extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 string (PA7) */
+extern TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 string (PE5) */
+extern TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 string (PB8) */
+extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 string (PB9) */
 
 /**
  * @brief Solenoid state structure for multi-solenoid management
@@ -26,7 +30,7 @@ typedef struct {
     uint8_t is_active;            /* 1 if PWM running, 0 if stopped */
 } SolenoidState_t;
 
-/* Solenoid state array (3 solenoids) */
+/* Solenoid state array (6 solenoids, one per guitar string) */
 static SolenoidState_t solenoid_states[SOLENOID_COUNT];
 
 /**
@@ -69,15 +73,27 @@ static const uint16_t SOLENOID_FREQ_TABLE[6][8] = {
  */
 int32_t Solenoid_Init(void)
 {
-    /* Verify timer handles are initialized */
+    /* Verify all timer handles are initialized */
     if (htim12.Instance != TIM12 || htim12.State == HAL_TIM_STATE_RESET) {
         return -1;  /* TIM12 not initialized */
     }
     if (htim13.Instance != TIM13 || htim13.State == HAL_TIM_STATE_RESET) {
         return -1;  /* TIM13 not initialized */
     }
+    if (htim14.Instance != TIM14 || htim14.State == HAL_TIM_STATE_RESET) {
+        return -1;  /* TIM14 not initialized */
+    }
+    if (htim15.Instance != TIM15 || htim15.State == HAL_TIM_STATE_RESET) {
+        return -1;  /* TIM15 not initialized */
+    }
+    if (htim16.Instance != TIM16 || htim16.State == HAL_TIM_STATE_RESET) {
+        return -1;  /* TIM16 not initialized */
+    }
+    if (htim17.Instance != TIM17 || htim17.State == HAL_TIM_STATE_RESET) {
+        return -1;  /* TIM17 not initialized */
+    }
 
-    /* Initialize solenoid 0: TIM12 CH1 (E2 string) */
+    /* Initialize solenoid 0: TIM12 CH1 (E2 string - Low E) on PB14 */
     solenoid_states[SOLENOID_STRING_E2].htim = &htim12;
     solenoid_states[SOLENOID_STRING_E2].channel = TIM_CHANNEL_1;
     solenoid_states[SOLENOID_STRING_E2].current_string = 0;
@@ -85,21 +101,45 @@ int32_t Solenoid_Init(void)
     solenoid_states[SOLENOID_STRING_E2].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_E2].is_active = 0;
 
-    /* Initialize solenoid 1: TIM12 CH2 (A2 string) */
-    solenoid_states[SOLENOID_STRING_A2].htim = &htim12;
-    solenoid_states[SOLENOID_STRING_A2].channel = TIM_CHANNEL_2;
+    /* Initialize solenoid 1: TIM14 CH1 (A2 string) on PA7 */
+    solenoid_states[SOLENOID_STRING_A2].htim = &htim14;
+    solenoid_states[SOLENOID_STRING_A2].channel = TIM_CHANNEL_1;
     solenoid_states[SOLENOID_STRING_A2].current_string = 1;
     solenoid_states[SOLENOID_STRING_A2].current_fret = 0;
     solenoid_states[SOLENOID_STRING_A2].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_A2].is_active = 0;
 
-    /* Initialize solenoid 2: TIM13 CH1 (D3 string) */
+    /* Initialize solenoid 2: TIM13 CH1 (D3 string) on PA6 */
     solenoid_states[SOLENOID_STRING_D3].htim = &htim13;
     solenoid_states[SOLENOID_STRING_D3].channel = TIM_CHANNEL_1;
     solenoid_states[SOLENOID_STRING_D3].current_string = 2;
     solenoid_states[SOLENOID_STRING_D3].current_fret = 0;
     solenoid_states[SOLENOID_STRING_D3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_D3].is_active = 0;
+
+    /* Initialize solenoid 3: TIM15 CH1 (G3 string) on PE5 */
+    solenoid_states[SOLENOID_STRING_G3].htim = &htim15;
+    solenoid_states[SOLENOID_STRING_G3].channel = TIM_CHANNEL_1;
+    solenoid_states[SOLENOID_STRING_G3].current_string = 3;
+    solenoid_states[SOLENOID_STRING_G3].current_fret = 0;
+    solenoid_states[SOLENOID_STRING_G3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
+    solenoid_states[SOLENOID_STRING_G3].is_active = 0;
+
+    /* Initialize solenoid 4: TIM16 CH1 (B3 string) on PB8 */
+    solenoid_states[SOLENOID_STRING_B3].htim = &htim16;
+    solenoid_states[SOLENOID_STRING_B3].channel = TIM_CHANNEL_1;
+    solenoid_states[SOLENOID_STRING_B3].current_string = 4;
+    solenoid_states[SOLENOID_STRING_B3].current_fret = 0;
+    solenoid_states[SOLENOID_STRING_B3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
+    solenoid_states[SOLENOID_STRING_B3].is_active = 0;
+
+    /* Initialize solenoid 5: TIM17 CH1 (E4 string - High E) on PB9 */
+    solenoid_states[SOLENOID_STRING_E4].htim = &htim17;
+    solenoid_states[SOLENOID_STRING_E4].channel = TIM_CHANNEL_1;
+    solenoid_states[SOLENOID_STRING_E4].current_string = 5;
+    solenoid_states[SOLENOID_STRING_E4].current_fret = 0;
+    solenoid_states[SOLENOID_STRING_E4].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
+    solenoid_states[SOLENOID_STRING_E4].is_active = 0;
 
     return 0;
 }

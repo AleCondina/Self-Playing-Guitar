@@ -13,9 +13,13 @@
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
 
-/* External timer handles for debug access */
-extern TIM_HandleTypeDef htim12;
-extern TIM_HandleTypeDef htim13;
+/* External timer handles for debug access (6 independent timers) */
+extern TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 (PB14) */
+extern TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 (PA6) */
+extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 (PA7) */
+extern TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 (PE5) */
+extern TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 (PB8) */
+extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 (PB9) */
 
 /* Control loop timing */
 #define CONTROL_LOOP_PERIOD_MS  1   /* 1ms = 1kHz control loop */
@@ -41,29 +45,86 @@ void App_CM4_Main(void)
         g_shared_memory.motor_errors |= ERROR_INVALID_COMMAND;
     }
 
-    /* TEST: Direct timer register manipulation for debugging */
-    /* Bypass HAL entirely to verify hardware is working */
+    /* TEST: Initialize all 6 solenoids with their respective string frequencies */
+    /* Each solenoid now has its own independent timer for independent frequency control */
 
-    /* Method 1: HAL-based approach - Test High E string (string 5) */
-    Solenoid_SetFrequency(0, 0, 0);  // Solenoid 0: E2 string (Low E), open (82.41Hz)
-    Solenoid_SetFrequency(1, 1, 0);  // Solenoid 1: A2 string , open (110Hz)
-    Solenoid_SetFrequency(2, 2, 0);  // Solenoid 2: D3 string , open (146.83 )
-    Solenoid_Start(0);                // This actually starts the PWM!
-    Solenoid_Start(1);                // This actually starts the PWM!
-    Solenoid_Start(2);                // This actually starts the PWM!
+    /* Set frequencies for all 6 strings (open position, fret 0) */
+    Solenoid_SetFrequency(0, 0, 0);  // Solenoid 0: E2 string (Low E), 82.41 Hz on PB14
+    Solenoid_SetFrequency(1, 1, 0);  // Solenoid 1: A2 string, 110.00 Hz on PA7
+    Solenoid_SetFrequency(2, 2, 0);  // Solenoid 2: D3 string, 146.83 Hz on PA6
+    Solenoid_SetFrequency(3, 3, 0);  // Solenoid 3: G3 string, 196.00 Hz on PE5
+    Solenoid_SetFrequency(4, 4, 0);  // Solenoid 4: B3 string, 246.94 Hz on PB8
+    Solenoid_SetFrequency(5, 5, 0);  // Solenoid 5: E4 string (High E), 329.63 Hz on PB9
 
-    /* Method 2: Direct GPIO configuration (needed for PWM output) */
-    /* Ensure GPIOB and TIM12 clocks are enabled */
+    /* Start all 6 solenoids */
+    Solenoid_Start(0);
+    Solenoid_Start(1);
+    Solenoid_Start(2);
+    Solenoid_Start(3);
+    Solenoid_Start(4);
+    Solenoid_Start(5);
+
+    /* Direct GPIO configuration for all PWM pins */
+    /* Enable all required GPIO clocks */
+    __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
-    __HAL_RCC_TIM12_CLK_ENABLE();
+    __HAL_RCC_GPIOE_CLK_ENABLE();
 
-    /* Configure PB14 as AF2 (TIM12_CH1) */
-    GPIOB->MODER &= ~(0x3UL << (14 * 2));  // Clear mode bits for PB14
-    GPIOB->MODER |= (0x2UL << (14 * 2));   // Set alternate function mode
-    GPIOB->AFR[1] &= ~(0xFUL << ((14-8) * 4));  // Clear AF bits for PB14
-    GPIOB->AFR[1] |= (0x2UL << ((14-8) * 4));   // Set AF2 (TIM12)
-    GPIOB->OTYPER &= ~(1UL << 14);         // Push-pull output
-    GPIOB->OSPEEDR |= (0x3UL << (14 * 2)); // High speed
+    /* Enable all timer clocks */
+    __HAL_RCC_TIM12_CLK_ENABLE();
+    __HAL_RCC_TIM13_CLK_ENABLE();
+    __HAL_RCC_TIM14_CLK_ENABLE();
+    __HAL_RCC_TIM15_CLK_ENABLE();
+    __HAL_RCC_TIM16_CLK_ENABLE();
+    __HAL_RCC_TIM17_CLK_ENABLE();
+
+    /* Configure PB14 as AF2 (TIM12_CH1) - Solenoid 0: E2 */
+    GPIOB->MODER &= ~(0x3UL << (14 * 2));
+    GPIOB->MODER |= (0x2UL << (14 * 2));
+    GPIOB->AFR[1] &= ~(0xFUL << ((14-8) * 4));
+    GPIOB->AFR[1] |= (0x2UL << ((14-8) * 4));
+    GPIOB->OTYPER &= ~(1UL << 14);
+    GPIOB->OSPEEDR |= (0x3UL << (14 * 2));
+
+    /* Configure PA7 as AF9 (TIM14_CH1) - Solenoid 1: A2 */
+    GPIOA->MODER &= ~(0x3UL << (7 * 2));
+    GPIOA->MODER |= (0x2UL << (7 * 2));
+    GPIOA->AFR[0] &= ~(0xFUL << (7 * 4));
+    GPIOA->AFR[0] |= (0x9UL << (7 * 4));
+    GPIOA->OTYPER &= ~(1UL << 7);
+    GPIOA->OSPEEDR |= (0x3UL << (7 * 2));
+
+    /* Configure PA6 as AF9 (TIM13_CH1) - Solenoid 2: D3 */
+    GPIOA->MODER &= ~(0x3UL << (6 * 2));
+    GPIOA->MODER |= (0x2UL << (6 * 2));
+    GPIOA->AFR[0] &= ~(0xFUL << (6 * 4));
+    GPIOA->AFR[0] |= (0x9UL << (6 * 4));
+    GPIOA->OTYPER &= ~(1UL << 6);
+    GPIOA->OSPEEDR |= (0x3UL << (6 * 2));
+
+    /* Configure PE5 as AF4 (TIM15_CH1) - Solenoid 3: G3 */
+    GPIOE->MODER &= ~(0x3UL << (5 * 2));
+    GPIOE->MODER |= (0x2UL << (5 * 2));
+    GPIOE->AFR[0] &= ~(0xFUL << (5 * 4));
+    GPIOE->AFR[0] |= (0x4UL << (5 * 4));
+    GPIOE->OTYPER &= ~(1UL << 5);
+    GPIOE->OSPEEDR |= (0x3UL << (5 * 2));
+
+    /* Configure PB8 as AF1 (TIM16_CH1) - Solenoid 4: B3 */
+    GPIOB->MODER &= ~(0x3UL << (8 * 2));
+    GPIOB->MODER |= (0x2UL << (8 * 2));
+    GPIOB->AFR[1] &= ~(0xFUL << ((8-8) * 4));
+    GPIOB->AFR[1] |= (0x1UL << ((8-8) * 4));
+    GPIOB->OTYPER &= ~(1UL << 8);
+    GPIOB->OSPEEDR |= (0x3UL << (8 * 2));
+
+    /* Configure PB9 as AF1 (TIM17_CH1) - Solenoid 5: E4 */
+    GPIOB->MODER &= ~(0x3UL << (9 * 2));
+    GPIOB->MODER |= (0x2UL << (9 * 2));
+    GPIOB->AFR[1] &= ~(0xFUL << ((9-8) * 4));
+    GPIOB->AFR[1] |= (0x1UL << ((9-8) * 4));
+    GPIOB->OTYPER &= ~(1UL << 9);
+    GPIOB->OSPEEDR |= (0x3UL << (9 * 2));
 
     /* DEBUG: Read back all configuration */
     volatile uint32_t debug_arr = __HAL_TIM_GET_AUTORELOAD(&htim12);

@@ -1,7 +1,7 @@
 # Self-Playing Guitar - STM32H755ZI Project Context
 
-**Last Updated:** 2026-01-20
-**Project Status:** Solenoid PWM Control Implemented ✅
+**Last Updated:** 2026-01-28
+**Project Status:** 6-Solenoid Independent PWM Control Implemented ✅
 
 ---
 
@@ -12,7 +12,7 @@
 **Hardware:**
 - **Dev Board (Current):** STM32H755ZI-Q Nucleo-144 (dual-core: CM7 + CM4)
 - **Target PCB (Future):** STM32H747BIT6 (custom PCB in development)
-- **Actuators:** 3 solenoids (expandable to 6) + 3 stepper motors (expandable to 6)
+- **Actuators:** 6 solenoids (all strings) + 3 stepper motors (expandable to 6)
 - **Solenoid Driver:** N-channel MOSFETs (logic-level, 3.3V gate drive)
 - **Sensor (Future):** Guitar pickup → ADC → FFT for frequency feedback
 
@@ -55,17 +55,20 @@
 
 ## 🎸 Current System Configuration
 
-### Solenoid Configuration (3 solenoids, low strings)
+### Solenoid Configuration (6 solenoids, all strings - INDEPENDENT FREQUENCIES)
 
-| Solenoid ID | Timer    | GPIO Pin | String | Open Note | Frequency Range   |
-|-------------|----------|----------|--------|-----------|-------------------|
-| 0           | TIM12_CH1| PB14     | E2     | 82.41 Hz  | 82 - 123 Hz       |
-| 1           | TIM12_CH2| PB15     | A2     | 110.00 Hz | 110 - 165 Hz      |
-| 2           | TIM13_CH1| PA6      | D3     | 146.83 Hz | 147 - 220 Hz      |
+| Solenoid ID | Timer    | GPIO Pin | String | Open Note  | Frequency Range   |
+|-------------|----------|----------|--------|------------|-------------------|
+| 0           | TIM12_CH1| PB14     | E2     | 82.41 Hz   | 82 - 123 Hz       |
+| 1           | TIM14_CH1| PA7      | A2     | 110.00 Hz  | 110 - 165 Hz      |
+| 2           | TIM13_CH1| PA6      | D3     | 146.83 Hz  | 147 - 220 Hz      |
+| 3           | TIM15_CH1| PE5      | G3     | 196.00 Hz  | 196 - 294 Hz      |
+| 4           | TIM16_CH1| PB8      | B3     | 246.94 Hz  | 247 - 370 Hz      |
+| 5           | TIM17_CH1| PB9      | E4     | 329.63 Hz  | 330 - 494 Hz      |
 
-**Why these strings?** Low strings (E2, A2, D3) chosen for initial 3-solenoid system. Easier to test (lower frequencies, larger amplitude), matches current hardware availability (3 motors + 3 solenoids).
+**Key Design:** Each solenoid uses a **separate timer** for fully independent frequency control. This allows all 6 strings to play simultaneously at different frequencies (polyphonic capability).
 
-**Expansion Path:** Add TIM14_CH1, TIM15_CH1, TIM16_CH1 for strings G3, B3, E4 to reach 6 solenoids.
+**Note:** PB15 (TIM12_CH2) is no longer used - it shared ARR with TIM12_CH1, causing frequency conflicts.
 
 ### Timer Clock Configuration
 
@@ -99,8 +102,8 @@ NUCLEO_H755ZI/
 │   │   │   ├── main.h
 │   │   │   └── stm32h7xx_hal_conf.h  ← HAL_TIM_MODULE_ENABLED
 │   │   └── Src/
-│   │       ├── main.c                ← Timer init (MX_TIM12_Init, MX_TIM13_Init)
-│   │       └── stm32h7xx_hal_msp.c   ← GPIO/clock config
+│   │       ├── main.c                ← Timer init (MX_TIM12/13/14/15/16/17_Init)
+│   │       └── stm32h7xx_hal_msp.c   ← GPIO/clock config for all 6 timers
 │   └── App/                # Motor control, solenoid control
 │       ├── Inc/
 │       │   ├── app_cm4.h
@@ -153,11 +156,11 @@ uint32_t Solenoid_GetFrequency(uint8_t solenoid_id);
 ### Shared Memory Fields (CM7 → CM4)
 
 ```c
-volatile uint8_t solenoid_id;          // 0-2 for 3 solenoids
-volatile uint8_t solenoid_string;      // 0-2: E2, A2, D3
+volatile uint8_t solenoid_id;          // 0-5 for 6 solenoids
+volatile uint8_t solenoid_string;      // 0-5: E2, A2, D3, G3, B3, E4
 volatile uint8_t solenoid_fret;        // 0-7: open to fret 7
 volatile uint8_t solenoid_duty_cycle;  // 1-99% (0 = use default 50%)
-volatile uint8_t solenoid_active_mask; // Bit field: which solenoids running
+volatile uint8_t solenoid_active_mask; // Bit field: which solenoids running (6 bits)
 ```
 
 ### Command Flags (CM7 → CM4)
@@ -169,10 +172,13 @@ volatile uint8_t solenoid_active_mask; // Bit field: which solenoids running
 
 ### Frequency Lookup Table (solenoid_control.c)
 
-Pre-calculated ARR values for 3 strings × 8 frets = 24 frequencies:
+Pre-calculated ARR values for 6 strings × 8 frets = 48 frequencies:
 - **String 0 (E2):** 82.41 - 123.47 Hz → ARR: 7764 - 5179
 - **String 1 (A2):** 110.00 - 164.81 Hz → ARR: 5817 - 3881
 - **String 2 (D3):** 146.83 - 220.00 Hz → ARR: 4358 - 2910
+- **String 3 (G3):** 196.00 - 293.66 Hz → ARR: 3264 - 2179
+- **String 4 (B3):** 246.94 - 369.99 Hz → ARR: 2591 - 1729
+- **String 5 (E4):** 329.63 - 493.88 Hz → ARR: 1941 - 1295
 
 **Why pre-calculated?** No floating-point math in real-time loop (< 1µs lookup vs ~50µs calculation).
 
@@ -182,13 +188,20 @@ Pre-calculated ARR values for 3 strings × 8 frets = 24 frequencies:
 
 ### Phase 1: Timer Validation (Hardware)
 - [x] Enable HAL_TIM_MODULE, compile successfully
-- [ ] Flash to board, verify no errors
-- [ ] Oscilloscope on PB14: verify 82 Hz @ 50% duty
-- [ ] Test all 8 frets for E2 string (82-123 Hz)
+- [x] Flash to board, verify no errors
+- [x] Oscilloscope on PB14: verify 82 Hz @ 50% duty ✅
+- [x] Identified GPIO configuration issue - fixed with direct register access
+- [x] Identified shared ARR issue with TIM12 CH1/CH2 - fixed by using separate timers
 
-### Phase 2: Multi-Channel Validation
-- [ ] Measure PB14 (TIM12_CH1), PB15 (TIM12_CH2), PA6 (TIM13_CH1)
-- [ ] Set 3 different frequencies simultaneously (82, 110, 147 Hz)
+### Phase 2: Multi-Channel Validation (6 Independent Timers)
+- [ ] Measure all 6 PWM pins with oscilloscope:
+  - PB14 (TIM12): E2 @ 82 Hz
+  - PA7 (TIM14): A2 @ 110 Hz
+  - PA6 (TIM13): D3 @ 147 Hz
+  - PE5 (TIM15): G3 @ 196 Hz
+  - PB8 (TIM16): B3 @ 247 Hz
+  - PB9 (TIM17): E4 @ 330 Hz
+- [ ] Verify all 6 frequencies run simultaneously with independent values
 - [ ] Verify no cross-talk or interference
 
 ### Phase 3: Mechanical Validation
@@ -224,17 +237,31 @@ Pre-calculated ARR values for 3 strings × 8 frets = 24 frequencies:
 - **Reality:** Actual timer clock = 64 MHz (HSI, no PLL)
 - **Fix:** Updated `application_config.h:45` with correct value + comment
 
+### Issue 3: TIM12 CH1/CH2 Shared ARR Register
+- **Status:** FIXED (2026-01-28)
+- **Problem:** Solenoids 0 and 1 both used TIM12 (CH1 and CH2)
+- **Reality:** All channels on same timer share ARR register
+- **Impact:** Setting frequency for one solenoid overwrites the other
+- **Fix:** Moved solenoid 1 to TIM14 (separate timer, separate ARR)
+
+### Issue 4: HAL GPIO Configuration Not Working
+- **Status:** WORKAROUND (2026-01-28)
+- **Problem:** `HAL_TIM_PWM_MspInit()` doesn't configure GPIO correctly
+- **Impact:** Timer runs but pin stays in input mode (no PWM output)
+- **Workaround:** Added direct GPIO register configuration in `app_cm4.c`
+- **TODO:** Investigate why HAL callback isn't working properly
+
 ---
 
 ## 🚀 Future Expansion Tasks
 
 ### Immediate Next Steps
-1. **Compile & Test** - Build CM4 firmware, flash to board
-2. **Hardware Testing** - Validate PWM outputs with oscilloscope
-3. **Solenoid Testing** - Connect hardware, test string vibration
+1. **Hardware Testing** - Validate all 6 PWM outputs with oscilloscope
+2. **Solenoid Testing** - Connect hardware, test string vibration on all 6 strings
+3. **Polyphonic Testing** - Test multiple solenoids playing simultaneously
 
 ### Short-Term (Next Sprint)
-- [ ] Expand to 6 solenoids (add TIM14/15/16)
+- [x] ~~Expand to 6 solenoids (add TIM14/15/16/17)~~ ✅ COMPLETED
 - [ ] Implement pickup sensor ADC acquisition
 - [ ] Implement FFT on CM7 for frequency detection
 - [ ] Add closed-loop frequency correction
@@ -246,7 +273,7 @@ Pre-calculated ARR values for 3 strings × 8 frets = 24 frequencies:
 - [ ] Add vibrato/tremolo effects (frequency/amplitude modulation)
 
 ### Long-Term
-- [ ] Full 6-string polyphonic control
+- [x] ~~Full 6-string polyphonic control~~ ✅ COMPLETED (independent timers)
 - [ ] Alternate tuning support (drop D, DADGAD, etc.)
 - [ ] MIDI input for note triggering
 - [ ] Real-time tuning calibration
@@ -260,13 +287,16 @@ Pre-calculated ARR values for 3 strings × 8 frets = 24 frequencies:
 - **Current Overhead:** < 10µs for solenoid control (measured via `cm4_max_loop_time_us`)
 - **Acceptable Max:** < 500µs total loop time (leaves 500µs safety margin)
 
-### Timer Resources Used
-- **TIM12:** Solenoids 0 & 1 (2 channels)
-- **TIM13:** Solenoid 2 (1 channel)
+### Timer Resources Used (6 Independent Timers for Solenoids)
+- **TIM12:** Solenoid 0 - E2 string (PB14)
+- **TIM13:** Solenoid 2 - D3 string (PA6)
+- **TIM14:** Solenoid 1 - A2 string (PA7)
+- **TIM15:** Solenoid 3 - G3 string (PE5)
+- **TIM16:** Solenoid 4 - B3 string (PB8)
+- **TIM17:** Solenoid 5 - E4 string (PB9)
 - **Reserved for Future:**
   - TIM1-TIM5: Motor step generation
   - TIM6/7: ADC triggering
-  - TIM14-17: Expansion to 6 solenoids
 
 ### Shared Memory Budget
 - **Current Size:** ~220 bytes (including solenoid fields)
@@ -286,16 +316,18 @@ Pre-calculated ARR values for 3 strings × 8 frets = 24 frequencies:
 - **Independent control:** Each solenoid can play different notes (polyphonic)
 - **No re-init overhead:** Changing one frequency doesn't affect others
 - **Simpler logic:** No complex channel multiplexing
+- **Bug prevention:** Shared ARR registers on multi-channel timers cause frequency conflicts
 
 ### Why Pre-Calculated ARR Table?
 - **Speed:** < 1µs lookup vs ~50µs floating-point calculation
 - **Determinism:** No rounding errors, guaranteed precision
 - **Compile-time validation:** Out-of-range values caught at build time
 
-### Why 3 Solenoids Initially?
-- **Hardware availability:** Matches current motor count (3+3)
-- **Reduced complexity:** Easier to debug multi-solenoid coordination
-- **Easy expansion:** Code supports 6 with minimal changes (just add timers)
+### Why 6 Timers for 6 Solenoids?
+- **Full polyphonic support:** All 6 strings can play simultaneously at different frequencies
+- **No frequency conflicts:** Each timer has its own independent ARR register
+- **Bug fix:** Original TIM12 CH1+CH2 design caused frequency overwrites (shared ARR)
+- **Future-proof:** Full guitar coverage without code changes
 
 ---
 
@@ -384,6 +416,20 @@ if (invalid_input) {
 - **Impact:** Frequency changes on one channel affect others
 - **Solution:** 1 timer channel per solenoid (simple, robust)
 
+### 4. Multi-Channel Timers Share ARR (CRITICAL BUG FIX)
+- **Lesson:** TIM12 CH1 and CH2 share the same ARR register
+- **Impact:** Setting frequency for solenoid 1 (TIM12_CH2) overwrites solenoid 0 (TIM12_CH1)
+- **Symptom:** Both solenoids output same frequency (last one set)
+- **Solution:** Use separate timers (TIM12, TIM14) for independent frequencies
+- **Date Fixed:** 2026-01-28
+
+### 5. HAL GPIO Init May Not Work - Use Direct Register Access
+- **Lesson:** `HAL_TIM_PWM_MspInit()` callback may not configure GPIO correctly
+- **Impact:** Timer runs but no PWM signal on pin (pin stays in input mode)
+- **Symptom:** Oscilloscope shows nothing, but timer registers look correct
+- **Solution:** Add direct GPIO register configuration in app_cm4.c as backup
+- **Date Fixed:** 2026-01-28
+
 ---
 
 ## 🔗 Related Documentation
@@ -405,6 +451,29 @@ if (invalid_input) {
 
 ## 🔄 Change Log
 
+### 2026-01-28: 6-Solenoid Independent PWM Implementation ✅ BUILD SUCCESSFUL
+- ✅ **Expanded to 6 independent timers** (TIM12, TIM13, TIM14, TIM15, TIM16, TIM17)
+- ✅ Fixed shared ARR bug: Moved solenoid 1 from TIM12_CH2 to TIM14_CH1
+- ✅ Added new GPIO pins: PA7, PE5, PB8, PB9
+- ✅ Updated frequency table to cover all 6 strings × 8 frets = 48 frequencies
+- ✅ Verified PB14 PWM output working at correct frequency
+- ✅ Identified root cause: GPIO not configured in alternate function mode
+- ✅ Added direct GPIO register configuration as workaround
+- ✅ **All 6 solenoids now have independent frequency control!**
+
+**New Pin Assignments:**
+| Solenoid | Timer | Pin | String | Frequency |
+|----------|-------|-----|--------|-----------|
+| 0 | TIM12 | PB14 | E2 | 82 Hz |
+| 1 | TIM14 | PA7 | A2 | 110 Hz |
+| 2 | TIM13 | PA6 | D3 | 147 Hz |
+| 3 | TIM15 | PE5 | G3 | 196 Hz |
+| 4 | TIM16 | PB8 | B3 | 247 Hz |
+| 5 | TIM17 | PB9 | E4 | 330 Hz |
+
+**Build Output:**
+- CM4: 12,900 bytes FLASH (1.23%), 2,224 bytes RAM (0.75%)
+
 ### 2026-01-20: Solenoid PWM Control Implementation ✅ BUILD SUCCESSFUL
 - ✅ Created solenoid_control driver (API + implementation)
 - ✅ Added TIM12/TIM13 initialization for 3-channel PWM
@@ -421,11 +490,11 @@ if (invalid_input) {
 - CM4: 10,592 bytes FLASH (1.01%), 1,880 bytes RAM (0.64%)
 - CM7: 22,932 bytes FLASH (2.19%), 1,912 bytes RAM (1.46%)
 
-### Next Update: After Hardware Testing
-- [ ] Flash firmware to STM32H755ZI board
-- [ ] Document oscilloscope measurements (PB14, PB15, PA6)
-- [ ] Record actual string vibration frequencies
-- [ ] Update with any hardware-specific pin conflicts
+### Next Update: After 6-Channel Hardware Testing
+- [ ] Test all 6 PWM outputs with oscilloscope
+- [ ] Document measurements for all pins (PB14, PA7, PA6, PE5, PB8, PB9)
+- [ ] Test polyphonic operation (multiple strings simultaneously)
+- [ ] Connect solenoids and test mechanical string vibration
 - [ ] Add performance metrics (loop timing, jitter)
 
 ---
