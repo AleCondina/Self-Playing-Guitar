@@ -1,16 +1,15 @@
 /**
  ******************************************************************************
  * @file    motor_control.h
- * @brief   Motor control API for CM4
- * @note    Stepper motor control with acceleration limiting
+ * @brief   Motor control API for CM4 with DRV8825 stepper drivers
+ * @note    Stepper motor control with acceleration limiting and microstepping
  *
- *          Hardware Pin Mapping (PE10-PE13 for 3 motors):
- *          - Motor 0: STEP=PE10, DIR=PE11
- *          - Motor 1: STEP=PE12, DIR=PE13
- *          - Motor 2: (future expansion)
+ *          DRV8825 Driver Pin Configuration (6 pins per motor):
+ *          - Motor 0: STEP=PE10, DIR=PE11, M0=PE12, M1=PE13, M2=PE14, EN=PD11
+ *          - Motors 1-5: Structure ready, pins TBD
  *
- *          Note: For 6 motors, additional GPIO pins will be needed.
- *          Current implementation supports 3 motors with 4 pins (PE10-PE13).
+ *          Each motor uses: STEP, DIR, EN, M0, M1, M2 (6 pins total)
+ *          Total for 6 motors: 36 GPIO pins
  ******************************************************************************
  */
 
@@ -28,6 +27,27 @@ typedef struct {
     uint8_t is_moving;          /* 1 if motor is moving */
     uint8_t error_flags;        /* Error flags for this motor */
 } MotorState_t;
+
+/**
+ * @brief DRV8825 Microstepping modes
+ * @note  Values encode M0|M1|M2 pin states as bits [0:2]
+ *
+ *        Mode bits: [M2:M1:M0]
+ *        FULL_STEP     = 0b000 = 0
+ *        HALF_STEP     = 0b001 = 1
+ *        QUARTER_STEP  = 0b010 = 2
+ *        EIGHTH_STEP   = 0b011 = 3
+ *        SIXTEENTH     = 0b100 = 4
+ *        THIRTYSECOND  = 0b101 = 5
+ */
+typedef enum {
+    MOTOR_MICROSTEP_FULL     = 0,  /* Full step (no microstepping) */
+    MOTOR_MICROSTEP_HALF     = 1,  /* 1/2 step */
+    MOTOR_MICROSTEP_QUARTER  = 2,  /* 1/4 step */
+    MOTOR_MICROSTEP_EIGHTH   = 3,  /* 1/8 step */
+    MOTOR_MICROSTEP_16       = 4,  /* 1/16 step */
+    MOTOR_MICROSTEP_32       = 5   /* 1/32 step */
+} MotorMicrostepMode_t;
 
 /**
  * @brief Initialize motor control system
@@ -119,5 +139,14 @@ int32_t Motor_Disable(uint8_t motor_id);
  * @return 1 if configured, 0 if not
  */
 uint8_t Motor_IsConfigured(uint8_t motor_id);
+
+/**
+ * @brief Set microstepping mode for DRV8825 driver
+ * @param motor_id Motor index (0-5)
+ * @param mode Microstepping mode (MotorMicrostepMode_t enum value)
+ * @return 0 on success, -1 on error (invalid motor or mode)
+ * @note  Changes take effect immediately; motor can be moving
+ */
+int32_t Motor_SetMicrostepMode(uint8_t motor_id, uint8_t mode);
 
 #endif /* MOTOR_CONTROL_H */

@@ -1,13 +1,20 @@
 /**
  ******************************************************************************
  * @file    motor_control.c
- * @brief   Motor control implementation
+ * @brief   Motor control implementation for DRV8825 stepper drivers
  * @note    Stepper motor control with acceleration limiting
  *
- *          GPIO Pin Configuration:
- *          - Motor 0: STEP=PE10, DIR=PE11
- *          - Motor 1: STEP=PE12, DIR=PE13
- *          - Motors 2-5: Not configured (future expansion)
+ *          DRV8825 Driver Pin Configuration (6 pins per motor):
+ *          - Motor 0: STEP=PE10, DIR=PE11, M0=PE12, M1=PE13, M2=PE14, EN=PD11
+ *          - Motors 1-5: Not configured (structure ready, pins TBD)
+ *
+ *          Microstepping Modes (M0, M1, M2):
+ *          - 0,0,0 = Full step
+ *          - 1,0,0 = 1/2 step
+ *          - 0,1,0 = 1/4 step
+ *          - 1,1,0 = 1/8 step
+ *          - 0,0,1 = 1/16 step
+ *          - 1,0,1 = 1/32 step
  ******************************************************************************
  */
 
@@ -15,14 +22,22 @@
 #include "stm32h7xx_hal.h"
 
 /* Number of motors currently configured with GPIO pins */
-#define NUM_CONFIGURED_MOTORS   2
+#define NUM_CONFIGURED_MOTORS   1
 
-/* Motor pin configuration (internal) */
+/* Motor pin configuration for DRV8825 driver (internal) */
 typedef struct {
     GPIO_TypeDef* step_port;    /* STEP pin GPIO port */
     uint16_t step_pin;          /* STEP pin number */
     GPIO_TypeDef* dir_port;     /* DIR pin GPIO port */
     uint16_t dir_pin;           /* DIR pin number */
+    GPIO_TypeDef* en_port;      /* ENABLE pin GPIO port (active LOW) */
+    uint16_t en_pin;            /* ENABLE pin number */
+    GPIO_TypeDef* m0_port;      /* M0 microstep GPIO port */
+    uint16_t m0_pin;            /* M0 microstep pin */
+    GPIO_TypeDef* m1_port;      /* M1 microstep GPIO port */
+    uint16_t m1_pin;            /* M1 microstep pin */
+    GPIO_TypeDef* m2_port;      /* M2 microstep GPIO port */
+    uint16_t m2_pin;            /* M2 microstep pin */
 } MotorPinConfig_t;
 
 /* Motor hardware configuration (internal) */
@@ -63,10 +78,11 @@ static void Motor_InitGPIO(GPIO_TypeDef* port, uint16_t pin)
  */
 int32_t Motor_Init(void)
 {
-    /* Enable GPIOE clock for PE10-PE13 */
+    /* Enable GPIO clocks for PE10-PE14 and PD11 */
     __HAL_RCC_GPIOE_CLK_ENABLE();
+    __HAL_RCC_GPIOD_CLK_ENABLE();
 
-    /* Initialize motor states */
+    /* Initialize motor states and clear all pin configs */
     for (uint8_t i = 0; i < NUM_MOTORS; i++) {
         motor_states[i].target_speed = 0;
         motor_states[i].current_speed = 0;
@@ -74,34 +90,61 @@ int32_t Motor_Init(void)
         motor_states[i].is_moving = 0;
         motor_states[i].error_flags = 0;
         motor_configs[i].configured = 0;
+
+        /* Clear all pin pointers for unconfigured motors */
+        motor_configs[i].pins.step_port = NULL;
+        motor_configs[i].pins.dir_port = NULL;
+        motor_configs[i].pins.en_port = NULL;
+        motor_configs[i].pins.m0_port = NULL;
+        motor_configs[i].pins.m1_port = NULL;
+        motor_configs[i].pins.m2_port = NULL;
     }
 
-    /* Configure Motor 0: STEP=PE10, DIR=PE11 */
+    /* ================================================================
+     * Configure Motor 0: DRV8825 driver
+     * STEP=PE10, DIR=PE11, M0=PE12, M1=PE13, M2=PE14, EN=PD11
+     * ================================================================ */
+
+    /* STEP pin - PE10 */
     motor_configs[0].pins.step_port = GPIOE;
     motor_configs[0].pins.step_pin = GPIO_PIN_10;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_10);
+
+    /* DIR pin - PE11 */
     motor_configs[0].pins.dir_port = GPIOE;
     motor_configs[0].pins.dir_pin = GPIO_PIN_11;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_11);
+
+    /* M0 microstep pin - PE12 */
+    motor_configs[0].pins.m0_port = GPIOE;
+    motor_configs[0].pins.m0_pin = GPIO_PIN_12;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_12);
+
+    /* M1 microstep pin - PE13 */
+    motor_configs[0].pins.m1_port = GPIOE;
+    motor_configs[0].pins.m1_pin = GPIO_PIN_13;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_13);
+
+    /* M2 microstep pin - PE14 */
+    motor_configs[0].pins.m2_port = GPIOE;
+    motor_configs[0].pins.m2_pin = GPIO_PIN_14;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_14);
+
+    /* EN pin - PD11 (active LOW, start HIGH = disabled) */
+    motor_configs[0].pins.en_port = GPIOD;
+    motor_configs[0].pins.en_pin = GPIO_PIN_11;
+    Motor_InitGPIO(GPIOD, GPIO_PIN_11);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_11, GPIO_PIN_SET);  /* Start disabled */
+
+    /* Set motor parameters */
     motor_configs[0].max_speed = MOTOR_MAX_STEP_FREQ;
     motor_configs[0].max_accel = MOTOR_MAX_ACCEL;
     motor_configs[0].configured = 1;
 
-    Motor_InitGPIO(GPIOE, GPIO_PIN_10);  /* STEP */
-    Motor_InitGPIO(GPIOE, GPIO_PIN_11);  /* DIR */
-
-    /* Configure Motor 1: STEP=PE12, DIR=PE13 */
-    motor_configs[1].pins.step_port = GPIOE;
-    motor_configs[1].pins.step_pin = GPIO_PIN_12;
-    motor_configs[1].pins.dir_port = GPIOE;
-    motor_configs[1].pins.dir_pin = GPIO_PIN_13;
-    motor_configs[1].max_speed = MOTOR_MAX_STEP_FREQ;
-    motor_configs[1].max_accel = MOTOR_MAX_ACCEL;
-    motor_configs[1].configured = 1;
-
-    Motor_InitGPIO(GPIOE, GPIO_PIN_12);  /* STEP */
-    Motor_InitGPIO(GPIOE, GPIO_PIN_13);  /* DIR */
-
-    /* Motors 2-5 not configured yet (no GPIO pins assigned) */
-    /* Future: Add more GPIO pins for additional motors */
+    /* ================================================================
+     * Motors 1-5: Structure ready, pins not assigned
+     * To configure, assign ports/pins and set configured = 1
+     * ================================================================ */
 
     return 0;
 }
@@ -345,7 +388,7 @@ void Motor_ZeroPosition(uint8_t motor_id)
 }
 
 /**
- * @brief Enable motor driver
+ * @brief Enable motor driver (DRV8825 EN pin active LOW)
  */
 int32_t Motor_Enable(uint8_t motor_id)
 {
@@ -353,14 +396,17 @@ int32_t Motor_Enable(uint8_t motor_id)
         return -1;
     }
 
-    /* Note: No ENABLE pin configured currently */
-    /* Future: Add enable pin support if needed */
+    /* Drive EN pin LOW to enable DRV8825 driver */
+    if (motor_configs[motor_id].pins.en_port != NULL) {
+        HAL_GPIO_WritePin(motor_configs[motor_id].pins.en_port,
+                          motor_configs[motor_id].pins.en_pin, GPIO_PIN_RESET);
+    }
 
     return 0;
 }
 
 /**
- * @brief Disable motor driver
+ * @brief Disable motor driver (DRV8825 EN pin active LOW)
  */
 int32_t Motor_Disable(uint8_t motor_id)
 {
@@ -372,6 +418,56 @@ int32_t Motor_Disable(uint8_t motor_id)
     motor_states[motor_id].target_speed = 0;
     motor_states[motor_id].current_speed = 0;
     motor_states[motor_id].is_moving = 0;
+
+    /* Drive EN pin HIGH to disable DRV8825 driver */
+    if (motor_configs[motor_id].pins.en_port != NULL) {
+        HAL_GPIO_WritePin(motor_configs[motor_id].pins.en_port,
+                          motor_configs[motor_id].pins.en_pin, GPIO_PIN_SET);
+    }
+
+    return 0;
+}
+
+/**
+ * @brief Set microstepping mode for DRV8825 driver
+ * @param motor_id Motor index (0-5)
+ * @param mode Microstepping mode (see MotorMicrostepMode_t enum)
+ * @return 0 on success, -1 on error
+ *
+ * DRV8825 Microstepping Truth Table:
+ * M0 | M1 | M2 | Resolution
+ *  0 |  0 |  0 | Full step
+ *  1 |  0 |  0 | 1/2 step
+ *  0 |  1 |  0 | 1/4 step
+ *  1 |  1 |  0 | 1/8 step
+ *  0 |  0 |  1 | 1/16 step
+ *  1 |  0 |  1 | 1/32 step
+ */
+int32_t Motor_SetMicrostepMode(uint8_t motor_id, uint8_t mode)
+{
+    if (motor_id >= NUM_MOTORS || !motor_configs[motor_id].configured) {
+        return -1;
+    }
+
+    /* Check if microstep pins are configured */
+    if (motor_configs[motor_id].pins.m0_port == NULL ||
+        motor_configs[motor_id].pins.m1_port == NULL ||
+        motor_configs[motor_id].pins.m2_port == NULL) {
+        return -1;
+    }
+
+    /* Extract M0, M1, M2 bits from mode */
+    GPIO_PinState m0_state = (mode & 0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+    GPIO_PinState m1_state = (mode & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+    GPIO_PinState m2_state = (mode & 0x04) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+
+    /* Set microstep pins */
+    HAL_GPIO_WritePin(motor_configs[motor_id].pins.m0_port,
+                      motor_configs[motor_id].pins.m0_pin, m0_state);
+    HAL_GPIO_WritePin(motor_configs[motor_id].pins.m1_port,
+                      motor_configs[motor_id].pins.m1_pin, m1_state);
+    HAL_GPIO_WritePin(motor_configs[motor_id].pins.m2_port,
+                      motor_configs[motor_id].pins.m2_pin, m2_state);
 
     return 0;
 }
