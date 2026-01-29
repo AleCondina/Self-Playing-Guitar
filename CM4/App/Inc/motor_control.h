@@ -41,7 +41,7 @@ int32_t Motor_Init(void);
  * @param states Array of motor states
  * @note  Implements acceleration limiting and position tracking
  */
-void Motor_Update(MotorState_t states[NUM_MOTORS]);
+void Motor_Update(MotorState_t states[NUM_MOTORS]); //array "states" containing all 6 motors states
 
 /**
  * @brief Set motor target speed
