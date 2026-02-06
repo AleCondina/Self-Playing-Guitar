@@ -5,8 +5,7 @@ set(CMAKE_C_COMPILER_ID GNU)
 set(CMAKE_CXX_COMPILER_ID GNU)
 
 # ARM GCC Toolchain path
-set(ARM_TOOLCHAIN_DIR "/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/bin")
-set(TOOLCHAIN_PREFIX  "${ARM_TOOLCHAIN_DIR}/arm-none-eabi-")
+set(TOOLCHAIN_PREFIX  arm-none-eabi-)
 
 set(CMAKE_C_COMPILER                ${TOOLCHAIN_PREFIX}gcc)
 set(CMAKE_ASM_COMPILER              ${CMAKE_C_COMPILER})
