@@ -13,13 +13,13 @@
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
 
-/* External timer handles for debug access (6 independent timers) */
-extern TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 (PB14) */
-extern TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 (PA6) */
-extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 (PA7) */
-extern TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 (PE5) */
-extern TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 (PB8) */
-extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 (PB9) */
+/* External timer handles for debug access (6 independent timers) - All on ZIO connectors */
+extern TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 (PB14) - ZIO CN12-28 */
+extern TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 (PF8)  - ZIO CN9-24 */
+extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 (PF9)  - ZIO CN9-28 */
+extern TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 (PE5)  - ZIO CN10-8 */
+extern TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 (PF6)  - ZIO CN10-7 */
+extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 (PF7)  - ZIO CN9-26 */
 
 /* Control loop timing */
 #define CONTROL_LOOP_PERIOD_MS  1   /* 1ms = 1kHz control loop */
@@ -66,9 +66,9 @@ void App_CM4_Main(void)
 
     /* Direct GPIO configuration for all PWM pins */
     /* Enable all required GPIO clocks */
-    __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
     __HAL_RCC_GPIOE_CLK_ENABLE();
+    __HAL_RCC_GPIOF_CLK_ENABLE();
 
     /* Enable all timer clocks */
     __HAL_RCC_TIM12_CLK_ENABLE();
@@ -78,7 +78,7 @@ void App_CM4_Main(void)
     __HAL_RCC_TIM16_CLK_ENABLE();
     __HAL_RCC_TIM17_CLK_ENABLE();
 
-    /* Configure PB14 as AF2 (TIM12_CH1) - Solenoid 0: E2 */
+    /* Configure PB14 as AF2 (TIM12_CH1) - Solenoid 0: E2 - ZIO CN12-28 */
     GPIOB->MODER &= ~(0x3UL << (14 * 2));
     GPIOB->MODER |= (0x2UL << (14 * 2));
     GPIOB->AFR[1] &= ~(0xFUL << ((14-8) * 4));
@@ -86,23 +86,23 @@ void App_CM4_Main(void)
     GPIOB->OTYPER &= ~(1UL << 14);
     GPIOB->OSPEEDR |= (0x3UL << (14 * 2));
 
-    /* Configure PA7 as AF9 (TIM14_CH1) - Solenoid 1: A2 */
-    GPIOA->MODER &= ~(0x3UL << (7 * 2));
-    GPIOA->MODER |= (0x2UL << (7 * 2));
-    GPIOA->AFR[0] &= ~(0xFUL << (7 * 4));
-    GPIOA->AFR[0] |= (0x9UL << (7 * 4));
-    GPIOA->OTYPER &= ~(1UL << 7);
-    GPIOA->OSPEEDR |= (0x3UL << (7 * 2));
+    /* Configure PF9 as AF9 (TIM14_CH1) - Solenoid 1: A2 - ZIO CN9-28 */
+    GPIOF->MODER &= ~(0x3UL << (9 * 2));
+    GPIOF->MODER |= (0x2UL << (9 * 2));
+    GPIOF->AFR[1] &= ~(0xFUL << ((9-8) * 4));
+    GPIOF->AFR[1] |= (0x9UL << ((9-8) * 4));
+    GPIOF->OTYPER &= ~(1UL << 9);
+    GPIOF->OSPEEDR |= (0x3UL << (9 * 2));
 
-    /* Configure PA6 as AF9 (TIM13_CH1) - Solenoid 2: D3 */
-    GPIOA->MODER &= ~(0x3UL << (6 * 2));
-    GPIOA->MODER |= (0x2UL << (6 * 2));
-    GPIOA->AFR[0] &= ~(0xFUL << (6 * 4));
-    GPIOA->AFR[0] |= (0x9UL << (6 * 4));
-    GPIOA->OTYPER &= ~(1UL << 6);
-    GPIOA->OSPEEDR |= (0x3UL << (6 * 2));
+    /* Configure PF8 as AF9 (TIM13_CH1) - Solenoid 2: D3 - ZIO CN9-24 */
+    GPIOF->MODER &= ~(0x3UL << (8 * 2));
+    GPIOF->MODER |= (0x2UL << (8 * 2));
+    GPIOF->AFR[1] &= ~(0xFUL << ((8-8) * 4));
+    GPIOF->AFR[1] |= (0x9UL << ((8-8) * 4));
+    GPIOF->OTYPER &= ~(1UL << 8);
+    GPIOF->OSPEEDR |= (0x3UL << (8 * 2));
 
-    /* Configure PE5 as AF4 (TIM15_CH1) - Solenoid 3: G3 */
+    /* Configure PE5 as AF4 (TIM15_CH1) - Solenoid 3: G3 - ZIO CN10-8 */
     GPIOE->MODER &= ~(0x3UL << (5 * 2));
     GPIOE->MODER |= (0x2UL << (5 * 2));
     GPIOE->AFR[0] &= ~(0xFUL << (5 * 4));
@@ -110,21 +110,21 @@ void App_CM4_Main(void)
     GPIOE->OTYPER &= ~(1UL << 5);
     GPIOE->OSPEEDR |= (0x3UL << (5 * 2));
 
-    /* Configure PB8 as AF1 (TIM16_CH1) - Solenoid 4: B3 */
-    GPIOB->MODER &= ~(0x3UL << (8 * 2));
-    GPIOB->MODER |= (0x2UL << (8 * 2));
-    GPIOB->AFR[1] &= ~(0xFUL << ((8-8) * 4));
-    GPIOB->AFR[1] |= (0x1UL << ((8-8) * 4));
-    GPIOB->OTYPER &= ~(1UL << 8);
-    GPIOB->OSPEEDR |= (0x3UL << (8 * 2));
+    /* Configure PF6 as AF1 (TIM16_CH1) - Solenoid 4: B3 - ZIO CN10-7 */
+    GPIOF->MODER &= ~(0x3UL << (6 * 2));
+    GPIOF->MODER |= (0x2UL << (6 * 2));
+    GPIOF->AFR[0] &= ~(0xFUL << (6 * 4));
+    GPIOF->AFR[0] |= (0x1UL << (6 * 4));
+    GPIOF->OTYPER &= ~(1UL << 6);
+    GPIOF->OSPEEDR |= (0x3UL << (6 * 2));
 
-    /* Configure PB9 as AF1 (TIM17_CH1) - Solenoid 5: E4 */
-    GPIOB->MODER &= ~(0x3UL << (9 * 2));
-    GPIOB->MODER |= (0x2UL << (9 * 2));
-    GPIOB->AFR[1] &= ~(0xFUL << ((9-8) * 4));
-    GPIOB->AFR[1] |= (0x1UL << ((9-8) * 4));
-    GPIOB->OTYPER &= ~(1UL << 9);
-    GPIOB->OSPEEDR |= (0x3UL << (9 * 2));
+    /* Configure PF7 as AF1 (TIM17_CH1) - Solenoid 5: E4 - ZIO CN9-26 */
+    GPIOF->MODER &= ~(0x3UL << (7 * 2));
+    GPIOF->MODER |= (0x2UL << (7 * 2));
+    GPIOF->AFR[0] &= ~(0xFUL << (7 * 4));
+    GPIOF->AFR[0] |= (0x1UL << (7 * 4));
+    GPIOF->OTYPER &= ~(1UL << 7);
+    GPIOF->OSPEEDR |= (0x3UL << (7 * 2));
 
     /* DEBUG: Read back all configuration */
     volatile uint32_t debug_arr = __HAL_TIM_GET_AUTORELOAD(&htim12);
