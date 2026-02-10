@@ -2,7 +2,8 @@
   "permissions": {
     "allow": [
       "Bash(find:*)",
-      "Bash(ninja:*)"
+      "Bash(ninja:*)",
+      "Bash(cd:*)"
     ]
   }
 }

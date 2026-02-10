@@ -1,38 +1,150 @@
 /**
  ******************************************************************************
  * @file    motor_control.c
- * @brief   Motor control implementation
- * @note    Stepper motor control with acceleration limiting (stub)
+ * @brief   Motor control implementation for DRV8825 stepper drivers
+ * @note    Stepper motor control with acceleration limiting
+ *
+ *          DRV8825 Driver Pin Configuration (6 pins per motor):
+ *          - Motor 0: STEP=PE10, DIR=PE11, M0=PE12, M1=PE13, M2=PE14, EN=PD11
+ *          - Motors 1-5: Not configured (structure ready, pins TBD)
+ *
+ *          Microstepping Modes (M0, M1, M2):
+ *          - 0,0,0 = Full step
+ *          - 1,0,0 = 1/2 step
+ *          - 0,1,0 = 1/4 step
+ *          - 1,1,0 = 1/8 step
+ *          - 0,0,1 = 1/16 step
+ *          - 1,0,1 = 1/32 step
  ******************************************************************************
  */
 
 #include "motor_control.h"
 #include "stm32h7xx_hal.h"
 
+/* Number of motors currently configured with GPIO pins */
+#define NUM_CONFIGURED_MOTORS   1
+
+/* Motor pin configuration for DRV8825 driver (internal) */
+typedef struct {
+    GPIO_TypeDef* step_port;    /* STEP pin GPIO port */
+    uint16_t step_pin;          /* STEP pin number */
+    GPIO_TypeDef* dir_port;     /* DIR pin GPIO port */
+    uint16_t dir_pin;           /* DIR pin number */
+    GPIO_TypeDef* en_port;      /* ENABLE pin GPIO port (active LOW) */
+    uint16_t en_pin;            /* ENABLE pin number */
+    GPIO_TypeDef* m0_port;      /* M0 microstep GPIO port */
+    uint16_t m0_pin;            /* M0 microstep pin */
+    GPIO_TypeDef* m1_port;      /* M1 microstep GPIO port */
+    uint16_t m1_pin;            /* M1 microstep pin */
+    GPIO_TypeDef* m2_port;      /* M2 microstep GPIO port */
+    uint16_t m2_pin;            /* M2 microstep pin */
+} MotorPinConfig_t;
+
+/* Motor hardware configuration (internal) */
+typedef struct {
+    MotorPinConfig_t pins;      /* Pin configuration */
+    int32_t max_speed;          /* Maximum speed in steps/sec */
+    int32_t max_accel;          /* Maximum acceleration in steps/sec² */
+    uint8_t configured;         /* 1 if motor is configured */
+} MotorConfig_t;
+
 /* Private variables */
 static MotorState_t motor_states[NUM_MOTORS] = {0};
+static MotorConfig_t motor_configs[NUM_MOTORS] = {0};
 
-/* External TIM handles (to be defined in main.c after CubeMX config) */
-/* extern TIM_HandleTypeDef htim2, htim3, htim4, htim5; */
+/* Target position for position control */
+static int32_t target_positions[NUM_MOTORS] = {0};
+static uint8_t position_mode[NUM_MOTORS] = {0}; /* 1 if in position control mode */
+
+/**
+ * @brief Initialize GPIO for motor control
+ * @param port GPIO port
+ * @param pin GPIO pin number
+ */
+static void Motor_InitGPIO(GPIO_TypeDef* port, uint16_t pin)
+{
+    GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+    GPIO_InitStruct.Pin = pin;
+    GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+    GPIO_InitStruct.Pull = GPIO_NOPULL;
+    GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
+    HAL_GPIO_Init(port, &GPIO_InitStruct);
+    HAL_GPIO_WritePin(port, pin, GPIO_PIN_RESET);
+}
 
 /**
  * @brief Initialize motor control system
  */
 int32_t Motor_Init(void)
 {
-    /* Initialize motor states */
+    /* Enable GPIO clocks for PE10-PE14 and PD11 */
+    __HAL_RCC_GPIOE_CLK_ENABLE();
+    __HAL_RCC_GPIOD_CLK_ENABLE();
+
+    /* Initialize motor states and clear all pin configs */
     for (uint8_t i = 0; i < NUM_MOTORS; i++) {
         motor_states[i].target_speed = 0;
         motor_states[i].current_speed = 0;
         motor_states[i].position = 0;
         motor_states[i].is_moving = 0;
         motor_states[i].error_flags = 0;
+        motor_configs[i].configured = 0;
+
+        /* Clear all pin pointers for unconfigured motors */
+        motor_configs[i].pins.step_port = NULL;
+        motor_configs[i].pins.dir_port = NULL;
+        motor_configs[i].pins.en_port = NULL;
+        motor_configs[i].pins.m0_port = NULL;
+        motor_configs[i].pins.m1_port = NULL;
+        motor_configs[i].pins.m2_port = NULL;
     }
 
-    /* TODO: Start TIM PWM channels when peripherals are configured */
-    /* HAL_TIM_PWM_Start(&htim2, TIM_CHANNEL_1); */
-    /* HAL_TIM_PWM_Start(&htim3, TIM_CHANNEL_1); */
-    /* etc. */
+    /* ================================================================
+     * Configure Motor 0: DRV8825 driver
+     * STEP=PE10, DIR=PE11, M0=PE12, M1=PE13, M2=PE14, EN=PD11
+     * ================================================================ */
+
+    /* STEP pin - PE10 */
+    motor_configs[0].pins.step_port = GPIOE;
+    motor_configs[0].pins.step_pin = GPIO_PIN_10;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_10);
+
+    /* DIR pin - PE11 */
+    motor_configs[0].pins.dir_port = GPIOE;
+    motor_configs[0].pins.dir_pin = GPIO_PIN_11;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_11);
+
+    /* M0 microstep pin - PE12 */
+    motor_configs[0].pins.m0_port = GPIOE;
+    motor_configs[0].pins.m0_pin = GPIO_PIN_12;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_12);
+
+    /* M1 microstep pin - PE13 */
+    motor_configs[0].pins.m1_port = GPIOE;
+    motor_configs[0].pins.m1_pin = GPIO_PIN_13;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_13);
+
+    /* M2 microstep pin - PE14 */
+    motor_configs[0].pins.m2_port = GPIOE;
+    motor_configs[0].pins.m2_pin = GPIO_PIN_14;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_14);
+
+    /* EN pin - PD11 (active LOW, start HIGH = disabled) */
+    motor_configs[0].pins.en_port = GPIOD;
+    motor_configs[0].pins.en_pin = GPIO_PIN_11;
+    Motor_InitGPIO(GPIOD, GPIO_PIN_11);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_11, GPIO_PIN_SET);  /* Start disabled */
+
+    /* Set motor parameters */
+    motor_configs[0].max_speed = MOTOR_MAX_STEP_FREQ;
+    motor_configs[0].max_accel = MOTOR_MAX_ACCEL;
+    motor_configs[0].configured = 1;
+
+    /* ================================================================
+     * Motors 1-5: Structure ready, pins not assigned
+     * To configure, assign ports/pins and set configured = 1
+     * ================================================================ */
 
     return 0;
 }
@@ -42,39 +154,115 @@ int32_t Motor_Init(void)
  */
 void Motor_Update(MotorState_t states[NUM_MOTORS])
 {
+    static uint32_t step_accumulator[NUM_MOTORS] = {0};
+    const uint32_t UPDATE_FREQ_HZ = 1000; /* 1kHz update rate */
+
     for (uint8_t i = 0; i < NUM_MOTORS; i++) {
+        /* Skip unconfigured motors */
+        if (!motor_configs[i].configured) {
+            continue;
+        }
+
+        /* Position control mode: calculate speed to reach target */
+        if (position_mode[i]) {
+            int32_t position_error = target_positions[i] - states[i].position;
+
+            /* Simple proportional control with velocity limiting */
+            if (position_error == 0) {
+                states[i].target_speed = 0;
+                position_mode[i] = 0; /* Exit position mode when target reached */
+            } else {
+                /* Calculate desired speed (proportional to error, clamped) */
+                int32_t desired_speed = position_error * 10; /* P gain = 10 */
+
+                /* Get motor-specific limits */
+                int32_t max_spd = motor_configs[i].max_speed > 0 ?
+                                 motor_configs[i].max_speed : MOTOR_MAX_STEP_FREQ;
+
+                /* Clamp to motor's maximum speed */
+                if (desired_speed > max_spd) {
+                    desired_speed = max_spd;
+                } else if (desired_speed < -max_spd) {
+                    desired_speed = -max_spd;
+                }
+
+                states[i].target_speed = desired_speed;
+            }
+        }
+
+        /* Get motor-specific acceleration limit */
+        int32_t max_accel = motor_configs[i].max_accel > 0 ?
+                           motor_configs[i].max_accel : MOTOR_MAX_ACCEL;
+
         /* Acceleration limiting */
         int32_t speed_error = states[i].target_speed - states[i].current_speed;
 
-        /* Clamp acceleration to MOTOR_MAX_ACCEL */
-        if (speed_error > MOTOR_MAX_ACCEL) {
-            speed_error = MOTOR_MAX_ACCEL;
-        } else if (speed_error < -MOTOR_MAX_ACCEL) {
-            speed_error = -MOTOR_MAX_ACCEL;
+        /* Clamp acceleration */
+        if (speed_error > max_accel) {
+            speed_error = max_accel;
+        } else if (speed_error < -max_accel) {
+            speed_error = -max_accel;
         }
 
         /* Update current speed */
         states[i].current_speed += speed_error;
 
+        /* Get motor-specific speed limit */
+        int32_t max_speed = motor_configs[i].max_speed > 0 ?
+                           motor_configs[i].max_speed : MOTOR_MAX_STEP_FREQ;
+
         /* Clamp to min/max speed */
-        if (states[i].current_speed > MOTOR_MAX_STEP_FREQ) {
-            states[i].current_speed = MOTOR_MAX_STEP_FREQ;
-        } else if (states[i].current_speed < -MOTOR_MAX_STEP_FREQ) {
-            states[i].current_speed = -MOTOR_MAX_STEP_FREQ;
+        if (states[i].current_speed > max_speed) {
+            states[i].current_speed = max_speed;
+        } else if (states[i].current_speed < -max_speed) {
+            states[i].current_speed = -max_speed;
         }
 
-        /* Update position (integrate speed) */
-        states[i].position += states[i].current_speed / 1000; /* 1ms update rate */
+        /* Update direction pin */
+        if (motor_configs[i].pins.dir_port != NULL) {
+            GPIO_PinState dir_state = (states[i].current_speed >= 0) ?
+                                      GPIO_PIN_SET : GPIO_PIN_RESET;
+            HAL_GPIO_WritePin(motor_configs[i].pins.dir_port,
+                            motor_configs[i].pins.dir_pin, dir_state);
+        }
+
+        /* Generate step pulses using Bresenham-style accumulator */
+        uint32_t abs_speed = (states[i].current_speed >= 0) ?
+                            states[i].current_speed : -states[i].current_speed;
+
+        if (abs_speed > 0 && motor_configs[i].pins.step_port != NULL) {
+            /* Accumulate fractional steps */
+            step_accumulator[i] += abs_speed;
+
+            /* Generate steps when accumulator exceeds update frequency */
+            while (step_accumulator[i] >= UPDATE_FREQ_HZ) {
+                /* Generate step pulse (pulse high then low) */
+                HAL_GPIO_WritePin(motor_configs[i].pins.step_port,
+                                motor_configs[i].pins.step_pin, GPIO_PIN_SET);
+
+                /* Short delay for step pulse width (minimum 1-2us for most drivers) */
+                /* At 240 MHz, each NOP is ~4ns, so 10 NOPs ≈ 40ns (sufficient) */
+                __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+                __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+
+                HAL_GPIO_WritePin(motor_configs[i].pins.step_port,
+                                motor_configs[i].pins.step_pin, GPIO_PIN_RESET);
+
+                /* Update position */
+                if (states[i].current_speed >= 0) {
+                    states[i].position++;
+                } else {
+                    states[i].position--;
+                }
+
+                step_accumulator[i] -= UPDATE_FREQ_HZ;
+            }
+        } else {
+            step_accumulator[i] = 0;
+        }
 
         /* Update is_moving flag */
         states[i].is_moving = (states[i].current_speed != 0);
-
-        /* TODO: Update TIM PWM frequency based on current_speed */
-        /* uint32_t freq = abs(states[i].current_speed); */
-        /* if (freq < MOTOR_MIN_STEP_FREQ) freq = MOTOR_MIN_STEP_FREQ; */
-        /* uint32_t arr = (TIM_CLOCK_MHZ * 1000000UL / freq) - 1; */
-        /* __HAL_TIM_SET_AUTORELOAD(&htim2, arr); */
-        /* __HAL_TIM_SET_COMPARE(&htim2, TIM_CHANNEL_1, arr / 2); */
     }
 }
 
@@ -87,12 +275,19 @@ void Motor_SetSpeed(uint8_t motor_id, int32_t speed)
         return;
     }
 
+    /* Use motor-specific speed limit if configured, otherwise use global default */
+    int32_t max_speed = (motor_configs[motor_id].configured && motor_configs[motor_id].max_speed > 0) ?
+                        motor_configs[motor_id].max_speed : MOTOR_MAX_STEP_FREQ;
+
     /* Clamp speed to valid range */
-    if (speed > MOTOR_MAX_STEP_FREQ) {
-        speed = MOTOR_MAX_STEP_FREQ;
-    } else if (speed < -MOTOR_MAX_STEP_FREQ) {
-        speed = -MOTOR_MAX_STEP_FREQ;
+    if (speed > max_speed) {
+        speed = max_speed;
+    } else if (speed < -max_speed) {
+        speed = -max_speed;
     }
+
+    /* Exit position control mode when speed is set manually */
+    position_mode[motor_id] = 0;
 
     motor_states[motor_id].target_speed = speed;
 }
@@ -117,11 +312,8 @@ void Motor_EmergencyStop(void)
         motor_states[i].target_speed = 0;
         motor_states[i].current_speed = 0;
         motor_states[i].is_moving = 0;
+        position_mode[i] = 0;
     }
-
-    /* TODO: Stop TIM PWM outputs */
-    /* HAL_TIM_PWM_Stop(&htim2, TIM_CHANNEL_1); */
-    /* etc. */
 }
 
 /**
@@ -130,4 +322,163 @@ void Motor_EmergencyStop(void)
 void Motor_Home(void)
 {
     /* TODO: Implement homing sequence with limit switches */
+}
+
+/**
+ * @brief Set custom speed and acceleration limits for a motor
+ */
+int32_t Motor_SetLimits(uint8_t motor_id, int32_t max_speed, int32_t max_accel)
+{
+    if (motor_id >= NUM_MOTORS || !motor_configs[motor_id].configured) {
+        return -1;
+    }
+
+    if (max_speed <= 0 || max_accel <= 0) {
+        return -1;
+    }
+
+    motor_configs[motor_id].max_speed = max_speed;
+    motor_configs[motor_id].max_accel = max_accel;
+
+    return 0;
+}
+
+/**
+ * @brief Move motor to absolute position
+ */
+int32_t Motor_MoveToPosition(uint8_t motor_id, int32_t position)
+{
+    if (motor_id >= NUM_MOTORS || !motor_configs[motor_id].configured) {
+        return -1;
+    }
+
+    target_positions[motor_id] = position;
+    position_mode[motor_id] = 1;
+
+    return 0;
+}
+
+/**
+ * @brief Move motor by relative steps
+ */
+int32_t Motor_MoveRelative(uint8_t motor_id, int32_t steps)
+{
+    if (motor_id >= NUM_MOTORS || !motor_configs[motor_id].configured) {
+        return -1;
+    }
+
+    target_positions[motor_id] = motor_states[motor_id].position + steps;
+    position_mode[motor_id] = 1;
+
+    return 0;
+}
+
+/**
+ * @brief Zero/reset motor position
+ */
+void Motor_ZeroPosition(uint8_t motor_id)
+{
+    if (motor_id >= NUM_MOTORS) {
+        return;
+    }
+
+    motor_states[motor_id].position = 0;
+    target_positions[motor_id] = 0;
+    position_mode[motor_id] = 0;
+}
+
+/**
+ * @brief Enable motor driver (DRV8825 EN pin active LOW)
+ */
+int32_t Motor_Enable(uint8_t motor_id)
+{
+    if (motor_id >= NUM_MOTORS || !motor_configs[motor_id].configured) {
+        return -1;
+    }
+
+    /* Drive EN pin LOW to enable DRV8825 driver */
+    if (motor_configs[motor_id].pins.en_port != NULL) {
+        HAL_GPIO_WritePin(motor_configs[motor_id].pins.en_port,
+                          motor_configs[motor_id].pins.en_pin, GPIO_PIN_RESET);
+    }
+
+    return 0;
+}
+
+/**
+ * @brief Disable motor driver (DRV8825 EN pin active LOW)
+ */
+int32_t Motor_Disable(uint8_t motor_id)
+{
+    if (motor_id >= NUM_MOTORS || !motor_configs[motor_id].configured) {
+        return -1;
+    }
+
+    /* Stop motor movement */
+    motor_states[motor_id].target_speed = 0;
+    motor_states[motor_id].current_speed = 0;
+    motor_states[motor_id].is_moving = 0;
+
+    /* Drive EN pin HIGH to disable DRV8825 driver */
+    if (motor_configs[motor_id].pins.en_port != NULL) {
+        HAL_GPIO_WritePin(motor_configs[motor_id].pins.en_port,
+                          motor_configs[motor_id].pins.en_pin, GPIO_PIN_SET);
+    }
+
+    return 0;
+}
+
+/**
+ * @brief Set microstepping mode for DRV8825 driver
+ * @param motor_id Motor index (0-5)
+ * @param mode Microstepping mode (see MotorMicrostepMode_t enum)
+ * @return 0 on success, -1 on error
+ *
+ * DRV8825 Microstepping Truth Table:
+ * M0 | M1 | M2 | Resolution
+ *  0 |  0 |  0 | Full step
+ *  1 |  0 |  0 | 1/2 step
+ *  0 |  1 |  0 | 1/4 step
+ *  1 |  1 |  0 | 1/8 step
+ *  0 |  0 |  1 | 1/16 step
+ *  1 |  0 |  1 | 1/32 step
+ */
+int32_t Motor_SetMicrostepMode(uint8_t motor_id, uint8_t mode)
+{
+    if (motor_id >= NUM_MOTORS || !motor_configs[motor_id].configured) {
+        return -1;
+    }
+
+    /* Check if microstep pins are configured */
+    if (motor_configs[motor_id].pins.m0_port == NULL ||
+        motor_configs[motor_id].pins.m1_port == NULL ||
+        motor_configs[motor_id].pins.m2_port == NULL) {
+        return -1;
+    }
+
+    /* Extract M0, M1, M2 bits from mode */
+    GPIO_PinState m0_state = (mode & 0x01) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+    GPIO_PinState m1_state = (mode & 0x02) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+    GPIO_PinState m2_state = (mode & 0x04) ? GPIO_PIN_SET : GPIO_PIN_RESET;
+
+    /* Set microstep pins */
+    HAL_GPIO_WritePin(motor_configs[motor_id].pins.m0_port,
+                      motor_configs[motor_id].pins.m0_pin, m0_state);
+    HAL_GPIO_WritePin(motor_configs[motor_id].pins.m1_port,
+                      motor_configs[motor_id].pins.m1_pin, m1_state);
+    HAL_GPIO_WritePin(motor_configs[motor_id].pins.m2_port,
+                      motor_configs[motor_id].pins.m2_pin, m2_state);
+
+    return 0;
+}
+
+/**
+ * @brief Check if motor is configured
+ */
+uint8_t Motor_IsConfigured(uint8_t motor_id)
+{
+    if (motor_id >= NUM_MOTORS) {
+        return 0;
+    }
+    return motor_configs[motor_id].configured;
 }

@@ -1,8 +1,15 @@
 /**
  ******************************************************************************
  * @file    motor_control.h
- * @brief   Motor control API for CM4
- * @note    Stepper motor control with acceleration limiting
+ * @brief   Motor control API for CM4 with DRV8825 stepper drivers
+ * @note    Stepper motor control with acceleration limiting and microstepping
+ *
+ *          DRV8825 Driver Pin Configuration (6 pins per motor):
+ *          - Motor 0: STEP=PE10, DIR=PE11, M0=PE12, M1=PE13, M2=PE14, EN=PD11
+ *          - Motors 1-5: Structure ready, pins TBD
+ *
+ *          Each motor uses: STEP, DIR, EN, M0, M1, M2 (6 pins total)
+ *          Total for 6 motors: 36 GPIO pins
  ******************************************************************************
  */
 
@@ -22,9 +29,30 @@ typedef struct {
 } MotorState_t;
 
 /**
+ * @brief DRV8825 Microstepping modes
+ * @note  Values encode M0|M1|M2 pin states as bits [0:2]
+ *
+ *        Mode bits: [M2:M1:M0]
+ *        FULL_STEP     = 0b000 = 0
+ *        HALF_STEP     = 0b001 = 1
+ *        QUARTER_STEP  = 0b010 = 2
+ *        EIGHTH_STEP   = 0b011 = 3
+ *        SIXTEENTH     = 0b100 = 4
+ *        THIRTYSECOND  = 0b101 = 5
+ */
+typedef enum {
+    MOTOR_MICROSTEP_FULL     = 0,  /* Full step (no microstepping) */
+    MOTOR_MICROSTEP_HALF     = 1,  /* 1/2 step */
+    MOTOR_MICROSTEP_QUARTER  = 2,  /* 1/4 step */
+    MOTOR_MICROSTEP_EIGHTH   = 3,  /* 1/8 step */
+    MOTOR_MICROSTEP_16       = 4,  /* 1/16 step */
+    MOTOR_MICROSTEP_32       = 5   /* 1/32 step */
+} MotorMicrostepMode_t;
+
+/**
  * @brief Initialize motor control system
  * @return 0 on success, -1 on error
- * @note  Initializes TIM peripherals (to be configured in CubeMX)
+ * @note  Configures GPIO pins (PE10-PE13) for motor control
  */
 int32_t Motor_Init(void);
 
@@ -33,7 +61,7 @@ int32_t Motor_Init(void);
  * @param states Array of motor states
  * @note  Implements acceleration limiting and position tracking
  */
-void Motor_Update(MotorState_t states[NUM_MOTORS]);
+void Motor_Update(MotorState_t states[NUM_MOTORS]); //array "states" containing all 6 motors states
 
 /**
  * @brief Set motor target speed
@@ -59,5 +87,66 @@ void Motor_EmergencyStop(void);
  * @note  Placeholder for future implementation
  */
 void Motor_Home(void);
+
+/**
+ * @brief Set custom speed and acceleration limits for a motor
+ * @param motor_id Motor index (0-5)
+ * @param max_speed Maximum speed in steps/sec
+ * @param max_accel Maximum acceleration in steps/sec²
+ * @return 0 on success, -1 on error
+ */
+int32_t Motor_SetLimits(uint8_t motor_id, int32_t max_speed, int32_t max_accel);
+
+/**
+ * @brief Move motor to absolute position
+ * @param motor_id Motor index (0-5)
+ * @param position Target position in steps
+ * @return 0 on success, -1 on error
+ */
+int32_t Motor_MoveToPosition(uint8_t motor_id, int32_t position);
+
+/**
+ * @brief Move motor by relative steps
+ * @param motor_id Motor index (0-5)
+ * @param steps Number of steps to move (signed)
+ * @return 0 on success, -1 on error
+ */
+int32_t Motor_MoveRelative(uint8_t motor_id, int32_t steps);
+
+/**
+ * @brief Zero/reset motor position
+ * @param motor_id Motor index (0-5)
+ */
+void Motor_ZeroPosition(uint8_t motor_id);
+
+/**
+ * @brief Enable motor driver
+ * @param motor_id Motor index (0-5)
+ * @return 0 on success, -1 on error
+ */
+int32_t Motor_Enable(uint8_t motor_id);
+
+/**
+ * @brief Disable motor driver
+ * @param motor_id Motor index (0-5)
+ * @return 0 on success, -1 on error
+ */
+int32_t Motor_Disable(uint8_t motor_id);
+
+/**
+ * @brief Check if motor is configured
+ * @param motor_id Motor index (0-5)
+ * @return 1 if configured, 0 if not
+ */
+uint8_t Motor_IsConfigured(uint8_t motor_id);
+
+/**
+ * @brief Set microstepping mode for DRV8825 driver
+ * @param motor_id Motor index (0-5)
+ * @param mode Microstepping mode (MotorMicrostepMode_t enum value)
+ * @return 0 on success, -1 on error (invalid motor or mode)
+ * @note  Changes take effect immediately; motor can be moving
+ */
+int32_t Motor_SetMicrostepMode(uint8_t motor_id, uint8_t mode);
 
 #endif /* MOTOR_CONTROL_H */

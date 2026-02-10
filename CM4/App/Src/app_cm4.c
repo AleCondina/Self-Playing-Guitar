@@ -266,7 +266,11 @@ void App_CM4_Main(void)
             }
         }
 
-        /* Update motor control (acceleration limiting, position tracking) */
+        /* Update motor control (acceleration limiting, step generation) */
+        /* Pass internal motor states array - Motor_Update handles all motors */
+        Motor_Update(Motor_GetState(0));
+
+        /* Update shared memory with current motor states */
         for (uint8_t i = 0; i < NUM_MOTORS; i++) {
             motor_states = Motor_GetState(i);
             if (motor_states != NULL) {
