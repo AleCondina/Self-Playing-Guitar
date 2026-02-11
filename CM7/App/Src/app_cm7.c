@@ -12,7 +12,20 @@
 #include "audio_input.h"
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
+#include "song_scheduler_tuning.h"
+#include "musicxml_parser.h"
+
 #include <stdio.h>
+
+extern const char g_musicxml[];//test
+extern const size_t g_musicxml_len;//t
+
+
+static SongSchedulerTuning_t g_sched;
+static int g_started = 0;
+
+static MusicXml_NoteEvent_t events[256];
+static size_t event_count = 0;
 
 /* Application state */
 typedef enum {
@@ -78,26 +91,24 @@ void App_CM7_Main(void)
                 break;
 
             case STATE_RUNNING:
-                /* Main application logic */
 
-                /* Test: Send motor speed commands every 5 seconds */
-                if ((HAL_GetTick() % 5000) < 10) {
-                    test_counter++;
+             uint32_t now = HAL_GetTick();
 
-                    /* Alternate motor speeds for testing */
-                    int32_t speed = (test_counter % 2 == 0) ? 1000 : 500;
+                if (!g_started)
+                {
+                 MusicXml_Info_t info;
 
-                    printf("[CM7] Test: Setting motor 0 to %ld steps/s\r\n", speed);
-                    InterCore_SendMotorSpeed(0, speed);
-                }
+                 // parse MusicXML once (you need xml buffer loaded already)
+                 MusicXML_ParseBuffer(g_musicxml, g_musicxml_len, events, 256,&event_count, &info);
 
-                /* Check CM4 health */
-                if (!InterCore_IsCM4Alive()) {
-                    printf("[CM7] WARNING: CM4 appears stalled!\r\n");
-                }
+                 SongSchedulerTuning_Init(&g_sched, events, event_count, now);
+                 g_started = 1;
+                 }
 
-                HAL_Delay(10);
-                break;
+                 SongSchedulerTuning_Update(&g_sched, now);
+                 break;
+
+
 
             case STATE_ERROR:
                 /* Error state - blink LED or send debug output */

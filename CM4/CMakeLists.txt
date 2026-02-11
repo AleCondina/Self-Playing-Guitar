@@ -65,6 +65,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/inter_core_cm4.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/motor_control.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/solenoid_control.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/tuning_controller.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../Shared/Src/shared_memory.c
 )
 
