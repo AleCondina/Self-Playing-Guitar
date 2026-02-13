@@ -12,6 +12,7 @@
 #include <stdint.h>
 #include "application_config.h"
 #include "arm_math.h"
+#include "stm32h7xx_hal.h"
 
 
 // TODO: remove
@@ -42,10 +43,15 @@ void Audio_Stop(void);
 uint8_t Audio_HasNewSamples(void);
 
 /**
- * @brief Get pointer to audio buffer
- * @param buffer_half 0 for first half, 1 for second half
- * @return Pointer to audio buffer
+ * @brief Mark the current audio buffer as processed
+ * @note Call this after processing a buffer to allow new data to be flagged
  */
-uint16_t* Audio_GetBuffer(uint8_t buffer_half);
+void Audio_MarkProcessed(void);
+
+/**
+ * @brief Get pointer to the ready audio buffer
+ * @return Pointer to the ready half-buffer (automatically determined internally)
+ */
+uint16_t* Audio_GetBuffer(void);
 
 #endif /* AUDIO_INPUT_H */

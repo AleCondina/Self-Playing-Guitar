@@ -15,7 +15,7 @@ void FFT_ProcessBlock(uint16_t *adc_buffer);
 /**
  * @brief Get detected fundamental frequency (Hz)
  */
-float FFT_GetFundamental(void);
+float FFT_GetFundamentals(void);
 
 /**
  * @brief Get harmonic amplitudes

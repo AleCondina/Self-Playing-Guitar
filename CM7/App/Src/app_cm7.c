@@ -10,6 +10,7 @@
 #include "inter_core_cm7.h"
 #include "debug_uart.h"
 #include "audio_input.h"
+#include "fft_processing.h"
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
 #include <stdio.h>
@@ -55,7 +56,24 @@ void App_CM7_Main(void)
 
     if (app_state != STATE_ERROR) {
         printf("[CM7] CM4 ready! Starting application.\r\n\r\n");
-        app_state = STATE_IDLE;
+        
+        /* Initialize audio input (ADC + DMA) */
+        printf("[CM7] Initializing audio input...\r\n");
+        if (Audio_Init() != 0) {
+            printf("[CM7] ERROR: Failed to initialize audio input!\r\n");
+            app_state = STATE_ERROR;
+        } else {
+            printf("[CM7] Audio input initialized.\r\n");
+            
+            /* Start audio acquisition */
+            if (Audio_Start() != 0) {
+                printf("[CM7] ERROR: Failed to start audio acquisition!\r\n");
+                app_state = STATE_ERROR;
+            } else {
+                printf("[CM7] Audio acquisition started.\r\n");
+                app_state = STATE_IDLE;
+            }
+        }
     }
 
     /* Main loop */
@@ -79,6 +97,20 @@ void App_CM7_Main(void)
 
             case STATE_RUNNING:
                 /* Main application logic */
+
+                /* Check for new audio samples (from ADC DMA) */
+                if (Audio_HasNewSamples()) {
+                    uint16_t* audio_buf = Audio_GetBuffer(); /* Get the ready buffer (no parameter needed) */
+                    
+                    /* Process the audio buffer with FFT */
+                    /* TODO: Implement pitch detection from FFT */
+                    FFT_ProcessBlock(audio_buf);
+
+                    // printf("[CM7] Fundamental frequency peak detected: %.2f \n", FFT_GetFundamentals());
+                    
+                    /* Mark data as processed to enable detection of next buffer */
+                    Audio_MarkProcessed();
+                }
 
                 /* Test: Send motor speed commands every 5 seconds */
                 if ((HAL_GetTick() % 5000) < 10) {
