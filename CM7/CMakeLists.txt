@@ -78,6 +78,7 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined libraries
     ${CMAKE_CURRENT_SOURCE_DIR}/../Drivers/CMSIS/DSP/Lib/libarm_cortexM7lfsp_math.a
+    m # Link C's math library used by DSP functions
 )
 
 # Remove wrong libob.a library dependency when using cpp files
