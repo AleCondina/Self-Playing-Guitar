@@ -52,11 +52,11 @@ void SongSchedulerTuning_Init(SongSchedulerTuning_t* s,
 
 void SongSchedulerTuning_Update(SongSchedulerTuning_t* s, uint32_t now_ms)
 {
-    // stop everything if current note is done (optional)
-    if (s->active_until_ms && now_ms >= s->active_until_ms) {
-        (void)InterCore_StopAll();
-        s->active_until_ms = 0;
-    }
+    // stop everything if current note is done (optional) //TODO: implement InterCore_StopAll function
+    // if (s->active_until_ms && now_ms >= s->active_until_ms) {
+    //     (void)InterCore_StopAll();
+    //     s->active_until_ms = 0;
+    // }
 
     if (s->index >= s->count)
         return;
@@ -74,8 +74,8 @@ void SongSchedulerTuning_Update(SongSchedulerTuning_t* s, uint32_t now_ms)
 
     const uint8_t vel = (ev->velocity != 0) ? ev->velocity : s->default_velocity;
 
-    // Ask CM4 to tune & excite
-    (void)InterCore_PlayNote_Tune(string_id, target_hz, ev->dur_ms, vel, ev_abs_ms);
+    // Ask CM4 to tune & excite //TODO: InterCore_PlayNote_Tune is not implemented yet, you need to implement it in inter_core_cm7.c and inter_core_cm4.c (and define the message format in shared_memory.h)
+    // (void)InterCore_PlayNote_Tune(string_id, target_hz, ev->dur_ms, vel, ev_abs_ms);
 
     // Update our estimate (helps choose next string)
     g_est_current_freq[string_id] = target_hz;
