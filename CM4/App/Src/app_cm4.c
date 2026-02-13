@@ -24,10 +24,31 @@ extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 (PF7)  - ZIO CN9-26 */
 /* Control loop timing */
 #define CONTROL_LOOP_PERIOD_MS  1   /* 1ms = 1kHz control loop */
 
+/* Motor test parameters (fallback defaults if shared memory not set) */
+#define STEPS_PER_REV               200     /* Standard stepper: 200 steps/rev (1.8° per step) */
+#define DEFAULT_STEPS_FOR_180_DEG   400     /* Default steps per move */
+#define DEFAULT_MOTOR_TEST_SPEED    300     /* Default max speed (steps/sec) */
+#define DEFAULT_MOTOR_ACCEL         20      /* Default acceleration */
+#define DEFAULT_SETTLE_TIME_MS      0      /* Default settling time (ms) */
+
+/* Helper macros to read tuning params from shared memory with fallback defaults */
+#define GET_STEPS_PER_MOVE()    (g_shared_memory.motor_steps_per_move > 0 ? \
+                                 g_shared_memory.motor_steps_per_move : DEFAULT_STEPS_FOR_180_DEG)
+#define GET_MOTOR_SPEED()       (g_shared_memory.motor_max_speed > 0 ? \
+                                 g_shared_memory.motor_max_speed : DEFAULT_MOTOR_TEST_SPEED)
+#define GET_MOTOR_ACCEL()       (g_shared_memory.motor_max_accel > 0 ? \
+                                 g_shared_memory.motor_max_accel : DEFAULT_MOTOR_ACCEL)
+#define GET_SETTLE_TIME()       (g_shared_memory.motor_settle_time_ms)
+
 /* Application state */
 static uint32_t loop_start_time = 0;
 static uint32_t loop_count = 0;
 static uint32_t last_rate_calc_time = 0;
+
+/* Motor oscillation state */
+static uint8_t motor_direction = 0;     /* 0 = forward, 1 = backward */
+static uint8_t move_started = 0;        /* Flag to track if move is in progress */
+static uint32_t settle_start_time = 0;  /* Settling timer for direction changes */
 
 /**
  * @brief CM4 application main function
@@ -39,6 +60,13 @@ void App_CM4_Main(void)
 
     /* Initialize motor control system */
     Motor_Init();
+
+    /* Enable motor 0 driver (drive nEN LOW) */
+    Motor_Enable(0);
+
+    /* Zero position - don't start move yet, wait for CM7 to set parameters */
+    Motor_ZeroPosition(0);
+    move_started = 0;  /* Will be set to 1 when motor_test_enabled becomes true */
 
     /* Initialize solenoid control system */
     if (Solenoid_Init() != 0) {
@@ -57,12 +85,12 @@ void App_CM4_Main(void)
     Solenoid_SetFrequency(5, 5, 0);  // Solenoid 5: E4 string (High E), 329.63 Hz on PB9
 
     /* Start all 6 solenoids */
-    Solenoid_Start(0);
-    Solenoid_Start(1);
-    Solenoid_Start(2);
-    Solenoid_Start(3);
-    Solenoid_Start(4);
-    Solenoid_Start(5);
+    // Solenoid_Start(0);
+    // Solenoid_Start(1);
+    // Solenoid_Start(2);
+    // Solenoid_Start(3);
+    // Solenoid_Start(4);
+    // Solenoid_Start(5);
 
     /* Direct GPIO configuration for all PWM pins */
     /* Enable all required GPIO clocks */
@@ -266,6 +294,12 @@ void App_CM4_Main(void)
             }
         }
 
+        /* Check if microstep mode needs to be updated */
+        if (g_shared_memory.motor_microstep_changed) {
+            Motor_SetMicrostepMode(0, g_shared_memory.motor_microstep_mode);
+            g_shared_memory.motor_microstep_changed = 0;  /* Clear flag */
+        }
+
         /* Update motor control (acceleration limiting, step generation) */
         /* Pass internal motor states array - Motor_Update handles all motors */
         Motor_Update(Motor_GetState(0));
@@ -295,6 +329,49 @@ void App_CM4_Main(void)
             status |= MOTOR_STATUS_MOVING;
         }
         g_shared_memory.motor_status_flags = status;
+
+        /* ===== Motor Oscillation Test (controlled via serial commands) ===== */
+        MotorState_t *m0_state = Motor_GetState(0);
+
+        /* Check if test was just enabled - start first move */
+        if (g_shared_memory.motor_test_enabled && !move_started) {
+            /* Apply current tuning parameters */
+            Motor_SetLimits(0, GET_MOTOR_SPEED(), GET_MOTOR_ACCEL());
+            Motor_MoveRelative(0, GET_STEPS_PER_MOVE());
+            move_started = 1;
+            motor_direction = 0;
+            settle_start_time = 0;
+        }
+
+        /* Check if test was disabled - stop motor */
+        if (!g_shared_memory.motor_test_enabled && move_started) {
+            Motor_SetSpeed(0, 0);  /* Stop motor */
+            move_started = 0;
+            settle_start_time = 0;
+        }
+
+        /* Oscillation logic - only run if test is enabled */
+        if (g_shared_memory.motor_test_enabled && move_started && m0_state != NULL && !m0_state->is_moving) {
+            /* Motor stopped - wait for settling time before starting next move */
+            if (settle_start_time == 0) {
+                /* Start settling timer */
+                settle_start_time = now;
+            } else if ((now - settle_start_time) >= GET_SETTLE_TIME()) {
+                /* Settling complete - apply latest tuning params and start move */
+                settle_start_time = 0;
+                Motor_SetLimits(0, GET_MOTOR_SPEED(), GET_MOTOR_ACCEL());
+
+                if (motor_direction == 0) {
+                    /* Was moving forward, now move backward */
+                    Motor_MoveRelative(0, -(int32_t)GET_STEPS_PER_MOVE());
+                    motor_direction = 1;
+                } else {
+                    /* Was moving backward, now move forward */
+                    Motor_MoveRelative(0, GET_STEPS_PER_MOVE());
+                    motor_direction = 0;
+                }
+            }
+        }
 
         /* Update heartbeat */
         InterCore_UpdateHeartbeat();

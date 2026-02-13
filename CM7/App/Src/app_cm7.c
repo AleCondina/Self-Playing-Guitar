@@ -56,12 +56,18 @@ void App_CM7_Main(void)
     if (app_state != STATE_ERROR) {
         printf("[CM7] CM4 ready! Starting application.\r\n\r\n");
         app_state = STATE_IDLE;
+
+        /* Initialize motor tuning defaults and show help prompt */
+        Debug_InitMotorDefaults();
     }
 
     /* Main loop */
     while (1) {
         /* Update heartbeat */
         g_shared_memory.cm7_heartbeat++;
+
+        /* Process serial commands (non-blocking) */
+        Debug_ProcessInput();
 
         /* State machine */
         switch (app_state) {
@@ -80,16 +86,23 @@ void App_CM7_Main(void)
             case STATE_RUNNING:
                 /* Main application logic */
 
-                /* Test: Send motor speed commands every 5 seconds */
-                if ((HAL_GetTick() % 5000) < 10) {
-                    test_counter++;
-
-                    /* Alternate motor speeds for testing */
-                    int32_t speed = (test_counter % 2 == 0) ? 1000 : 500;
-
-                    printf("[CM7] Test: Setting motor 0 to %ld steps/s\r\n", speed);
-                    InterCore_SendMotorSpeed(0, speed);
-                }
+                /* DISABLED: CM7 motor speed test - conflicts with CM4 position control
+                 * This code sends alternating speed commands (500/1000 steps/s) every 5 seconds
+                 * to motor 0 via InterCore_SendMotorSpeed(). When enabled, it overrides any
+                 * position-based movement (Motor_MoveRelative) running on CM4 because
+                 * Motor_SetSpeed() exits position control mode.
+                 *
+                 * Uncomment to test CM7->CM4 motor speed commands:
+                 */
+                // if ((HAL_GetTick() % 5000) < 10) {
+                //     test_counter++;
+                //
+                //     /* Alternate motor speeds for testing */
+                //     int32_t speed = (test_counter % 2 == 0) ? 1000 : 500;
+                //
+                //     printf("[CM7] Test: Setting motor 0 to %ld steps/s\r\n", speed);
+                //     InterCore_SendMotorSpeed(0, speed);
+                // }
 
                 /* Check CM4 health */
                 if (!InterCore_IsCM4Alive()) {
@@ -110,10 +123,10 @@ void App_CM7_Main(void)
                 break;
         }
 
-        /* Print diagnostics every 5 seconds */
-        if (HAL_GetTick() - last_debug_time >= 5000) {
-            last_debug_time = HAL_GetTick();
-            Debug_PrintSharedMemory();
-        }
+        /* Print diagnostics every 5 seconds (disabled - use 'status' command instead) */
+        // if (HAL_GetTick() - last_debug_time >= 5000) {
+        //     last_debug_time = HAL_GetTick();
+        //     Debug_PrintSharedMemory();
+        // }
     }
 }

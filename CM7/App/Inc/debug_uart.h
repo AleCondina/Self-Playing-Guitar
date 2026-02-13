@@ -37,4 +37,25 @@ void Debug_PrintSharedMemory(void);
  */
 void Debug_PrintMotorStatus(uint8_t motor_id);
 
+/**
+ * @brief Process UART input (non-blocking)
+ * @note  Call this periodically from main loop to handle serial commands
+ */
+void Debug_ProcessInput(void);
+
+/**
+ * @brief Print available commands
+ */
+void Debug_PrintHelp(void);
+
+/**
+ * @brief Print current motor tuning status
+ */
+void Debug_PrintTuningStatus(void);
+
+/**
+ * @brief Initialize motor tuning defaults in shared memory
+ */
+void Debug_InitMotorDefaults(void);
+
 #endif /* DEBUG_UART_H */
