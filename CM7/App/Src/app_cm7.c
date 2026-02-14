@@ -9,6 +9,7 @@
 #include "app_cm7.h"
 #include "inter_core_cm7.h"
 #include "debug_uart.h"
+#include "serial_cmd.h"
 #include "audio_input.h"
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
@@ -53,7 +54,12 @@ void App_CM7_Main(void)
     }
 
     if (app_state != STATE_ERROR) {
-        printf("[CM7] CM4 ready! Starting application.\r\n\r\n");
+        printf("[CM7] CM4 ready! Homing motors...\r\n");
+        InterCore_HomeMotors();
+        HAL_Delay(100);  /* Let CM4 process home command */
+        printf("[CM7] Home position established (all positions zeroed).\r\n\r\n");
+        Debug_UART_StartRx();
+        SerialCmd_Init();
         app_state = STATE_IDLE;
     }
 
@@ -65,26 +71,20 @@ void App_CM7_Main(void)
         /* State machine */
         switch (app_state) {
             case STATE_IDLE:
-                /* Wait for activation */
-                /* TODO: Add button press or UART command to start */
-                HAL_Delay(10);
-
-                /* For now, automatically transition to running after 2 seconds */
-                if (HAL_GetTick() > 2000) {
-                    printf("[CM7] Transitioning to RUNNING state\r\n");
-                    app_state = STATE_RUNNING;
-                }
+                printf("[CM7] System ready for commands.\r\n");
+                app_state = STATE_RUNNING;
                 break;
 
             case STATE_RUNNING:
-                /* Main application logic */
+                /* Process serial commands */
+                SerialCmd_Process();
 
                 /* Check CM4 health */
                 if (!InterCore_IsCM4Alive()) {
                     printf("[CM7] WARNING: CM4 appears stalled!\r\n");
                 }
 
-                HAL_Delay(10);
+                HAL_Delay(1);
                 break;
 
             case STATE_ERROR:

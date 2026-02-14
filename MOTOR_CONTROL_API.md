@@ -3,11 +3,108 @@
 This document describes the motor control API for the self-playing guitar project.
 
 ## Table of Contents
+- [Serial Command Workflow](#serial-command-workflow)
 - [Overview](#overview)
 - [Pin Configuration](#pin-configuration)
 - [API Functions](#api-functions)
 - [Usage Examples](#usage-examples)
 - [Integration Guide](#integration-guide)
+
+---
+
+## Serial Command Workflow
+
+Commands are sent via UART (USART3, 115200 baud) and flow through the system as follows:
+
+```
+You type "speed 0 1000\r"
+    |
+    v
+USART3 RX pin (PD9) receives bytes one at a time
+    |
+    v
+USART3_IRQHandler() -> HAL_UART_IRQHandler() -> HAL_UART_RxCpltCallback()
+    |  accumulates chars, sets rx_line_ready=1 on Enter
+    v
+SerialCmd_Process() [CM7 main loop, every 1ms]
+    |  parses "speed", "0", "1000"
+    v
+InterCore_SendMotorSpeed(0, 1000) [CM7]
+    |  writes to shared memory + sets flag + releases HSEM
+    v
+InterCore_ReadCommands() -> Motor_SetSpeed(0, 1000) [CM4, 1kHz loop]
+    |  sets target_speed = 1000
+    v
+Motor_Update() [CM4, every 1ms]
+    |  ramps current_speed toward 1000 (limited by max_accel)
+    |  generates STEP pulses on PE10 via accumulator
+    v
+DRV8825 driver -> stepper motor spins
+```
+
+### Startup Sequence
+
+On boot, the system automatically homes all motors (zeroes positions). You must type `start` before movement commands will be accepted:
+
+```
+1. System powers on → CM4 initializes motors → CM7 sends home command
+2. All motor positions zeroed (home established)
+3. You configure parameters: enable 0, accel 0 500, maxspeed 0 5000
+4. You type: start
+5. Now movement commands work: speed 0 1000, move 0 200, goto E2
+```
+
+### Available Serial Commands
+
+```
+start                      Start system (required after homing)
+speed <id> <steps/s>       Set motor speed (negative = reverse) *
+accel <id> <value>         Set max acceleration (steps/s^2)
+maxspeed <id> <value>      Set max speed limit (steps/s)
+move <id> <steps>          Relative move (negative = reverse) *
+goto <id> <position>       Absolute position move *
+goto <preset_name>         Move to saved preset position *
+microstep <id> <0-5>       Set microstep mode (full/half/quarter/8th/16th/32nd)
+enable <id>                Enable motor driver
+disable <id>               Disable motor driver
+zero <id>                  Zero position counter
+home                       Re-home all motors (zeroes positions, requires 'start' again)
+save <name> [id]           Save current position as preset (default motor 0)
+presets                    List all saved presets
+stop                       Emergency stop all motors
+status                     Print all motor states (includes degrees from home)
+help                       Show command list
+
+* = requires 'start' first
+```
+
+### Preset Positions
+
+Save and recall named positions for quick access:
+
+```
+> enable 0
+> start
+> move 0 200              Move to desired position
+> save E2                  Save motor 0's current position as "E2"
+> move 0 -200             Move back
+> goto E2                  Recall — motor 0 moves to saved "E2" position
+> presets                  List all saved presets with degrees from home
+```
+
+Up to 16 presets can be stored. Presets persist until reboot. Use `save <name> <id>` to save a specific motor's position (e.g., `save fret5 1` saves motor 1's position as "fret5").
+
+### Key Files in the Command Chain
+
+| Layer | File | Role |
+|-------|------|------|
+| UART RX | `CM7/App/Src/debug_uart.c` | Interrupt-driven byte reception, line buffering |
+| IRQ Handler | `CM7/Core/Src/stm32h7xx_it.c` | Routes USART3 interrupt to HAL |
+| Command Parser | `CM7/App/Src/serial_cmd.c` | Parses text commands, dispatches handlers |
+| Inter-Core Send | `CM7/App/Src/inter_core_cm7.c` | Writes to shared memory, notifies CM4 |
+| Shared Memory | `Shared/Inc/shared_memory.h` | Command flags + parameter fields |
+| Inter-Core Recv | `CM4/App/Src/app_cm4.c` | Reads commands, calls Motor API |
+| Motor Control | `CM4/App/Src/motor_control.c` | Acceleration limiting, step pulse generation |
 
 ---
 
@@ -306,7 +403,9 @@ int32_t Motor_Init(void)
 - Maximum practical step rate: ~10 kHz per motor
 
 ### Acceleration Limiting
-- Default: `MOTOR_MAX_ACCEL` from application_config.h
+- Default max velocity: `MOTOR_MAX_STEP_FREQ = 10000` steps/sec (from application_config.h)
+- Default max acceleration: `MOTOR_MAX_ACCEL = 1000` steps/sec^2 (from application_config.h)
+- Both can be changed at runtime via `maxspeed` / `accel` serial commands or `Motor_SetLimits()`
 - Prevents motor stalling and missed steps
 
 ---
@@ -355,5 +454,5 @@ int32_t Motor_Init(void)
 
 ---
 
-**Last Updated:** 2026-01-26
-**Version:** 2.0
+**Last Updated:** 2026-02-13
+**Version:** 4.0

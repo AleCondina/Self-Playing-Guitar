@@ -149,4 +149,32 @@ uint8_t Motor_IsConfigured(uint8_t motor_id);
  */
 int32_t Motor_SetMicrostepMode(uint8_t motor_id, uint8_t mode);
 
+/**
+ * @brief Get motor max speed limit
+ * @param motor_id Motor index (0-5)
+ * @return Max speed in steps/sec, or 0 if invalid
+ */
+int32_t Motor_GetMaxSpeed(uint8_t motor_id);
+
+/**
+ * @brief Get motor max acceleration limit
+ * @param motor_id Motor index (0-5)
+ * @return Max accel in steps/sec^2, or 0 if invalid
+ */
+int32_t Motor_GetMaxAccel(uint8_t motor_id);
+
+/**
+ * @brief Get motor enabled state
+ * @param motor_id Motor index (0-5)
+ * @return 1 if enabled, 0 if disabled or invalid
+ */
+uint8_t Motor_IsEnabled(uint8_t motor_id);
+
+/**
+ * @brief Get motor microstep mode
+ * @param motor_id Motor index (0-5)
+ * @return Microstep mode (0-5), or 0 if invalid
+ */
+uint8_t Motor_GetMicrostepMode(uint8_t motor_id);
+
 #endif /* MOTOR_CONTROL_H */

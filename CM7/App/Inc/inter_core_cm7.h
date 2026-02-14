@@ -25,22 +25,6 @@
 int32_t InterCore_CM7_Init(void);
 
 /**
- * @brief Send motor speed command to CM4
- * @param motor_id Motor index (0-5)
- * @param speed_steps_per_sec Target speed in steps/sec (signed for direction)
- * @note  Positive = forward, negative = reverse, 0 = stop
- * @note  Notifies CM4 via HSEM after writing command
- */
-void InterCore_SendMotorSpeed(uint8_t motor_id, int32_t speed_steps_per_sec);
-
-/**
- * @brief Send multiple motor speeds at once (atomic update)
- * @param speeds Array of 6 motor speeds (steps/sec)
- * @note  More efficient than calling InterCore_SendMotorSpeed() 6 times
- */
-void InterCore_SendAllMotorSpeeds(const int32_t speeds[NUM_MOTORS]);
-
-/**
  * @brief Trigger solenoid(s)
  * @param solenoid_mask Bit field of solenoids to trigger (bit 0 = solenoid 0, etc.)
  * @param duration_ms Duration in milliseconds (10-500ms)
@@ -55,6 +39,28 @@ void InterCore_TriggerSolenoids(uint8_t solenoid_mask, uint32_t duration_ms);
  */
 void InterCore_EmergencyStop(void);
 
+
+/**
+ * @brief Check if CM4 is alive (heartbeat check)
+ * @return 1 if CM4 is running, 0 if CM4 appears stalled
+ * @note  Call this periodically (e.g., 100ms) to detect CM4 crashes
+ */
+uint8_t InterCore_IsCM4Alive(void);
+
+/**
+ * @brief Get CM4 diagnostics (loop rate, overruns, etc.)
+ * @param loop_hz Pointer to receive actual CM4 loop rate (Hz)
+ * @param overruns Pointer to receive timing overrun count
+ * @param max_time_us Pointer to receive worst-case loop time (µs)
+ */
+void InterCore_GetCM4Diagnostics(uint32_t *loop_hz, uint32_t *overruns, uint32_t *max_time_us);
+
+/**
+ * @brief Send motor acceleration command to CM4
+ */
+
+
+//-----------------------------START OF MOTOR EXTENDED FUNCS -----------------
 /**
  * @brief Send home command to CM4 (calibration sequence)
  * @note  CM4 will move all motors to home position using limit switches
@@ -72,19 +78,60 @@ void InterCore_HomeMotors(void);
 int32_t InterCore_ReadMotorStatus(uint32_t *status, int32_t positions[NUM_MOTORS], uint32_t *errors);
 
 /**
- * @brief Check if CM4 is alive (heartbeat check)
- * @return 1 if CM4 is running, 0 if CM4 appears stalled
- * @note  Call this periodically (e.g., 100ms) to detect CM4 crashes
+ * @brief Send motor speed command to CM4
+ * @param motor_id Motor index (0-5)
+ * @param speed_steps_per_sec Target speed in steps/sec (signed for direction)
+ * @note  Positive = forward, negative = reverse, 0 = stop
+ * @note  Notifies CM4 via HSEM after writing command
  */
-uint8_t InterCore_IsCM4Alive(void);
+void InterCore_SendMotorSpeed(uint8_t motor_id, int32_t speed_steps_per_sec);
 
 /**
- * @brief Get CM4 diagnostics (loop rate, overruns, etc.)
- * @param loop_hz Pointer to receive actual CM4 loop rate (Hz)
- * @param overruns Pointer to receive timing overrun count
- * @param max_time_us Pointer to receive worst-case loop time (µs)
+ * @brief Send multiple motor speeds at once (atomic update)
+ * @param speeds Array of 6 motor speeds (steps/sec)
+ * @note  More efficient than calling InterCore_SendMotorSpeed() 6 times
  */
-void InterCore_GetCM4Diagnostics(uint32_t *loop_hz, uint32_t *overruns, uint32_t *max_time_us);
+void InterCore_SendAllMotorSpeeds(const int32_t speeds[NUM_MOTORS]);
+
+
+void InterCore_SendMotorAccel(uint8_t motor_id, int32_t accel);
+
+/**
+ * @brief Send motor max speed command to CM4
+ */
+void InterCore_SendMotorMaxSpeed(uint8_t motor_id, int32_t max_speed);
+
+/**
+ * @brief Send relative move command to CM4
+ */
+void InterCore_SendMotorMoveRelative(uint8_t motor_id, int32_t steps);
+
+/**
+ * @brief Send absolute position move command to CM4
+ */
+void InterCore_SendMotorGoto(uint8_t motor_id, int32_t position);
+
+/**
+ * @brief Send microstep mode command to CM4
+ * @param mode 0=full, 1=half, 2=quarter, 3=eighth, 4=16th, 5=32nd
+ */
+void InterCore_SendMotorMicrostep(uint8_t motor_id, uint8_t mode);
+
+/**
+ * @brief Send motor enable/disable command to CM4
+ * @param enable 1=enable, 0=disable
+ */
+void InterCore_SendMotorEnable(uint8_t motor_id, uint8_t enable);
+
+/**
+ * @brief Send zero position command to CM4
+ */
+void InterCore_SendMotorZero(uint8_t motor_id);
+
+
+//----------------END OF MOTOR FUNCS -----------------
+
+
 
 /**
  * @brief Notify CM4 that new command is available

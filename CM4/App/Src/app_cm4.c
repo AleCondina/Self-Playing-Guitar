@@ -20,18 +20,6 @@ extern TIM_HandleTypeDef htim13;
 /* Control loop timing */
 #define CONTROL_LOOP_PERIOD_MS  1   /* 1ms = 1kHz control loop */
 
-/* Motor test state machine */
-typedef enum {
-    MOTOR_TEST_FORWARD,     /* Rotating 360° forward */
-    MOTOR_TEST_PAUSE_1,     /* Brief pause between directions */
-    MOTOR_TEST_REVERSE,     /* Rotating 360° back */
-    MOTOR_TEST_PAUSE_2,     /* Brief pause before repeating */
-    MOTOR_TEST_DONE         /* Test complete */
-} MotorTestState_t;
-
-static MotorTestState_t motor_test_state = MOTOR_TEST_FORWARD;
-static uint32_t motor_test_timer = 0;
-
 /* Application state */
 static uint32_t loop_start_time = 0;
 static uint32_t loop_count = 0;
@@ -47,18 +35,6 @@ void App_CM4_Main(void)
 
     /* Initialize motor control system */
     Motor_Init();
-
-    /* ================================================================
-     * Motor Test Setup: 360° forward, then 360° back
-     *
-     * MOTOR_STEPS_PER_REV = 200 (full step, 1.8° per step)
-     * Speed: 400 steps/sec = 2 revolutions/sec = 120 RPM
-     * Microstepping: Full step
-     * ================================================================ */
-    Motor_SetMicrostepMode(0, MOTOR_MICROSTEP_FULL);   /* Full step mode */
-    Motor_Enable(0);                                    /* Enable DRV8825 (EN LOW) */
-    Motor_SetLimits(0, 400, 500);                       /* 400 steps/sec max, 500 accel */
-    Motor_MoveRelative(0, MOTOR_STEPS_PER_REV);         /* Move 360° forward (200 steps) */
 
     /* Initialize solenoid control system */
     if (Solenoid_Init() != 0) {
@@ -227,47 +203,72 @@ void App_CM4_Main(void)
 
                 InterCore_AckCommand(CMD_STOP_SOLENOID);
             }
-        }
 
-        /* ===== Motor Test State Machine ===== */
-        if (motor_test_state != MOTOR_TEST_DONE) {
-            MotorState_t *m0 = Motor_GetState(0);
+            /* Process motor acceleration change */
+            if (commands & CMD_SET_MOTOR_ACCEL) {
+                uint8_t mid = g_shared_memory.motor_cmd_id;
+                if (mid < NUM_MOTORS) {
+                    Motor_SetLimits(mid, 0, g_shared_memory.motor_cmd_accel);
+                }
+                InterCore_AckCommand(CMD_SET_MOTOR_ACCEL);
+            }
 
-            switch (motor_test_state) {
-                case MOTOR_TEST_FORWARD:
-                    /* Wait for forward move to complete */
-                    if (m0 != NULL && !m0->is_moving) {
-                        motor_test_timer = now;
-                        motor_test_state = MOTOR_TEST_PAUSE_1;
+            /* Process motor max speed change */
+            if (commands & CMD_SET_MOTOR_MAXSPEED) {
+                uint8_t mid = g_shared_memory.motor_cmd_id;
+                if (mid < NUM_MOTORS) {
+                    Motor_SetLimits(mid, g_shared_memory.motor_cmd_max_speed, 0);
+                }
+                InterCore_AckCommand(CMD_SET_MOTOR_MAXSPEED);
+            }
+
+            /* Process relative move */
+            if (commands & CMD_MOTOR_MOVE_REL) {
+                uint8_t mid = g_shared_memory.motor_cmd_id;
+                if (mid < NUM_MOTORS) {
+                    Motor_MoveRelative(mid, g_shared_memory.motor_cmd_position);
+                }
+                InterCore_AckCommand(CMD_MOTOR_MOVE_REL);
+            }
+
+            /* Process absolute move */
+            if (commands & CMD_MOTOR_MOVE_ABS) {
+                uint8_t mid = g_shared_memory.motor_cmd_id;
+                if (mid < NUM_MOTORS) {
+                    Motor_MoveToPosition(mid, g_shared_memory.motor_cmd_position);
+                }
+                InterCore_AckCommand(CMD_MOTOR_MOVE_ABS);
+            }
+
+            /* Process microstep mode change */
+            if (commands & CMD_SET_MICROSTEP) {
+                uint8_t mid = g_shared_memory.motor_cmd_id;
+                if (mid < NUM_MOTORS) {
+                    Motor_SetMicrostepMode(mid, g_shared_memory.motor_cmd_microstep_mode);
+                }
+                InterCore_AckCommand(CMD_SET_MICROSTEP);
+            }
+
+            /* Process motor enable/disable */
+            if (commands & CMD_MOTOR_ENABLE) {
+                uint8_t mid = g_shared_memory.motor_cmd_id;
+                if (mid < NUM_MOTORS) {
+                    if (g_shared_memory.motor_cmd_enable) {
+                        Motor_Enable(mid);
+                    } else {
+                        Motor_Disable(mid);
                     }
-                    break;
+                }
+                InterCore_AckCommand(CMD_MOTOR_ENABLE);
+            }
 
-                case MOTOR_TEST_PAUSE_1:
-                    /* 500ms pause before reversing */
-                    if ((now - motor_test_timer) >= 500) {
-                        Motor_MoveRelative(0, -MOTOR_STEPS_PER_REV);  /* 360° back */
-                        motor_test_state = MOTOR_TEST_REVERSE;
-                    }
-                    break;
-
-                case MOTOR_TEST_REVERSE:
-                    /* Wait for reverse move to complete */
-                    if (m0 != NULL && !m0->is_moving) {
-                        motor_test_timer = now;
-                        motor_test_state = MOTOR_TEST_PAUSE_2;
-                    }
-                    break;
-
-                case MOTOR_TEST_PAUSE_2:
-                    /* 500ms pause, then loop back to forward (line 265 = infinite loop) */
-                    if ((now - motor_test_timer) >= 500) {
-                        Motor_MoveRelative(0, MOTOR_STEPS_PER_REV);  /* 360° forward again */
-                        motor_test_state = MOTOR_TEST_FORWARD;       /* LINE 265: change to MOTOR_TEST_DONE to stop */
-                    }
-                    break;
-
-                default:
-                    break;
+            /* Process position zero */
+            if (commands & CMD_MOTOR_ZERO) {
+                uint8_t mid = g_shared_memory.motor_cmd_id;
+                if (mid < NUM_MOTORS) {
+                    Motor_ZeroPosition(mid);
+                }
+                InterCore_AckCommand(CMD_MOTOR_ZERO);
             }
         }
 
@@ -276,23 +277,20 @@ void App_CM4_Main(void)
         Motor_Update(Motor_GetState(0));
 
         /* Update shared memory with current motor states */
-        for (uint8_t i = 0; i < NUM_MOTORS; i++) {
-            motor_states = Motor_GetState(i);
-            if (motor_states != NULL) {
-                /* Update shared memory with current speed and position */
-                g_shared_memory.current_speeds[i] = motor_states->current_speed;
-                g_shared_memory.current_positions[i] = motor_states->position;
-            }
-        }
-
-        /* Update motor state flags */
         uint8_t any_moving = 0;
         for (uint8_t i = 0; i < NUM_MOTORS; i++) {
             motor_states = Motor_GetState(i);
-            if (motor_states != NULL && motor_states->is_moving) {
-                any_moving = 1;
-                break;
+            if (motor_states != NULL) {
+                g_shared_memory.current_speeds[i] = motor_states->current_speed;
+                g_shared_memory.current_positions[i] = motor_states->position;
+                g_shared_memory.target_speeds_status[i] = motor_states->target_speed;
+                g_shared_memory.motor_is_moving[i] = motor_states->is_moving;
+                if (motor_states->is_moving) any_moving = 1;
             }
+            g_shared_memory.max_speeds_status[i] = Motor_GetMaxSpeed(i);
+            g_shared_memory.max_accels_status[i] = Motor_GetMaxAccel(i);
+            g_shared_memory.motor_enabled[i] = Motor_IsEnabled(i);
+            g_shared_memory.motor_microstep_status[i] = Motor_GetMicrostepMode(i);
         }
 
         uint32_t status = MOTOR_STATUS_READY;
@@ -304,28 +302,7 @@ void App_CM4_Main(void)
         /* Update heartbeat */
         InterCore_UpdateHeartbeat();
 
-        /* TEST MODE: Cycle through all strings and frets every 2 seconds */
-        // if ((now - last_test_change) >= 2000) {
-        //     /* Update test parameters */
-        //     test_fret++;
-        //     if (test_fret >= 8) {
-        //         test_fret = 0;
-        //         test_string++;
-        //         if (test_string >= 6) {
-        //             test_string = 0;  /* Loop back to E2 (low E) */
-        //         }
-        //     }
-
-        //     /* Update solenoid 0 with new frequency */
-        //     Solenoid_SetFrequency(0, test_string, test_fret);
-
-        //     /* Store current test state in shared memory for debugging */
-        //     g_shared_memory.solenoid_string = test_string;
-        //     g_shared_memory.solenoid_fret = test_fret;
-
-        //     last_test_change = now;
-        // }
-
+       
         /* ===== Control Loop End ===== */
 
         /* Measure loop execution time */

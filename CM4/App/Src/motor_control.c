@@ -59,6 +59,10 @@ static MotorConfig_t motor_configs[NUM_MOTORS] = {0};
 static int32_t target_positions[NUM_MOTORS] = {0};
 static uint8_t position_mode[NUM_MOTORS] = {0}; /* 1 if in position control mode */
 
+/* Runtime state tracking */
+static uint8_t motor_enabled_state[NUM_MOTORS] = {0};
+static uint8_t motor_microstep_mode[NUM_MOTORS] = {0};
+
 /**
  * @brief Microsecond delay using DWT cycle counter
  * @param us Delay in microseconds
@@ -339,7 +343,17 @@ void Motor_EmergencyStop(void)
  */
 void Motor_Home(void)
 {
-    /* TODO: Implement homing sequence with limit switches */
+    /* Software home: zero all configured motor positions */
+    for (uint8_t i = 0; i < NUM_MOTORS; i++) {
+        if (motor_configs[i].configured) {
+            motor_states[i].target_speed = 0;
+            motor_states[i].current_speed = 0;
+            motor_states[i].position = 0;
+            motor_states[i].is_moving = 0;
+            target_positions[i] = 0;
+            position_mode[i] = 0;
+        }
+    }
 }
 
 /**
@@ -351,12 +365,13 @@ int32_t Motor_SetLimits(uint8_t motor_id, int32_t max_speed, int32_t max_accel)
         return -1;
     }
 
-    if (max_speed <= 0 || max_accel <= 0) {
-        return -1;
+    /* 0 means "keep current value" - allows updating one without the other */
+    if (max_speed > 0) {
+        motor_configs[motor_id].max_speed = max_speed;
     }
-
-    motor_configs[motor_id].max_speed = max_speed;
-    motor_configs[motor_id].max_accel = max_accel;
+    if (max_accel > 0) {
+        motor_configs[motor_id].max_accel = max_accel;
+    }
 
     return 0;
 }
@@ -421,6 +436,7 @@ int32_t Motor_Enable(uint8_t motor_id)
         HAL_GPIO_WritePin(motor_configs[motor_id].pins.en_port,
                           motor_configs[motor_id].pins.en_pin, GPIO_PIN_RESET);
     }
+    motor_enabled_state[motor_id] = 1;
 
     return 0;
 }
@@ -444,6 +460,7 @@ int32_t Motor_Disable(uint8_t motor_id)
         HAL_GPIO_WritePin(motor_configs[motor_id].pins.en_port,
                           motor_configs[motor_id].pins.en_pin, GPIO_PIN_SET);
     }
+    motor_enabled_state[motor_id] = 0;
 
     return 0;
 }
@@ -489,7 +506,47 @@ int32_t Motor_SetMicrostepMode(uint8_t motor_id, uint8_t mode)
     HAL_GPIO_WritePin(motor_configs[motor_id].pins.m2_port,
                       motor_configs[motor_id].pins.m2_pin, m2_state);
 
+    motor_microstep_mode[motor_id] = mode;
+
     return 0;
+}
+
+/**
+ * @brief Get motor max speed limit
+ */
+int32_t Motor_GetMaxSpeed(uint8_t motor_id)
+{
+    if (motor_id >= NUM_MOTORS || !motor_configs[motor_id].configured) return 0;
+    return motor_configs[motor_id].max_speed > 0 ?
+           motor_configs[motor_id].max_speed : MOTOR_MAX_STEP_FREQ;
+}
+
+/**
+ * @brief Get motor max acceleration limit
+ */
+int32_t Motor_GetMaxAccel(uint8_t motor_id)
+{
+    if (motor_id >= NUM_MOTORS || !motor_configs[motor_id].configured) return 0;
+    return motor_configs[motor_id].max_accel > 0 ?
+           motor_configs[motor_id].max_accel : MOTOR_MAX_ACCEL;
+}
+
+/**
+ * @brief Get motor enabled state
+ */
+uint8_t Motor_IsEnabled(uint8_t motor_id)
+{
+    if (motor_id >= NUM_MOTORS) return 0;
+    return motor_enabled_state[motor_id];
+}
+
+/**
+ * @brief Get motor microstep mode
+ */
+uint8_t Motor_GetMicrostepMode(uint8_t motor_id)
+{
+    if (motor_id >= NUM_MOTORS) return 0;
+    return motor_microstep_mode[motor_id];
 }
 
 /**

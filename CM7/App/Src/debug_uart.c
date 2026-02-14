@@ -11,9 +11,18 @@
 #include "stm32h7xx_nucleo.h"
 #include <stdio.h>
 #include <stdarg.h>
+#include <string.h>
 
 /* Use BSP COM port (initialized in main.c) */
 extern UART_HandleTypeDef hcom_uart[COMn];
+
+/* ===== UART RX State ===== */
+#define UART_RX_BUFFER_SIZE  128
+
+static uint8_t rx_byte;                              /* Single byte for HAL_UART_Receive_IT */
+static char    rx_line_buffer[UART_RX_BUFFER_SIZE];  /* Accumulated line */
+static uint16_t rx_line_pos = 0;                     /* Current position in line buffer */
+static volatile uint8_t rx_line_ready = 0;           /* Flag: complete line available */
 
 /**
  * @brief Initialize debug UART
@@ -89,4 +98,75 @@ void Debug_PrintMotorStatus(uint8_t motor_id)
            motor_id,
            g_shared_memory.current_speeds[motor_id],
            g_shared_memory.current_positions[motor_id]);
+}
+
+/* ===== UART RX Functions ===== */
+
+/**
+ * @brief Start UART RX interrupt reception
+ */
+void Debug_UART_StartRx(void)
+{
+    HAL_NVIC_SetPriority(USART3_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(USART3_IRQn);
+    HAL_UART_Receive_IT(&hcom_uart[COM1], &rx_byte, 1);
+}
+
+/**
+ * @brief Check if a complete command line is available
+ */
+uint8_t Debug_UART_IsLineReady(void)
+{
+    return rx_line_ready;
+}
+
+/**
+ * @brief Get the received command line
+ */
+uint16_t Debug_UART_GetLine(char *buffer, uint16_t max_len)
+{
+    if (!rx_line_ready) return 0;
+
+    uint16_t len = rx_line_pos;
+    if (len >= max_len) len = max_len - 1;
+
+    memcpy(buffer, rx_line_buffer, len);
+    buffer[len] = '\0';
+
+    /* Reset for next line */
+    rx_line_pos = 0;
+    rx_line_ready = 0;
+
+    return len;
+}
+
+/**
+ * @brief HAL UART RX complete callback (called from ISR context)
+ */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART3) {
+        char c = (char)rx_byte;
+
+        if (c == '\r' || c == '\n') {
+            if (rx_line_pos > 0) {
+                rx_line_buffer[rx_line_pos] = '\0';
+                rx_line_ready = 1;
+            }
+            HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*)"\r\n", 2, 10);
+        }
+        else if (c == '\b' || c == 0x7F) {  /* Backspace / DEL */
+            if (rx_line_pos > 0) {
+                rx_line_pos--;
+                HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*)"\b \b", 3, 10);
+            }
+        }
+        else if (rx_line_pos < UART_RX_BUFFER_SIZE - 1 && !rx_line_ready) {
+            rx_line_buffer[rx_line_pos++] = c;
+            HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*)&c, 1, 10);
+        }
+
+        /* Re-arm for next byte */
+        HAL_UART_Receive_IT(&hcom_uart[COM1], &rx_byte, 1);
+    }
 }

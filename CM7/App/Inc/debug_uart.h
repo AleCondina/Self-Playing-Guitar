@@ -37,4 +37,24 @@ void Debug_PrintSharedMemory(void);
  */
 void Debug_PrintMotorStatus(uint8_t motor_id);
 
+/**
+ * @brief Start UART RX interrupt reception
+ * @note  Call once after BSP_COM_Init() to begin receiving characters
+ */
+void Debug_UART_StartRx(void);
+
+/**
+ * @brief Check if a complete command line is available
+ * @return 1 if line ready, 0 if not
+ */
+uint8_t Debug_UART_IsLineReady(void);
+
+/**
+ * @brief Get the received command line
+ * @param buffer  Destination buffer (caller-provided)
+ * @param max_len Maximum bytes to copy
+ * @return Length of string copied (excluding null terminator)
+ */
+uint16_t Debug_UART_GetLine(char *buffer, uint16_t max_len);
+
 #endif /* DEBUG_UART_H */
