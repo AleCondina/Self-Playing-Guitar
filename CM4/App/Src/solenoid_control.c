@@ -24,10 +24,17 @@ extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 string (PB9) */
 typedef struct {
     TIM_HandleTypeDef *htim;     /* Timer handle */
     uint32_t channel;             /* TIM_CHANNEL_1 or TIM_CHANNEL_2 */
-    uint8_t current_string;       /* Last set string (0-2) */
+    uint8_t current_string;       /* Last set string (0-5) */
     uint8_t current_fret;         /* Last set fret (0-7) */
     uint8_t duty_cycle;           /* Current duty cycle (1-99) */
     uint8_t is_active;            /* 1 if PWM running, 0 if stopped */
+
+    /* Auto-stop timing control */
+    uint32_t start_timestamp_ms;      /* HAL_GetTick() when started */
+    uint16_t target_duration_ms;      /* Milliseconds to run (0 = infinite) */
+    uint16_t target_burst_cycles;     /* Cycles to run (0 = disabled) */
+    uint32_t accumulated_cycles;      /* Cycles completed so far (calculated) */
+    uint8_t auto_stop_mode;           /* 0=infinite, 1=timed, 2=burst */
 } SolenoidState_t;
 
 /* Solenoid state array (6 solenoids, one per guitar string) */
@@ -285,4 +292,77 @@ uint32_t Solenoid_GetFrequency(uint8_t solenoid_id)
     uint32_t freq_hz = 640000UL / (arr + 1);
 
     return freq_hz;
+}
+
+/**
+ * @brief Start solenoid with auto-stop timing
+ * @param solenoid_id Solenoid index (0-5)
+ * @param mode 0=infinite, 1=timed, 2=burst
+ * @param time_ms Duration in milliseconds (for timed mode, 0=infinite)
+ * @param cycles Number of PWM cycles (for burst mode, 0=disabled)
+ */
+void Solenoid_StartTimed(uint8_t solenoid_id, uint8_t mode,
+                         uint16_t time_ms, uint16_t cycles)
+{
+    if (solenoid_id >= SOLENOID_COUNT) {
+        return;
+    }
+
+    SolenoidState_t *state = &solenoid_states[solenoid_id];
+
+    /* Record timing parameters */
+    state->auto_stop_mode = mode;
+    state->target_duration_ms = time_ms;
+    state->target_burst_cycles = cycles;
+    state->start_timestamp_ms = HAL_GetTick();
+    state->accumulated_cycles = 0;
+
+    /* Start PWM output */
+    Solenoid_Start(solenoid_id);
+}
+
+/**
+ * @brief Update auto-stop timing for all solenoids
+ * @return Bitmask of solenoids that auto-stopped this call
+ * @note Call every 1ms from CM4 control loop
+ */
+uint8_t Solenoid_UpdateAutoStop(void)
+{
+    uint8_t stopped_mask = 0;
+    uint32_t now = HAL_GetTick();
+
+    for (uint8_t i = 0; i < SOLENOID_COUNT; i++) {
+        SolenoidState_t *state = &solenoid_states[i];
+
+        /* Skip if not active or in infinite mode */
+        if (!state->is_active || state->auto_stop_mode == 0) {
+            continue;
+        }
+
+        /* Handle TIMED mode */
+        if (state->auto_stop_mode == 1) {
+            uint32_t elapsed_ms = now - state->start_timestamp_ms;
+
+            if (elapsed_ms >= state->target_duration_ms) {
+                Solenoid_Stop(i);
+                stopped_mask |= (1 << i);
+            }
+        }
+        /* Handle BURST mode */
+        else if (state->auto_stop_mode == 2) {
+            /* Calculate cycles completed from elapsed time and frequency */
+            uint32_t elapsed_ms = now - state->start_timestamp_ms;
+            uint32_t freq_hz = Solenoid_GetFrequency(i);
+
+            /* Cycles = (elapsed_ms * freq_hz) / 1000 */
+            uint32_t cycles = (elapsed_ms * freq_hz) / 1000;
+
+            if (cycles >= state->target_burst_cycles) {
+                Solenoid_Stop(i);
+                stopped_mask |= (1 << i);
+            }
+        }
+    }
+
+    return stopped_mask;
 }

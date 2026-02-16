@@ -253,17 +253,21 @@ void App_CM4_Main(void)
                 uint8_t string = g_shared_memory.solenoid_string;
                 uint8_t fret = g_shared_memory.solenoid_fret;
                 uint8_t duty = g_shared_memory.solenoid_duty_cycle;
+                uint8_t mode = g_shared_memory.solenoid_mode;
+                uint16_t time_ms = g_shared_memory.solenoid_activation_time_ms;
+                uint16_t burst = g_shared_memory.solenoid_burst_cycles;
 
                 /* Validate solenoid ID and string/fret */
-                if (sol_id < 3 && string < 6 && fret < 8) {
+                if (sol_id < 6 && string < 6 && fret < 8) {
                     /* Set frequency for target solenoid */
                     if (Solenoid_SetFrequency(sol_id, string, fret) == 0) {
                         /* Set duty cycle if non-zero */
                         if (duty > 0 && duty < 100) {
                             Solenoid_SetDutyCycle(sol_id, duty);
                         }
-                        /* Start PWM output */
-                        Solenoid_Start(sol_id);
+
+                        /* Start with timing parameters */
+                        Solenoid_StartTimed(sol_id, mode, time_ms, burst);
 
                         /* Update active mask in shared memory */
                         g_shared_memory.solenoid_active_mask = Solenoid_GetActiveMask();
@@ -281,7 +285,7 @@ void App_CM4_Main(void)
             if (commands & CMD_STOP_SOLENOID) {
                 uint8_t sol_id = g_shared_memory.solenoid_id;
 
-                if (sol_id < 3) {
+                if (sol_id < 6) {
                     Solenoid_Stop(sol_id);
                     g_shared_memory.solenoid_active_mask = Solenoid_GetActiveMask();
                 } else if (sol_id == 0xFF) {
@@ -293,6 +297,9 @@ void App_CM4_Main(void)
                 InterCore_AckCommand(CMD_STOP_SOLENOID);
             }
         }
+
+        /* Update solenoid auto-stop timing (1ms loop) */
+        Solenoid_UpdateAutoStop();
 
         /* Check if microstep mode needs to be updated */
         if (g_shared_memory.motor_microstep_changed) {

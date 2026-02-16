@@ -58,4 +58,14 @@ void Debug_PrintTuningStatus(void);
  */
 void Debug_InitMotorDefaults(void);
 
+/**
+ * @brief Print solenoid help
+ */
+void Debug_PrintSolenoidHelp(void);
+
+/**
+ * @brief Print solenoid status
+ */
+void Debug_PrintSolenoidStatus(void);
+
 #endif /* DEBUG_UART_H */

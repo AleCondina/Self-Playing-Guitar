@@ -101,4 +101,26 @@ uint8_t Solenoid_GetActiveMask(void);
  */
 uint32_t Solenoid_GetFrequency(uint8_t solenoid_id);
 
+/**
+ * @brief Start solenoid with auto-stop timing
+ * @param solenoid_id Solenoid index (0-5)
+ * @param mode 0=infinite, 1=timed, 2=burst
+ * @param time_ms Duration in milliseconds (for timed mode, 0=infinite)
+ * @param cycles Number of PWM cycles (for burst mode, 0=disabled)
+ * @note  Sets timing parameters and starts PWM output
+ * @note  For infinite mode: runs until explicit Solenoid_Stop() call
+ * @note  For timed mode: auto-stops after time_ms milliseconds
+ * @note  For burst mode: auto-stops after cycles complete waveforms
+ */
+void Solenoid_StartTimed(uint8_t solenoid_id, uint8_t mode,
+                         uint16_t time_ms, uint16_t cycles);
+
+/**
+ * @brief Update auto-stop timing for all solenoids
+ * @return Bitmask of solenoids that auto-stopped this call
+ * @note  Call every 1ms from CM4 control loop
+ * @note  Checks timed and burst mode timeouts, auto-stops when reached
+ */
+uint8_t Solenoid_UpdateAutoStop(void);
+
 #endif /* SOLENOID_CONTROL_H */

@@ -119,6 +119,7 @@ void Debug_PrintHelp(void)
     printf("start            - Start oscillation test\r\n");
     printf("stop             - Stop motor\r\n");
     printf("status           - Show current settings\r\n");
+    printf("solhelp          - Solenoid commands help\r\n");
     printf("help             - Show this help\r\n");
     printf("=================================\r\n\r\n");
 }
@@ -146,6 +147,48 @@ void Debug_PrintTuningStatus(void)
     printf("Position:     %ld steps\r\n", g_shared_memory.current_positions[0]);
     printf("Cur Speed:    %ld steps/sec\r\n", g_shared_memory.current_speeds[0]);
     printf("===============================\r\n\r\n");
+}
+
+/**
+ * @brief Print solenoid help
+ */
+void Debug_PrintSolenoidHelp(void)
+{
+    printf("\r\n===== Solenoid Commands =====\r\n");
+    printf("sol <id> <str> <fret> [duty] [time] [cycles]\r\n");
+    printf("  id:     Solenoid 0-5\r\n");
+    printf("  str:    String 0-5 (E2,A2,D3,G3,B3,E4)\r\n");
+    printf("  fret:   Fret 0-7\r\n");
+    printf("  duty:   Duty cycle 1-99%% (default: 50)\r\n");
+    printf("  time:   Duration ms, 0=infinite (default: 0)\r\n");
+    printf("  cycles: Burst N cycles, 0=disabled (default: 0)\r\n");
+    printf("\r\n");
+    printf("solstop <id|all>   - Stop solenoid(s)\r\n");
+    printf("solstatus          - Show active solenoids\r\n");
+    printf("solhelp            - Show this help\r\n");
+    printf("==============================\r\n\r\n");
+}
+
+/**
+ * @brief Print solenoid status
+ */
+void Debug_PrintSolenoidStatus(void)
+{
+    printf("\r\n===== Solenoid Status =====\r\n");
+    printf("Active Mask: 0x%02X\r\n", g_shared_memory.solenoid_active_mask);
+
+    for (uint8_t i = 0; i < 6; i++) {
+        if (g_shared_memory.solenoid_active_mask & (1 << i)) {
+            printf("Solenoid %u: ACTIVE\r\n", i);
+        }
+    }
+
+    printf("Last Config: Sol=%u Str=%u Fret=%u Duty=%u%%\r\n",
+           g_shared_memory.solenoid_id,
+           g_shared_memory.solenoid_string,
+           g_shared_memory.solenoid_fret,
+           g_shared_memory.solenoid_duty_cycle);
+    printf("============================\r\n\r\n");
 }
 
 /**
@@ -253,6 +296,114 @@ static void Debug_ParseCommand(char *cmd)
             printf("Usage: microstep <0-5>\r\n");
             printf("  0=full, 1=1/2, 2=1/4, 3=1/8, 4=1/16, 5=1/32\r\n");
         }
+    }
+    /* Solenoid commands */
+    else if (strcmp(token, "solhelp") == 0) {
+        Debug_PrintSolenoidHelp();
+    }
+    else if (strcmp(token, "solstatus") == 0) {
+        Debug_PrintSolenoidStatus();
+    }
+    else if (strcmp(token, "sol") == 0) {
+        /* Parse: sol <id> <string> <fret> [duty] [time_ms] [burst_cycles] */
+        char *arg_id = arg;  /* Use already-parsed first argument */
+        char *arg_str = strtok(NULL, " \t");
+        char *arg_fret = strtok(NULL, " \t");
+        char *arg_duty = strtok(NULL, " \t");
+        char *arg_time = strtok(NULL, " \t");
+        char *arg_burst = strtok(NULL, " \t");
+
+        /* Validate required args */
+        if (!arg_id || !arg_str || !arg_fret) {
+            printf("Usage: sol <id> <str> <fret> [duty] [time] [cycles]\r\n");
+            return;
+        }
+
+        /* Parse and validate all parameters */
+        int32_t id = atoi(arg_id);
+        int32_t str = atoi(arg_str);
+        int32_t fret = atoi(arg_fret);
+        int32_t duty = arg_duty ? atoi(arg_duty) : 50;
+        int32_t time_ms = arg_time ? atoi(arg_time) : 0;
+        int32_t burst = arg_burst ? atoi(arg_burst) : 0;
+
+        /* Validate ranges */
+        if (id < 0 || id > 5) {
+            printf("Invalid solenoid ID (0-5)\r\n");
+            return;
+        }
+        if (str < 0 || str > 5) {
+            printf("Invalid string (0-5)\r\n");
+            return;
+        }
+        if (fret < 0 || fret > 7) {
+            printf("Invalid fret (0-7)\r\n");
+            return;
+        }
+        if (duty < 1 || duty > 99) {
+            printf("Invalid duty cycle (1-99%%)\r\n");
+            return;
+        }
+        if (time_ms < 0 || time_ms > 5000) {
+            printf("Invalid time (0-5000ms)\r\n");
+            return;
+        }
+        if (burst < 0 || burst > 1000) {
+            printf("Invalid burst cycles (0-1000)\r\n");
+            return;
+        }
+
+        /* Populate shared memory */
+        g_shared_memory.solenoid_id = (uint8_t)id;
+        g_shared_memory.solenoid_string = (uint8_t)str;
+        g_shared_memory.solenoid_fret = (uint8_t)fret;
+        g_shared_memory.solenoid_duty_cycle = (uint8_t)duty;
+        g_shared_memory.solenoid_activation_time_ms = (uint16_t)time_ms;
+        g_shared_memory.solenoid_burst_cycles = (uint16_t)burst;
+
+        /* Determine mode */
+        if (burst > 0) {
+            g_shared_memory.solenoid_mode = SOLENOID_MODE_BURST;  /* BURST mode */
+        } else if (time_ms > 0) {
+            g_shared_memory.solenoid_mode = SOLENOID_MODE_TIMED;  /* TIMED mode */
+        } else {
+            g_shared_memory.solenoid_mode = SOLENOID_MODE_INFINITE;  /* INFINITE mode */
+        }
+
+        /* Set command flag */
+        g_shared_memory.motor_command_flags |= CMD_TRIGGER_SOLENOID;
+
+        printf("Triggering Sol%ld: Str%ld Fret%ld Duty%ld%% ", id, str, fret, duty);
+        if (burst > 0) {
+            printf("Burst=%ld cycles\r\n", burst);
+        } else if (time_ms > 0) {
+            printf("Time=%ldms\r\n", time_ms);
+        } else {
+            printf("Infinite\r\n");
+        }
+    }
+    else if (strcmp(token, "solstop") == 0) {
+        /* Use already-parsed first argument */
+        if (!arg) {
+            printf("Usage: solstop <id|all>\r\n");
+            return;
+        }
+
+        if (strcmp(arg, "all") == 0) {
+            g_shared_memory.solenoid_id = 0xFF;  /* Special value for "all" */
+            printf("Stopping all solenoids\r\n");
+        } else {
+            int32_t id = atoi(arg);
+            if (id < 0 || id > 5) {
+                printf("Invalid solenoid ID (0-5)\r\n");
+                return;
+            }
+            g_shared_memory.solenoid_id = (uint8_t)id;
+            printf("Stopping solenoid %ld\r\n", id);
+        }
+
+        /* Set stop command flag */
+        g_shared_memory.motor_command_flags |= CMD_STOP_SOLENOID;
     }
     else {
         printf("Unknown command: %s (type 'help' for commands)\r\n", token);
