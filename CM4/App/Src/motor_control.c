@@ -64,23 +64,6 @@ static uint8_t motor_enabled_state[NUM_MOTORS] = {0};
 static uint8_t motor_microstep_mode[NUM_MOTORS] = {0};
 
 /**
- * @brief Integer square root (Newton's method)
- * @param n Input value (must be >= 0)
- * @return Floor of sqrt(n)
- */
-static int32_t isqrt_i64(int64_t n)
-{
-    if (n <= 0) return 0;
-    int64_t x = n;
-    int64_t y = (x + 1) / 2;
-    while (y < x) {
-        x = y;
-        y = (x + n / x) / 2;
-    }
-    return (int32_t)x;
-}
-
-/**
  * @brief Microsecond delay using DWT cycle counter
  * @param us Delay in microseconds
  * @note  Requires DWT to be enabled (done in Motor_Init)
@@ -211,10 +194,11 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
         int32_t max_accel = motor_configs[i].max_accel > 0 ?
                            motor_configs[i].max_accel : MOTOR_MAX_ACCEL;
 
-        /* Position control mode: trapezoidal profile to reach target
-         * Uses v = sqrt(2 * accel * distance) to compute the maximum safe
-         * approach speed at any distance. This ensures the motor decelerates
-         * smoothly and stops exactly at the target without overshoot. */
+        /* Position control mode: P controller with braking distance check
+         * The P controller (gain=10) sets the target speed proportional to
+         * the distance remaining. A braking check prevents overshoot by
+         * comparing stopping distance (v²/2a) against remaining distance.
+         * When the motor can't stop in time, it decelerates to 0. */
         if (position_mode[i]) {
             int32_t position_error = target_positions[i] - states[i].position;
             int32_t abs_error = (position_error >= 0) ? position_error : -position_error;
@@ -222,26 +206,29 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
                                 states[i].current_speed : -states[i].current_speed;
 
             if (abs_error == 0 && abs_speed == 0) {
-                /* At target and fully stopped — exit position mode */
+                /* At target AND fully stopped — exit position mode */
                 states[i].target_speed = 0;
                 position_mode[i] = 0;
             } else {
-                /* Max speed that allows stopping within remaining distance */
-                int32_t v_decel = isqrt_i64(2LL * (int64_t)max_accel * abs_error);
+                /* Check stopping distance: v² / (2*a) */
+                int32_t stop_dist = (int32_t)((int64_t)abs_speed * abs_speed
+                                    / (2 * max_accel));
 
-                /* Clamp to motor's max speed */
-                if (v_decel > max_speed) {
-                    v_decel = max_speed;
-                }
-
-                /* Set target speed in direction of target */
-                if (position_error > 0) {
-                    states[i].target_speed = v_decel;
-                } else if (position_error < 0) {
-                    states[i].target_speed = -v_decel;
-                } else {
-                    /* At target but still coasting — request stop */
+                if (abs_error == 0 || stop_dist >= abs_error) {
+                    /* At target or can't stop in time — decelerate */
                     states[i].target_speed = 0;
+                } else {
+                    /* P controller: accelerate toward target */
+                    int32_t desired_speed = position_error * 10; /* P gain = 10 */
+
+                    /* Clamp to motor's maximum speed */
+                    if (desired_speed > max_speed) {
+                        desired_speed = max_speed;
+                    } else if (desired_speed < -max_speed) {
+                        desired_speed = -max_speed;
+                    }
+
+                    states[i].target_speed = desired_speed;
                 }
             }
         }
