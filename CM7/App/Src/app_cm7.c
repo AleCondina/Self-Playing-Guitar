@@ -13,8 +13,10 @@
 #include "fft_processing.h"
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
+#include "stm32h7xx_hal_adc.h"
 #include <stdio.h>
 
+extern ADC_HandleTypeDef hadc3;
 /* Application state */
 typedef enum {
     STATE_INIT,
@@ -59,7 +61,7 @@ void App_CM7_Main(void)
         
         /* Initialize audio input (ADC + DMA) */
         printf("[CM7] Initializing audio input...\r\n");
-        if (Audio_Init() != 0) {
+        if (HAL_ADC_GetState(&hadc3) != HAL_ADC_STATE_READY) {
             printf("[CM7] ERROR: Failed to initialize audio input!\r\n");
             app_state = STATE_ERROR;
         } else {
@@ -105,8 +107,8 @@ void App_CM7_Main(void)
                     /* Process the audio buffer with FFT */
                     /* TODO: Implement pitch detection from FFT */
                     FFT_ProcessBlock(audio_buf);
-
-                    // printf("[CM7] Fundamental frequency peak detected: %.2f \n", FFT_GetFundamentals());
+                    // float fundamental_freq = FFT_GetFundamentals();
+                    printf("[CM7] Fundamental frequency peak detected: %.2f \n", FFT_GetFundamental());
                     
                     /* Mark data as processed to enable detection of next buffer */
                     Audio_MarkProcessed();

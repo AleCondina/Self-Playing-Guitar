@@ -31,7 +31,7 @@
 #define SOLENOID_MAX_FREQ_HZ        220 /* Maximum frequency: D3 fret 7 */
 
 /* ===== Audio Processing Parameters ===== */   //TODO: check and modify for FFT
-#define AUDIO_SAMPLE_RATE_HZ    44100   /* ADC sample rate */
+#define AUDIO_SAMPLE_RATE_HZ    20000   /* ADC sample rate */
 #define AUDIO_BUFFER_SIZE       2048    /* Power of 2 for FFT */
 #define AUDIO_FFT_SIZE          2048    /* FFT size (must match buffer) */
 #define FFT_SIZE              2048

@@ -11,8 +11,8 @@
 #include <string.h>
 
 /* ADC and DMA Handle definitions */
-ADC_HandleTypeDef hadc3;           /* ADC3 for audio input */
-DMA_HandleTypeDef hdma_adc3;       /* DMA for ADC3 */
+extern ADC_HandleTypeDef hadc3;           /* ADC3 for audio input */
+extern DMA_HandleTypeDef hdma_adc3;       /* DMA for ADC3 */
 
 /* Audio buffer: Circular DMA buffer (2x half-buffers for ping-pong) */
 static uint16_t audio_buffer[AUDIO_BUFFER_SIZE] = {0};
@@ -51,49 +51,8 @@ void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
 
 int32_t Audio_Init(void)
 {
-    /* Initialize ADC3 with DMA in circular mode */
-    ADC_ChannelConfTypeDef sConfig = {0};
-    
-    /* ADC3 Configuration:
-     * - Resolution: 12-bit
-     * - Sample time: ~13.5 cycles for accuracy
-     * - Clock: APB2 (ADC clock), max 72 MHz
-     * - Sampling at ~44.1 kHz
-     */
-    
-    hadc3.Instance                   = ADC3;
-    hadc3.Init.ClockPrescaler        = ADC_CLOCK_ASYNC_DIV4;      /* 480MHz/4 = 120MHz → 60MHz after internal ÷2 = 60MHz */
-    hadc3.Init.Resolution            = ADC_RESOLUTION_12B;
-    hadc3.Init.ScanConvMode          = ADC_SCAN_DISABLE;          /* Single channel */
-    hadc3.Init.EOCSelection          = ADC_EOC_SINGLE_CONV;
-    hadc3.Init.LowPowerAutoWait      = DISABLE;
-    hadc3.Init.ContinuousConvMode    = ENABLE;                    /* Continuous conversion for DMA */
-    hadc3.Init.NbrOfConversion       = 1;
-    hadc3.Init.DiscontinuousConvMode = DISABLE;
-    hadc3.Init.ExternalTrigConv      = ADC_SOFTWARE_START;        /* Software trigger */
-    hadc3.Init.ExternalTrigConvEdge  = ADC_EXTERNALTRIGCONVEDGE_NONE;
-    hadc3.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DMA_CIRCULAR;  /* Circular DMA */
-    hadc3.Init.Overrun               = ADC_OVR_DATA_OVERWRITTEN;
-    
-    if (HAL_ADC_Init(&hadc3) != HAL_OK) {
-        return -1;  /* Initialization failed */
-    }
-    
-    /* Configure ADC3 regular channel */
-    /* Assuming guitar pickup is connected to ADC3 channel (to be determined from hardware) */
-    /* For now, using a placeholder channel - adjust based on actual hardware setup */
-    sConfig.Channel       = ADC_CHANNEL_0;       /* TODO: Change to actual input channel */
-    sConfig.Rank          = ADC_REGULAR_RANK_1;
-    sConfig.SamplingTime  = ADC_SAMPLETIME_2CYCLES_5;  /* ~0.4 µs per sample @ 60 MHz */
-    sConfig.SingleDiff    = ADC_SINGLE_ENDED;
-    sConfig.OffsetNumber  = ADC_OFFSET_NONE;
-    sConfig.Offset        = 0;
-    
-    if (HAL_ADC_ConfigChannel(&hadc3, &sConfig) != HAL_OK) {
-        return -1;  /* Channel configuration failed */
-    }
-    
-    return 0;  /* Success */
+    /* ADC3 is initialized in MX_ADC3_Init (main.c). Nothing to do here. */
+    return 0;
 }
 
 int32_t Audio_Start(void)

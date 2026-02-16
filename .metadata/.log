@@ -1,0 +1,39 @@
+!SESSION 2026-02-13 18:30:38.095 -----------------------------------------------
+eclipse.buildId=Version 2.0.0
+java.version=21.0.8
+java.vendor=Eclipse Adoptium
+BootLoader constants: OS=macosx, ARCH=x86_64, WS=cocoa, NL=en_US
+Framework arguments:  -keyring /Users/olivier/.eclipse_keyring
+Command-line arguments:  -os macosx -ws cocoa -arch x86_64 -keyring /Users/olivier/.eclipse_keyring
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2026-02-13 18:31:29.975
+!MESSAGE Log4j2 initialized with config file /Users/olivier/Library/CloudStorage/OneDrive-Personal/Documents/Concordia/8th_semester/COEN 490/Dev/Self-Playing-Guitar/.metadata/.log4j2.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2026-02-13 18:31:39.833
+!MESSAGE Started RMI Server, listening on port 41337
+!SESSION 2026-02-13 18:39:43.726 -----------------------------------------------
+eclipse.buildId=Version 2.0.0
+java.version=21.0.8
+java.vendor=Eclipse Adoptium
+BootLoader constants: OS=macosx, ARCH=x86_64, WS=cocoa, NL=en_US
+Framework arguments:  -keyring /Users/olivier/.eclipse_keyring
+Command-line arguments:  -os macosx -ws cocoa -arch x86_64 -keyring /Users/olivier/.eclipse_keyring -data /Users/olivier/Library/CloudStorage/OneDrive-Personal/Documents/Concordia/8th_semester/COEN 490/Dev/Self-Playing-Guitar
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2026-02-13 18:39:59.576
+!MESSAGE Log4j2 initialized with config file /Users/olivier/Library/CloudStorage/OneDrive-Personal/Documents/Concordia/8th_semester/COEN 490/Dev/Self-Playing-Guitar/.metadata/.log4j2.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2026-02-13 18:40:12.658
+!MESSAGE Started RMI Server, listening on port 41339
+!SESSION 2026-02-13 19:04:19.339 -----------------------------------------------
+eclipse.buildId=Version 2.0.0
+java.version=21.0.8
+java.vendor=Eclipse Adoptium
+BootLoader constants: OS=macosx, ARCH=x86_64, WS=cocoa, NL=en_US
+Framework arguments:  -keyring /Users/olivier/.eclipse_keyring
+Command-line arguments:  -os macosx -ws cocoa -arch x86_64 -keyring /Users/olivier/.eclipse_keyring
+
+!ENTRY com.st.stm32cube.ide.mcu.informationcenter 1 1 2026-02-13 19:04:56.744
+!MESSAGE Log4j2 initialized with config file /Users/olivier/Library/CloudStorage/OneDrive-Personal/Documents/Concordia/8th_semester/COEN 490/Dev/Self-Playing-Guitar/.metadata/.log4j2.xml
+
+!ENTRY com.st.stm32cube.ide.mcu.ide 1 1 2026-02-13 19:05:07.471
+!MESSAGE Started RMI Server, listening on port 41337
