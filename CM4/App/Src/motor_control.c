@@ -64,6 +64,23 @@ static uint8_t motor_enabled_state[NUM_MOTORS] = {0};
 static uint8_t motor_microstep_mode[NUM_MOTORS] = {0};
 
 /**
+ * @brief Integer square root (Newton's method)
+ * @param n Input value (must be >= 0)
+ * @return Floor of sqrt(n)
+ */
+static int32_t isqrt_i64(int64_t n)
+{
+    if (n <= 0) return 0;
+    int64_t x = n;
+    int64_t y = (x + 1) / 2;
+    while (y < x) {
+        x = y;
+        y = (x + n / x) / 2;
+    }
+    return (int32_t)x;
+}
+
+/**
  * @brief Microsecond delay using DWT cycle counter
  * @param us Delay in microseconds
  * @note  Requires DWT to be enabled (done in Motor_Init)
@@ -179,6 +196,7 @@ int32_t Motor_Init(void)
 void Motor_Update(MotorState_t states[NUM_MOTORS])
 {
     static uint32_t step_accumulator[NUM_MOTORS] = {0};
+    static int32_t accel_accumulator[NUM_MOTORS] = {0};
     const uint32_t UPDATE_FREQ_HZ = 1000; /* 1kHz update rate */
 
     for (uint8_t i = 0; i < NUM_MOTORS; i++) {
@@ -187,53 +205,80 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
             continue;
         }
 
-        /* Position control mode: calculate speed to reach target */
-        if (position_mode[i]) {
-            int32_t position_error = target_positions[i] - states[i].position;
-
-            /* Simple proportional control with velocity limiting */
-            if (position_error == 0) {
-                states[i].target_speed = 0;
-                position_mode[i] = 0; /* Exit position mode when target reached */
-            } else {
-                /* Calculate desired speed (proportional to error, clamped) */
-                int32_t desired_speed = position_error * 10; /* P gain = 10 */
-
-                /* Get motor-specific limits */
-                int32_t max_spd = motor_configs[i].max_speed > 0 ?
-                                 motor_configs[i].max_speed : MOTOR_MAX_STEP_FREQ;
-
-                /* Clamp to motor's maximum speed */
-                if (desired_speed > max_spd) {
-                    desired_speed = max_spd;
-                } else if (desired_speed < -max_spd) {
-                    desired_speed = -max_spd;
-                }
-
-                states[i].target_speed = desired_speed;
-            }
-        }
-
-        /* Get motor-specific acceleration limit */
+        /* Get motor-specific limits (used by position control and accel limiter) */
+        int32_t max_speed = motor_configs[i].max_speed > 0 ?
+                           motor_configs[i].max_speed : MOTOR_MAX_STEP_FREQ;
         int32_t max_accel = motor_configs[i].max_accel > 0 ?
                            motor_configs[i].max_accel : MOTOR_MAX_ACCEL;
 
-        /* Acceleration limiting */
-        int32_t speed_error = states[i].target_speed - states[i].current_speed;
+        /* Position control mode: trapezoidal profile to reach target
+         * Uses v = sqrt(2 * accel * distance) to compute the maximum safe
+         * approach speed at any distance. This ensures the motor decelerates
+         * smoothly and stops exactly at the target without overshoot. */
+        if (position_mode[i]) {
+            int32_t position_error = target_positions[i] - states[i].position;
+            int32_t abs_error = (position_error >= 0) ? position_error : -position_error;
+            int32_t abs_speed = (states[i].current_speed >= 0) ?
+                                states[i].current_speed : -states[i].current_speed;
 
-        /* Clamp acceleration */
-        if (speed_error > max_accel) {
-            speed_error = max_accel;
-        } else if (speed_error < -max_accel) {
-            speed_error = -max_accel;
+            if (abs_error == 0 && abs_speed == 0) {
+                /* At target and fully stopped — exit position mode */
+                states[i].target_speed = 0;
+                position_mode[i] = 0;
+            } else {
+                /* Max speed that allows stopping within remaining distance */
+                int32_t v_decel = isqrt_i64(2LL * (int64_t)max_accel * abs_error);
+
+                /* Clamp to motor's max speed */
+                if (v_decel > max_speed) {
+                    v_decel = max_speed;
+                }
+
+                /* Set target speed in direction of target */
+                if (position_error > 0) {
+                    states[i].target_speed = v_decel;
+                } else if (position_error < 0) {
+                    states[i].target_speed = -v_decel;
+                } else {
+                    /* At target but still coasting — request stop */
+                    states[i].target_speed = 0;
+                }
+            }
         }
 
-        /* Update current speed */
-        states[i].current_speed += speed_error;
+        /* Acceleration limiting using Bresenham accumulator
+         * max_accel is in steps/s². At 1kHz update rate, the per-tick
+         * speed change must be max_accel / 1000. Since this is often
+         * fractional, we accumulate and apply integer changes. */
+        int32_t speed_error = states[i].target_speed - states[i].current_speed;
 
-        /* Get motor-specific speed limit */
-        int32_t max_speed = motor_configs[i].max_speed > 0 ?
-                           motor_configs[i].max_speed : MOTOR_MAX_STEP_FREQ;
+        if (speed_error != 0) {
+            /* Accumulate fractional acceleration */
+            accel_accumulator[i] += max_accel;
+
+            /* Calculate integer speed change for this tick */
+            int32_t max_delta = accel_accumulator[i] / (int32_t)UPDATE_FREQ_HZ;
+            accel_accumulator[i] %= (int32_t)UPDATE_FREQ_HZ;
+
+            /* Apply speed change toward target */
+            if (speed_error > 0) {
+                if (speed_error <= max_delta) {
+                    states[i].current_speed = states[i].target_speed;
+                    accel_accumulator[i] = 0;
+                } else {
+                    states[i].current_speed += max_delta;
+                }
+            } else {
+                if (-speed_error <= max_delta) {
+                    states[i].current_speed = states[i].target_speed;
+                    accel_accumulator[i] = 0;
+                } else {
+                    states[i].current_speed -= max_delta;
+                }
+            }
+        } else {
+            accel_accumulator[i] = 0;
+        }
 
         /* Clamp to min/max speed */
         if (states[i].current_speed > max_speed) {
@@ -343,15 +388,10 @@ void Motor_EmergencyStop(void)
  */
 void Motor_Home(void)
 {
-    /* Software home: zero all configured motor positions */
+    /* Move all configured motors back to position 0 (the home position) */
     for (uint8_t i = 0; i < NUM_MOTORS; i++) {
         if (motor_configs[i].configured) {
-            motor_states[i].target_speed = 0;
-            motor_states[i].current_speed = 0;
-            motor_states[i].position = 0;
-            motor_states[i].is_moving = 0;
-            target_positions[i] = 0;
-            position_mode[i] = 0;
+            Motor_MoveToPosition(i, 0);
         }
     }
 }

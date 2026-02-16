@@ -67,6 +67,7 @@ static void Cmd_Disable(char *args);
 static void Cmd_Zero(char *args);
 static void Cmd_HomeCmd(char *args);
 static void Cmd_Save(char *args);
+static void Cmd_Delete(char *args);
 static void Cmd_Presets(char *args);
 static void Cmd_Stop(char *args);
 static void Cmd_Status(char *args);
@@ -89,9 +90,10 @@ static const CmdEntry_t command_table[] = {
     { "microstep", Cmd_Microstep, "microstep <id> <0-5>    Set microstep mode" },
     { "enable",    Cmd_Enable,    "enable <id>             Enable motor driver" },
     { "disable",   Cmd_Disable,   "disable <id>            Disable motor driver" },
-    { "zero",      Cmd_Zero,      "zero <id>               Zero position counter" },
-    { "home",      Cmd_HomeCmd,   "home                    Re-home all motors" },
+    { "zero",      Cmd_Zero,      "zero <id>               Set current pos as new home (0)" },
+    { "home",      Cmd_HomeCmd,   "home                    Move all motors back to pos 0" },
     { "save",      Cmd_Save,      "save <name> [id]        Save position as preset" },
+    { "delete",    Cmd_Delete,    "delete <name>           Delete a saved preset" },
     { "presets",   Cmd_Presets,   "presets                  List saved presets" },
     { "stop",      Cmd_Stop,      "stop                    Emergency stop all" },
     { "status",    Cmd_Status,    "status                  Print motor status" },
@@ -355,9 +357,12 @@ static void Cmd_Zero(char *args)
 static void Cmd_HomeCmd(char *args)
 {
     (void)args;
+    if (!system_started) {
+        printf("  Error: system not started. Type 'start' first.\r\n");
+        return;
+    }
     InterCore_HomeMotors();
-    system_started = 0;
-    printf("  All motors homed (positions zeroed). Type 'start' to resume.\r\n");
+    printf("  All motors returning to home (position 0).\r\n");
 }
 
 static void Cmd_Save(char *args)
@@ -409,7 +414,26 @@ static void Cmd_Save(char *args)
         }
     }
 
-    printf("  Error: preset storage full (max %d). Delete presets or reboot.\r\n", MAX_PRESETS);
+    printf("  Error: preset storage full (max %d). Use 'delete <name>' to free a slot.\r\n", MAX_PRESETS);
+}
+
+static void Cmd_Delete(char *args)
+{
+    (void)args;
+    char *tok = strtok(NULL, " \t");
+    if (tok == NULL) {
+        printf("  Usage: delete <name>\r\n");
+        return;
+    }
+
+    for (int i = 0; i < MAX_PRESETS; i++) {
+        if (presets[i].used && strcmp(tok, presets[i].name) == 0) {
+            presets[i].used = 0;
+            printf("  Preset '%s' deleted.\r\n", tok);
+            return;
+        }
+    }
+    printf("  Error: preset '%s' not found.\r\n", tok);
 }
 
 static void Cmd_Presets(char *args)

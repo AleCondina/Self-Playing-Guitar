@@ -98,10 +98,10 @@ void App_CM7_Main(void)
                 break;
         }
 
-        /* Print diagnostics every 5 seconds */
-        if (HAL_GetTick() - last_debug_time >= 5000) {
-            last_debug_time = HAL_GetTick();
-            Debug_PrintSharedMemory();
-        }
+        // /* Print diagnostics every 5 seconds */
+        // if (HAL_GetTick() - last_debug_time >= 5000) {
+        //     last_debug_time = HAL_GetTick();
+        //     Debug_PrintSharedMemory();
+        // }
     }
 }
