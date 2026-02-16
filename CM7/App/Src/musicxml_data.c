@@ -1,4 +1,5 @@
 #include <stddef.h>
+#include "musicXML"
 
 /* Plain-text MusicXML (UNCOMPRESSED .musicxml only) */
 const char g_musicxml[] =
