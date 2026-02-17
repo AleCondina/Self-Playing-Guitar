@@ -188,45 +188,51 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
             continue;
         }
 
-        /* Get motor-specific limits (used by position control and accel limiter) */
-        int32_t max_speed = motor_configs[i].max_speed > 0 ?
-                           motor_configs[i].max_speed : MOTOR_MAX_STEP_FREQ;
-        int32_t max_accel = motor_configs[i].max_accel > 0 ?
-                           motor_configs[i].max_accel : MOTOR_MAX_ACCEL;
-
-        /* Position control mode: P controller with braking distance check
-         * The P controller (gain=10) sets the target speed proportional to
-         * the distance remaining. A braking check prevents overshoot by
-         * comparing stopping distance (v²/2a) against remaining distance.
-         * When the motor can't stop in time, it decelerates to 0. */
+        /* Position control mode: calculate speed to reach target with deceleration planning */
         if (position_mode[i]) {
             int32_t position_error = target_positions[i] - states[i].position;
             int32_t abs_error = (position_error >= 0) ? position_error : -position_error;
             int32_t abs_speed = (states[i].current_speed >= 0) ?
                                 states[i].current_speed : -states[i].current_speed;
 
-            if (abs_error == 0 && abs_speed == 0) {
-                /* At target AND fully stopped — exit position mode */
+            /* Get motor-specific limits */
+            int32_t max_spd = motor_configs[i].max_speed > 0 ?
+                             motor_configs[i].max_speed : MOTOR_MAX_STEP_FREQ;
+            int32_t max_acc = motor_configs[i].max_accel > 0 ?
+                             motor_configs[i].max_accel : MOTOR_MAX_ACCEL;
+
+            if (position_error == 0 && states[i].current_speed == 0) {
+                /* Fully stopped at target - exit position mode */
                 states[i].target_speed = 0;
                 position_mode[i] = 0;
+            } else if (position_error == 0) {
+                /* At target but still moving - decelerate to stop */
+                states[i].target_speed = 0;
             } else {
-                /* Check stopping distance: v² / (2*a) */
-                int32_t stop_dist = (int32_t)((int64_t)abs_speed * abs_speed
-                                    / (2 * max_accel));
+                /* Calculate stopping distance: d = v² / (2*a) */
+                /* Use current speed to determine when to start decelerating */
+                int32_t abs_current_speed = (states[i].current_speed >= 0) ?
+                                            states[i].current_speed : -states[i].current_speed;
+                int32_t abs_error = (position_error >= 0) ? position_error : -position_error;
 
-                if (abs_error == 0 || stop_dist >= abs_error) {
-                    /* At target or can't stop in time — decelerate */
-                    states[i].target_speed = 0;
+                /* Stopping distance in steps (add 1 to avoid division issues) */
+                int32_t stopping_distance = (abs_current_speed * abs_current_speed) / (2 * max_acc + 1);
+
+                int32_t desired_speed;
+
+                if (abs_error <= stopping_distance + 1) {
+                    /* Within stopping distance - decelerate */
+                    /* Target speed proportional to sqrt of remaining distance */
+                    /* Approximation: v = sqrt(2 * a * d), simplified to linear ramp down */
+                    desired_speed = (position_error > 0) ? max_acc : -max_acc;
+
+                    /* Minimum speed to keep moving toward target */
+                    if (desired_speed > 0 && desired_speed < 10) desired_speed = 10;
+                    if (desired_speed < 0 && desired_speed > -10) desired_speed = -10;
                 } else {
-                    /* P controller: accelerate toward target */
-                    int32_t desired_speed = position_error * 10; /* P gain = 10 */
-
-                    /* Clamp to motor's maximum speed */
-                    if (desired_speed > max_speed) {
-                        desired_speed = max_speed;
-                    } else if (desired_speed < -max_speed) {
-                        desired_speed = -max_speed;
-                    }
+                    /* Outside stopping distance - accelerate toward max speed */
+                    desired_speed = (position_error > 0) ? max_spd : -max_spd;
+                }
 
                     states[i].target_speed = desired_speed;
                 }
@@ -315,7 +321,7 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
             step_accumulator[i] = 0;
         }
 
-        /* Update is_moving flag: moving if speed is non-zero OR still in position mode */
+        /* Update is_moving flag - include position_mode to prevent premature move triggering */
         states[i].is_moving = (states[i].current_speed != 0) || position_mode[i];
     }
 }

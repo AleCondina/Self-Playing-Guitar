@@ -92,18 +92,17 @@ void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef* htim)
         /* Enable TIM12 clock (APB1 domain) */
         __HAL_RCC_TIM12_CLK_ENABLE();
 
-        /* Enable GPIOB clock for PWM output pins */
+        /* Enable GPIOB clock for PWM output pin */
         __HAL_RCC_GPIOB_CLK_ENABLE();
 
         /**
          * TIM12 GPIO Configuration:
-         * PB14 -> TIM12_CH1 (Solenoid 0: E2 string)
-         * PB15 -> TIM12_CH2 (Solenoid 1: A2 string)
+         * PB14 -> TIM12_CH1 (Solenoid 0: E2 string - Low E)
          */
-        GPIO_InitStruct.Pin = GPIO_PIN_14 | GPIO_PIN_15;
+        GPIO_InitStruct.Pin = GPIO_PIN_14;
         GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;         /* Alternate function push-pull */
         GPIO_InitStruct.Pull = GPIO_NOPULL;             /* No pull-up/pull-down */
-        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;    /* Low speed (82-165 Hz PWM) */
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;    /* Low speed (82 Hz PWM) */
         GPIO_InitStruct.Alternate = GPIO_AF2_TIM12;     /* AF2 = TIM12 */
         HAL_GPIO_Init(GPIOB, &GPIO_InitStruct);
     }
@@ -112,19 +111,95 @@ void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef* htim)
         /* Enable TIM13 clock (APB1 domain) */
         __HAL_RCC_TIM13_CLK_ENABLE();
 
-        /* Enable GPIOA clock for PWM output pin */
-        __HAL_RCC_GPIOA_CLK_ENABLE();
+        /* Enable GPIOF clock for PWM output pin */
+        __HAL_RCC_GPIOF_CLK_ENABLE();
 
         /**
          * TIM13 GPIO Configuration:
-         * PA6 -> TIM13_CH1 (Solenoid 2: D3 string)
+         * PF8 -> TIM13_CH1 (Solenoid 2: D3 string) - ZIO CN9-24
+         */
+        GPIO_InitStruct.Pin = GPIO_PIN_8;
+        GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;         /* Alternate function push-pull */
+        GPIO_InitStruct.Pull = GPIO_NOPULL;             /* No pull-up/pull-down */
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;    /* Low speed (147 Hz PWM) */
+        GPIO_InitStruct.Alternate = GPIO_AF9_TIM13;     /* AF9 = TIM13 */
+        HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+    }
+    else if(htim->Instance == TIM14)
+    {
+        /* Enable TIM14 clock (APB1 domain) */
+        __HAL_RCC_TIM14_CLK_ENABLE();
+
+        /* Enable GPIOF clock for PWM output pin */
+        __HAL_RCC_GPIOF_CLK_ENABLE();
+
+        /**
+         * TIM14 GPIO Configuration:
+         * PF9 -> TIM14_CH1 (Solenoid 1: A2 string) - ZIO CN9-28
+         */
+        GPIO_InitStruct.Pin = GPIO_PIN_9;
+        GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;         /* Alternate function push-pull */
+        GPIO_InitStruct.Pull = GPIO_NOPULL;             /* No pull-up/pull-down */
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;    /* Low speed (110 Hz PWM) */
+        GPIO_InitStruct.Alternate = GPIO_AF9_TIM14;     /* AF9 = TIM14 */
+        HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+    }
+    else if(htim->Instance == TIM15)
+    {
+        /* Enable TIM15 clock (APB2 domain) */
+        __HAL_RCC_TIM15_CLK_ENABLE();
+
+        /* Enable GPIOE clock for PWM output pin */
+        __HAL_RCC_GPIOE_CLK_ENABLE();
+
+        /**
+         * TIM15 GPIO Configuration:
+         * PE5 -> TIM15_CH1 (Solenoid 3: G3 string)
+         */
+        GPIO_InitStruct.Pin = GPIO_PIN_5;
+        GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;         /* Alternate function push-pull */
+        GPIO_InitStruct.Pull = GPIO_NOPULL;             /* No pull-up/pull-down */
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;    /* Low speed (196 Hz PWM) */
+        GPIO_InitStruct.Alternate = GPIO_AF4_TIM15;     /* AF4 = TIM15 */
+        HAL_GPIO_Init(GPIOE, &GPIO_InitStruct);
+    }
+    else if(htim->Instance == TIM16)
+    {
+        /* Enable TIM16 clock (APB2 domain) */
+        __HAL_RCC_TIM16_CLK_ENABLE();
+
+        /* Enable GPIOF clock for PWM output pin */
+        __HAL_RCC_GPIOF_CLK_ENABLE();
+
+        /**
+         * TIM16 GPIO Configuration:
+         * PF6 -> TIM16_CH1 (Solenoid 4: B3 string) - ZIO CN10-7
          */
         GPIO_InitStruct.Pin = GPIO_PIN_6;
         GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;         /* Alternate function push-pull */
         GPIO_InitStruct.Pull = GPIO_NOPULL;             /* No pull-up/pull-down */
-        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;    /* Low speed (147-220 Hz PWM) */
-        GPIO_InitStruct.Alternate = GPIO_AF9_TIM13;     /* AF9 = TIM13 */
-        HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;    /* Low speed (247 Hz PWM) */
+        GPIO_InitStruct.Alternate = GPIO_AF1_TIM16;     /* AF1 = TIM16 */
+        HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+    }
+    else if(htim->Instance == TIM17)
+    {
+        /* Enable TIM17 clock (APB2 domain) */
+        __HAL_RCC_TIM17_CLK_ENABLE();
+
+        /* Enable GPIOF clock for PWM output pin */
+        __HAL_RCC_GPIOF_CLK_ENABLE();
+
+        /**
+         * TIM17 GPIO Configuration:
+         * PF7 -> TIM17_CH1 (Solenoid 5: E4 string - High E) - ZIO CN9-26
+         */
+        GPIO_InitStruct.Pin = GPIO_PIN_7;
+        GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;         /* Alternate function push-pull */
+        GPIO_InitStruct.Pull = GPIO_NOPULL;             /* No pull-up/pull-down */
+        GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;    /* Low speed (330 Hz PWM) */
+        GPIO_InitStruct.Alternate = GPIO_AF1_TIM17;     /* AF1 = TIM17 */
+        HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
     }
 }
 
@@ -140,16 +215,48 @@ void HAL_TIM_PWM_MspDeInit(TIM_HandleTypeDef* htim)
         /* Disable TIM12 clock */
         __HAL_RCC_TIM12_CLK_DISABLE();
 
-        /* De-initialize GPIO pins */
-        HAL_GPIO_DeInit(GPIOB, GPIO_PIN_14 | GPIO_PIN_15);
+        /* De-initialize GPIO pin */
+        HAL_GPIO_DeInit(GPIOB, GPIO_PIN_14);
     }
     else if(htim->Instance == TIM13)
     {
         /* Disable TIM13 clock */
         __HAL_RCC_TIM13_CLK_DISABLE();
 
+        /* De-initialize GPIO pin (PF8) */
+        HAL_GPIO_DeInit(GPIOF, GPIO_PIN_8);
+    }
+    else if(htim->Instance == TIM14)
+    {
+        /* Disable TIM14 clock */
+        __HAL_RCC_TIM14_CLK_DISABLE();
+
+        /* De-initialize GPIO pin (PF9) */
+        HAL_GPIO_DeInit(GPIOF, GPIO_PIN_9);
+    }
+    else if(htim->Instance == TIM15)
+    {
+        /* Disable TIM15 clock */
+        __HAL_RCC_TIM15_CLK_DISABLE();
+
         /* De-initialize GPIO pin */
-        HAL_GPIO_DeInit(GPIOA, GPIO_PIN_6);
+        HAL_GPIO_DeInit(GPIOE, GPIO_PIN_5);
+    }
+    else if(htim->Instance == TIM16)
+    {
+        /* Disable TIM16 clock */
+        __HAL_RCC_TIM16_CLK_DISABLE();
+
+        /* De-initialize GPIO pin (PF6) */
+        HAL_GPIO_DeInit(GPIOF, GPIO_PIN_6);
+    }
+    else if(htim->Instance == TIM17)
+    {
+        /* Disable TIM17 clock */
+        __HAL_RCC_TIM17_CLK_DISABLE();
+
+        /* De-initialize GPIO pin (PF7) */
+        HAL_GPIO_DeInit(GPIOF, GPIO_PIN_7);
     }
 }
 

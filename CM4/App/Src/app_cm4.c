@@ -13,17 +13,42 @@
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
 
-/* External timer handles for debug access */
-extern TIM_HandleTypeDef htim12;
-extern TIM_HandleTypeDef htim13;
+/* External timer handles for debug access (6 independent timers) - All on ZIO connectors */
+extern TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 (PB14) - ZIO CN12-28 */
+extern TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 (PF8)  - ZIO CN9-24 */
+extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 (PF9)  - ZIO CN9-28 */
+extern TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 (PE5)  - ZIO CN10-8 */
+extern TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 (PF6)  - ZIO CN10-7 */
+extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 (PF7)  - ZIO CN9-26 */
 
 /* Control loop timing */
 #define CONTROL_LOOP_PERIOD_MS  1   /* 1ms = 1kHz control loop */
+
+/* Motor test parameters (fallback defaults if shared memory not set) */
+#define STEPS_PER_REV               200     /* Standard stepper: 200 steps/rev (1.8° per step) */
+#define DEFAULT_STEPS_FOR_180_DEG   400     /* Default steps per move */
+#define DEFAULT_MOTOR_TEST_SPEED    300     /* Default max speed (steps/sec) */
+#define DEFAULT_MOTOR_ACCEL         20      /* Default acceleration */
+#define DEFAULT_SETTLE_TIME_MS      0      /* Default settling time (ms) */
+
+/* Helper macros to read tuning params from shared memory with fallback defaults */
+#define GET_STEPS_PER_MOVE()    (g_shared_memory.motor_steps_per_move > 0 ? \
+                                 g_shared_memory.motor_steps_per_move : DEFAULT_STEPS_FOR_180_DEG)
+#define GET_MOTOR_SPEED()       (g_shared_memory.motor_max_speed > 0 ? \
+                                 g_shared_memory.motor_max_speed : DEFAULT_MOTOR_TEST_SPEED)
+#define GET_MOTOR_ACCEL()       (g_shared_memory.motor_max_accel > 0 ? \
+                                 g_shared_memory.motor_max_accel : DEFAULT_MOTOR_ACCEL)
+#define GET_SETTLE_TIME()       (g_shared_memory.motor_settle_time_ms)
 
 /* Application state */
 static uint32_t loop_start_time = 0;
 static uint32_t loop_count = 0;
 static uint32_t last_rate_calc_time = 0;
+
+/* Motor oscillation state */
+static uint8_t motor_direction = 0;     /* 0 = forward, 1 = backward */
+static uint8_t move_started = 0;        /* Flag to track if move is in progress */
+static uint32_t settle_start_time = 0;  /* Settling timer for direction changes */
 
 /**
  * @brief CM4 application main function
@@ -36,34 +61,98 @@ void App_CM4_Main(void)
     /* Initialize motor control system */
     Motor_Init();
 
+    /* Enable motor 0 driver (drive nEN LOW) */
+    Motor_Enable(0);
+
+    /* Zero position - don't start move yet, wait for CM7 to set parameters */
+    Motor_ZeroPosition(0);
+    move_started = 0;  /* Will be set to 1 when motor_test_enabled becomes true */
+
     /* Initialize solenoid control system */
     if (Solenoid_Init() != 0) {
         g_shared_memory.motor_errors |= ERROR_INVALID_COMMAND;
     }
 
-    /* TEST: Direct timer register manipulation for debugging */
-    /* Bypass HAL entirely to verify hardware is working */
+    /* TEST: Initialize all 6 solenoids with their respective string frequencies */
+    /* Each solenoid now has its own independent timer for independent frequency control */
 
-    /* Method 1: HAL-based approach - Test High E string (string 5) */
-    Solenoid_SetFrequency(0, 0, 0);  // Solenoid 0: E2 string (Low E), open (82.41Hz)
-    Solenoid_SetFrequency(1, 1, 0);  // Solenoid 1: A2 string , open (110Hz)
-    Solenoid_SetFrequency(2, 2, 0);  // Solenoid 2: D3 string , open (146.83 )
-    Solenoid_Start(0);                // This actually starts the PWM!
-    Solenoid_Start(1);                // This actually starts the PWM!
-    Solenoid_Start(2);                // This actually starts the PWM!
+    /* Set frequencies for all 6 strings (open position, fret 0) */
+    Solenoid_SetFrequency(0, 0, 0);  // Solenoid 0: E2 string (Low E), 82.41 Hz on PB14
+    Solenoid_SetFrequency(1, 1, 0);  // Solenoid 1: A2 string, 110.00 Hz on PA7
+    Solenoid_SetFrequency(2, 2, 0);  // Solenoid 2: D3 string, 146.83 Hz on PA6
+    Solenoid_SetFrequency(3, 3, 0);  // Solenoid 3: G3 string, 196.00 Hz on PE5
+    Solenoid_SetFrequency(4, 4, 0);  // Solenoid 4: B3 string, 246.94 Hz on PB8
+    Solenoid_SetFrequency(5, 5, 0);  // Solenoid 5: E4 string (High E), 329.63 Hz on PB9
 
-    /* Method 2: Direct GPIO configuration (needed for PWM output) */
-    /* Ensure GPIOB and TIM12 clocks are enabled */
+    /* Start all 6 solenoids */
+    // Solenoid_Start(0);
+    // Solenoid_Start(1);
+    // Solenoid_Start(2);
+    // Solenoid_Start(3);
+    // Solenoid_Start(4);
+    // Solenoid_Start(5);
+
+    /* Direct GPIO configuration for all PWM pins */
+    /* Enable all required GPIO clocks */
     __HAL_RCC_GPIOB_CLK_ENABLE();
-    __HAL_RCC_TIM12_CLK_ENABLE();
+    __HAL_RCC_GPIOE_CLK_ENABLE();
+    __HAL_RCC_GPIOF_CLK_ENABLE();
 
-    /* Configure PB14 as AF2 (TIM12_CH1) */
-    GPIOB->MODER &= ~(0x3UL << (14 * 2));  // Clear mode bits for PB14
-    GPIOB->MODER |= (0x2UL << (14 * 2));   // Set alternate function mode
-    GPIOB->AFR[1] &= ~(0xFUL << ((14-8) * 4));  // Clear AF bits for PB14
-    GPIOB->AFR[1] |= (0x2UL << ((14-8) * 4));   // Set AF2 (TIM12)
-    GPIOB->OTYPER &= ~(1UL << 14);         // Push-pull output
-    GPIOB->OSPEEDR |= (0x3UL << (14 * 2)); // High speed
+    /* Enable all timer clocks */
+    __HAL_RCC_TIM12_CLK_ENABLE();
+    __HAL_RCC_TIM13_CLK_ENABLE();
+    __HAL_RCC_TIM14_CLK_ENABLE();
+    __HAL_RCC_TIM15_CLK_ENABLE();
+    __HAL_RCC_TIM16_CLK_ENABLE();
+    __HAL_RCC_TIM17_CLK_ENABLE();
+
+    /* Configure PB14 as AF2 (TIM12_CH1) - Solenoid 0: E2 - ZIO CN12-28 */
+    GPIOB->MODER &= ~(0x3UL << (14 * 2));
+    GPIOB->MODER |= (0x2UL << (14 * 2));
+    GPIOB->AFR[1] &= ~(0xFUL << ((14-8) * 4));
+    GPIOB->AFR[1] |= (0x2UL << ((14-8) * 4));
+    GPIOB->OTYPER &= ~(1UL << 14);
+    GPIOB->OSPEEDR |= (0x3UL << (14 * 2));
+
+    /* Configure PF9 as AF9 (TIM14_CH1) - Solenoid 1: A2 - ZIO CN9-28 */
+    GPIOF->MODER &= ~(0x3UL << (9 * 2));
+    GPIOF->MODER |= (0x2UL << (9 * 2));
+    GPIOF->AFR[1] &= ~(0xFUL << ((9-8) * 4));
+    GPIOF->AFR[1] |= (0x9UL << ((9-8) * 4));
+    GPIOF->OTYPER &= ~(1UL << 9);
+    GPIOF->OSPEEDR |= (0x3UL << (9 * 2));
+
+    /* Configure PF8 as AF9 (TIM13_CH1) - Solenoid 2: D3 - ZIO CN9-24 */
+    GPIOF->MODER &= ~(0x3UL << (8 * 2));
+    GPIOF->MODER |= (0x2UL << (8 * 2));
+    GPIOF->AFR[1] &= ~(0xFUL << ((8-8) * 4));
+    GPIOF->AFR[1] |= (0x9UL << ((8-8) * 4));
+    GPIOF->OTYPER &= ~(1UL << 8);
+    GPIOF->OSPEEDR |= (0x3UL << (8 * 2));
+
+    /* Configure PE5 as AF4 (TIM15_CH1) - Solenoid 3: G3 - ZIO CN10-8 */
+    GPIOE->MODER &= ~(0x3UL << (5 * 2));
+    GPIOE->MODER |= (0x2UL << (5 * 2));
+    GPIOE->AFR[0] &= ~(0xFUL << (5 * 4));
+    GPIOE->AFR[0] |= (0x4UL << (5 * 4));
+    GPIOE->OTYPER &= ~(1UL << 5);
+    GPIOE->OSPEEDR |= (0x3UL << (5 * 2));
+
+    /* Configure PF6 as AF1 (TIM16_CH1) - Solenoid 4: B3 - ZIO CN10-7 */
+    GPIOF->MODER &= ~(0x3UL << (6 * 2));
+    GPIOF->MODER |= (0x2UL << (6 * 2));
+    GPIOF->AFR[0] &= ~(0xFUL << (6 * 4));
+    GPIOF->AFR[0] |= (0x1UL << (6 * 4));
+    GPIOF->OTYPER &= ~(1UL << 6);
+    GPIOF->OSPEEDR |= (0x3UL << (6 * 2));
+
+    /* Configure PF7 as AF1 (TIM17_CH1) - Solenoid 5: E4 - ZIO CN9-26 */
+    GPIOF->MODER &= ~(0x3UL << (7 * 2));
+    GPIOF->MODER |= (0x2UL << (7 * 2));
+    GPIOF->AFR[0] &= ~(0xFUL << (7 * 4));
+    GPIOF->AFR[0] |= (0x1UL << (7 * 4));
+    GPIOF->OTYPER &= ~(1UL << 7);
+    GPIOF->OSPEEDR |= (0x3UL << (7 * 2));
 
     /* DEBUG: Read back all configuration */
     volatile uint32_t debug_arr = __HAL_TIM_GET_AUTORELOAD(&htim12);
@@ -164,17 +253,21 @@ void App_CM4_Main(void)
                 uint8_t string = g_shared_memory.solenoid_string;
                 uint8_t fret = g_shared_memory.solenoid_fret;
                 uint8_t duty = g_shared_memory.solenoid_duty_cycle;
+                uint8_t mode = g_shared_memory.solenoid_mode;
+                uint16_t time_ms = g_shared_memory.solenoid_activation_time_ms;
+                uint16_t burst = g_shared_memory.solenoid_burst_cycles;
 
                 /* Validate solenoid ID and string/fret */
-                if (sol_id < 3 && string < 6 && fret < 8) {
+                if (sol_id < 6 && string < 6 && fret < 8) {
                     /* Set frequency for target solenoid */
                     if (Solenoid_SetFrequency(sol_id, string, fret) == 0) {
                         /* Set duty cycle if non-zero */
                         if (duty > 0 && duty < 100) {
                             Solenoid_SetDutyCycle(sol_id, duty);
                         }
-                        /* Start PWM output */
-                        Solenoid_Start(sol_id);
+
+                        /* Start with timing parameters */
+                        Solenoid_StartTimed(sol_id, mode, time_ms, burst);
 
                         /* Update active mask in shared memory */
                         g_shared_memory.solenoid_active_mask = Solenoid_GetActiveMask();
@@ -192,7 +285,7 @@ void App_CM4_Main(void)
             if (commands & CMD_STOP_SOLENOID) {
                 uint8_t sol_id = g_shared_memory.solenoid_id;
 
-                if (sol_id < 3) {
+                if (sol_id < 6) {
                     Solenoid_Stop(sol_id);
                     g_shared_memory.solenoid_active_mask = Solenoid_GetActiveMask();
                 } else if (sol_id == 0xFF) {
@@ -272,6 +365,15 @@ void App_CM4_Main(void)
             }
         }
 
+        /* Update solenoid auto-stop timing (1ms loop) */
+        Solenoid_UpdateAutoStop();
+
+        /* Check if microstep mode needs to be updated */
+        if (g_shared_memory.motor_microstep_changed) {
+            Motor_SetMicrostepMode(0, g_shared_memory.motor_microstep_mode);
+            g_shared_memory.motor_microstep_changed = 0;  /* Clear flag */
+        }
+
         /* Update motor control (acceleration limiting, step generation) */
         /* Pass internal motor states array - Motor_Update handles all motors */
         Motor_Update(Motor_GetState(0));
@@ -298,6 +400,49 @@ void App_CM4_Main(void)
             status |= MOTOR_STATUS_MOVING;
         }
         g_shared_memory.motor_status_flags = status;
+
+        /* ===== Motor Oscillation Test (controlled via serial commands) ===== */
+        MotorState_t *m0_state = Motor_GetState(0);
+
+        /* Check if test was just enabled - start first move */
+        if (g_shared_memory.motor_test_enabled && !move_started) {
+            /* Apply current tuning parameters */
+            Motor_SetLimits(0, GET_MOTOR_SPEED(), GET_MOTOR_ACCEL());
+            Motor_MoveRelative(0, GET_STEPS_PER_MOVE());
+            move_started = 1;
+            motor_direction = 0;
+            settle_start_time = 0;
+        }
+
+        /* Check if test was disabled - stop motor */
+        if (!g_shared_memory.motor_test_enabled && move_started) {
+            Motor_SetSpeed(0, 0);  /* Stop motor */
+            move_started = 0;
+            settle_start_time = 0;
+        }
+
+        /* Oscillation logic - only run if test is enabled */
+        if (g_shared_memory.motor_test_enabled && move_started && m0_state != NULL && !m0_state->is_moving) {
+            /* Motor stopped - wait for settling time before starting next move */
+            if (settle_start_time == 0) {
+                /* Start settling timer */
+                settle_start_time = now;
+            } else if ((now - settle_start_time) >= GET_SETTLE_TIME()) {
+                /* Settling complete - apply latest tuning params and start move */
+                settle_start_time = 0;
+                Motor_SetLimits(0, GET_MOTOR_SPEED(), GET_MOTOR_ACCEL());
+
+                if (motor_direction == 0) {
+                    /* Was moving forward, now move backward */
+                    Motor_MoveRelative(0, -(int32_t)GET_STEPS_PER_MOVE());
+                    motor_direction = 1;
+                } else {
+                    /* Was moving backward, now move forward */
+                    Motor_MoveRelative(0, GET_STEPS_PER_MOVE());
+                    motor_direction = 0;
+                }
+            }
+        }
 
         /* Update heartbeat */
         InterCore_UpdateHeartbeat();

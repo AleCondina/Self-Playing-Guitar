@@ -53,6 +53,11 @@
 #define MOTOR_STATUS_LIMIT_HIT  (1U << 3)   /* Limit switch triggered */
 #define MOTOR_STATUS_HOMING     (1U << 4)   /* Homing sequence in progress */
 
+/* Solenoid operation modes */
+#define SOLENOID_MODE_INFINITE  0           /* Run until explicitly stopped */
+#define SOLENOID_MODE_TIMED     1           /* Auto-stop after time_ms */
+#define SOLENOID_MODE_BURST     2           /* Auto-stop after N cycles */
+
 /**
  * @brief Shared memory structure for inter-core communication
  * @note  Size: ~200 bytes, fits comfortably in 256KB shared region
@@ -67,20 +72,27 @@ typedef struct {
     volatile uint32_t solenoid_duration_ms;             /* Solenoid hold time (ms) */
 
     /* ===== Solenoid Frequency Control (PWM-based) ===== */
-    volatile uint8_t solenoid_id;                       /* Solenoid index (0-2 for 3 solenoids) */
-    volatile uint8_t solenoid_string;                   /* String index (0-2: E2, A2, D3) */
+    volatile uint8_t solenoid_id;                       /* Solenoid index (0-5 for 6 solenoids) */
+    volatile uint8_t solenoid_string;                   /* String index (0-5: E2, A2, D3, G3, B3, E4) */
     volatile uint8_t solenoid_fret;                     /* Fret index (0-7: open to fret 7) */
     volatile uint8_t solenoid_duty_cycle;               /* Duty cycle 1-99% (0 = use default 50%) */
     volatile uint8_t solenoid_active_mask;              /* Bit field: which solenoids are running */
 
-    /* ===== Motor Extended Commands (CM7 → CM4) ===== */
-    volatile uint8_t  motor_cmd_id;                    /* Motor ID for current command */
-    volatile uint8_t  motor_cmd_microstep_mode;        /* Microstep mode (0-5) */
-    volatile uint8_t  motor_cmd_enable;                /* 1=enable, 0=disable */
-    volatile uint8_t  motor_cmd_reserved;              /* Padding for alignment */
-    volatile int32_t  motor_cmd_position;              /* Target position (absolute or relative) */
-    volatile int32_t  motor_cmd_accel;                 /* Acceleration value */
-    volatile int32_t  motor_cmd_max_speed;             /* Max speed value */
+    /* Extended solenoid timing control */
+    volatile uint16_t solenoid_activation_time_ms;      /* Auto-stop time (0=infinite, 10-5000ms) */
+    volatile uint16_t solenoid_burst_cycles;            /* Auto-stop cycles (0=disabled, 1-1000) */
+    volatile uint8_t solenoid_mode;                     /* 0=infinite, 1=timed, 2=burst */
+    volatile uint8_t solenoid_padding;                  /* Alignment */
+
+    /* ===== Motor Tuning Parameters (CM7 → CM4, adjustable via serial) ===== */
+    volatile int32_t motor_max_speed;                   /* Max speed (steps/sec), 0 = use default */
+    volatile int32_t motor_max_accel;                   /* Max acceleration, 0 = use default */
+    volatile int32_t motor_steps_per_move;              /* Steps per oscillation move, 0 = use default */
+    volatile uint32_t motor_settle_time_ms;             /* Settling time (ms) between moves */
+    volatile uint8_t motor_test_enabled;                /* 0 = stopped, 1 = running oscillation test */
+    volatile uint8_t motor_microstep_mode;              /* Microstep mode: 0=full, 1=1/2, 2=1/4, 3=1/8, 4=1/16, 5=1/32 */
+    volatile uint8_t motor_microstep_changed;           /* Flag: 1 = CM4 should apply new microstep mode */
+    volatile uint8_t motor_test_padding;                /* Padding for alignment */
 
     /* ===== CM4 → CM7 Status Channel ===== */
     volatile uint32_t motor_status_flags;               /* Status bit field */
