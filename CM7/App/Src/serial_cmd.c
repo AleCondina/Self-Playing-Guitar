@@ -29,6 +29,7 @@
 #include "inter_core_cm7.h"
 #include "shared_memory.h"
 #include "application_config.h"
+#include "stm32h7xx_hal.h"
 #include <stdio.h>
 #include <string.h>
 #include <stdlib.h>
@@ -54,6 +55,27 @@ static uint8_t system_started = 0;
 static const uint16_t microstep_multipliers[] = {1, 2, 4, 8, 16, 32};
 static const char *microstep_names[] = { "full", "1/2", "1/4", "1/8", "1/16", "1/32" };
 
+/* ===== Demo Sequence State Machine ===== */
+typedef enum {
+    DEMO_IDLE = 0,
+    DEMO_ZERO_MOTOR,
+    DEMO_SET_MICROSTEP,
+    DEMO_WAIT_MICROSTEP,
+    DEMO_STRUM_1,
+    DEMO_WAIT_3S_1,
+    DEMO_MOVE_180,
+    DEMO_WAIT_MOVE_DONE,
+    DEMO_WAIT_3S_2,
+    DEMO_HOME,
+    DEMO_WAIT_HOME_DONE,
+    DEMO_WAIT_SETTLE,
+    DEMO_STRUM_2,
+    DEMO_DONE
+} DemoState_t;
+
+static DemoState_t demo_state = DEMO_IDLE;
+static uint32_t demo_timer = 0;
+
 /* Forward declarations */
 static void Cmd_Start(char *args);
 static void Cmd_Speed(char *args);
@@ -72,6 +94,8 @@ static void Cmd_Presets(char *args);
 static void Cmd_Stop(char *args);
 static void Cmd_Status(char *args);
 static void Cmd_Help(char *args);
+static void Cmd_Demo(char *args);
+static void Demo_Tick(void);
 
 /* Command table entry */
 typedef struct {
@@ -97,6 +121,7 @@ static const CmdEntry_t command_table[] = {
     { "presets",   Cmd_Presets,   "presets                  List saved presets" },
     { "stop",      Cmd_Stop,      "stop                    Emergency stop all" },
     { "status",    Cmd_Status,    "status                  Print motor status" },
+    { "demo",      Cmd_Demo,      "demo                    Run solenoid+motor demo" },
     { "help",      Cmd_Help,      "help                    Show this help" },
     { NULL, NULL, NULL }
 };
@@ -152,6 +177,9 @@ void SerialCmd_Init(void)
 
 uint8_t SerialCmd_Process(void)
 {
+    /* Tick demo state machine every call (runs even when no command pending) */
+    Demo_Tick();
+
     if (!Debug_UART_IsLineReady()) {
         return 0;
     }
@@ -467,6 +495,11 @@ static void Cmd_Presets(char *args)
 static void Cmd_Stop(char *args)
 {
     (void)args;
+    /* Cancel demo if running */
+    if (demo_state != DEMO_IDLE) {
+        demo_state = DEMO_IDLE;
+        printf("  Demo cancelled.\r\n");
+    }
     InterCore_EmergencyStop();
     printf("  EMERGENCY STOP - all motors stopped\r\n");
 }
@@ -526,4 +559,166 @@ static void Cmd_Help(char *args)
     }
     printf("\r\nNote: movement commands (speed/move/goto) require 'start' first.\r\n");
     printf("==========================\r\n");
+}
+
+/* ===== Demo Command & State Machine ===== */
+
+/**
+ * @brief Trigger a solenoid via shared memory (same mechanism as debug_uart.c "sol" command)
+ */
+static void Demo_TriggerSolenoid(uint8_t sol_id, uint8_t string, uint8_t fret,
+                                  uint8_t duty, uint16_t burst_cycles)
+{
+    g_shared_memory.solenoid_id = sol_id;
+    g_shared_memory.solenoid_string = string;
+    g_shared_memory.solenoid_fret = fret;
+    g_shared_memory.solenoid_duty_cycle = duty;
+    g_shared_memory.solenoid_activation_time_ms = 0;
+    g_shared_memory.solenoid_burst_cycles = burst_cycles;
+    g_shared_memory.solenoid_mode = SOLENOID_MODE_BURST;
+    g_shared_memory.motor_command_flags |= CMD_TRIGGER_SOLENOID;
+    InterCore_NotifyCM4();
+}
+
+static void Cmd_Demo(char *args)
+{
+    (void)args;
+
+    if (demo_state != DEMO_IDLE) {
+        printf("  Demo already running. Type 'stop' to cancel.\r\n");
+        return;
+    }
+
+    /* Auto-start system if not started */
+    if (!system_started) {
+        system_started = 1;
+        printf("  System auto-started for demo.\r\n");
+    }
+
+    printf("\r\n===== DEMO START =====\r\n");
+    printf("  Sequence: strum E2 open -> wait 3s -> rotate 180deg -> wait 3s -> home -> strum E2 open\r\n\r\n");
+    demo_state = DEMO_ZERO_MOTOR;
+}
+
+/**
+ * @brief Demo state machine tick (called every main loop iteration ~1ms)
+ *
+ * Demo sequence:
+ *   1. Zero motor 0 position counter
+ *   2. Set microstep to 1/16 (mode 4)
+ *   3. Strum E2 open string (solenoid 0, 50% duty, 40 burst cycles)
+ *   4. Wait 3 seconds
+ *   5. Move motor 0 by 1600 steps = 180 degrees at 1/16 microstepping
+ *   6. Wait for move to complete
+ *   7. Wait 3 seconds
+ *   8. Home motor 0 (return to position 0)
+ *   9. Wait for home to complete
+ *  10. Strum E2 open string again (same as step 3)
+ */
+static void Demo_Tick(void)
+{
+    if (demo_state == DEMO_IDLE) {
+        return;
+    }
+
+    uint32_t now = HAL_GetTick();
+
+    switch (demo_state) {
+
+    case DEMO_ZERO_MOTOR:
+        InterCore_SendMotorZero(0);
+        printf("  [Demo] Step 1: Motor 0 position zeroed\r\n");
+        demo_state = DEMO_SET_MICROSTEP;
+        break;
+
+    case DEMO_SET_MICROSTEP:
+        /* Mode 4 = 1/16 microstepping: 200 * 16 = 3200 steps/rev */
+        InterCore_SendMotorMicrostep(0, 4);
+        printf("  [Demo] Step 2: Microstep set to 1/16\r\n");
+        demo_timer = now;
+        demo_state = DEMO_WAIT_MICROSTEP;
+        break;
+
+    case DEMO_WAIT_MICROSTEP:
+        /* Brief delay for microstep mode to apply on CM4 */
+        if (now - demo_timer >= 50) {
+            demo_state = DEMO_STRUM_1;
+        }
+        break;
+
+    case DEMO_STRUM_1:
+        /* Solenoid 0, E2 string (0), fret 0 (open), 50% duty, 40 burst cycles */
+        Demo_TriggerSolenoid(0, 0, 0, 50, 40);
+        printf("  [Demo] Step 3: Strumming E2 open (sol 0 0 0 50 0 40)\r\n");
+        demo_timer = now;
+        demo_state = DEMO_WAIT_3S_1;
+        break;
+
+    case DEMO_WAIT_3S_1:
+        if (now - demo_timer >= 2000) {
+            demo_state = DEMO_MOVE_180;
+        }
+        break;
+
+    case DEMO_MOVE_180:
+        /* 1600 steps at 1/16 microstepping = 180 degrees */
+        InterCore_SendMotorMoveRelative(0, 1600);
+        printf("  [Demo] Step 4: Moving 180 degrees (1600 steps at 1/16)\r\n");
+        demo_state = DEMO_WAIT_MOVE_DONE;
+        break;
+
+    case DEMO_WAIT_MOVE_DONE:
+        if (!g_shared_memory.motor_is_moving[0]) {
+            printf("  [Demo] Move complete (pos: %ld steps)\r\n",
+                   (long)g_shared_memory.current_positions[0]);
+            demo_timer = now;
+            demo_state = DEMO_WAIT_3S_2;
+        }
+        break;
+
+    case DEMO_WAIT_3S_2:
+        if (now - demo_timer >= 3000) {
+            demo_state = DEMO_HOME;
+        }
+        break;
+
+    case DEMO_HOME:
+        InterCore_HomeMotors();
+        printf("  [Demo] Step 5: Homing motor (returning to position 0)\r\n");
+        demo_state = DEMO_WAIT_HOME_DONE;
+        break;
+
+    case DEMO_WAIT_HOME_DONE:
+        if (!g_shared_memory.motor_is_moving[0]) {
+            printf("  [Demo] Home reached (pos: %ld steps)\r\n",
+                   (long)g_shared_memory.current_positions[0]);
+            demo_timer = now;
+            demo_state = DEMO_WAIT_SETTLE;
+        }
+        break;
+
+    case DEMO_WAIT_SETTLE:
+        /* Small settle time after homing before strumming */
+        if (now - demo_timer >= 500) {
+            demo_state = DEMO_STRUM_2;
+        }
+        break;
+
+    case DEMO_STRUM_2:
+        /* Same strum as before: E2 open, 50% duty, 40 cycles */
+        Demo_TriggerSolenoid(0, 0, 0, 50, 40);
+        printf("  [Demo] Step 6: Strumming E2 open again (sol 0 0 0 50 0 40)\r\n");
+        demo_state = DEMO_DONE;
+        break;
+
+    case DEMO_DONE:
+        printf("\r\n===== DEMO COMPLETE =====\r\n");
+        printf("> ");
+        demo_state = DEMO_IDLE;
+        break;
+
+    default:
+        demo_state = DEMO_IDLE;
+        break;
+    }
 }
