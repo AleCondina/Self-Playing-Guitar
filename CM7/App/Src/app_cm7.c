@@ -60,10 +60,8 @@ void App_CM7_Main(void)
         printf("[CM7] Home position established (all positions zeroed).\r\n\r\n");
         Debug_UART_StartRx();
         SerialCmd_Init();
+        printf("\r\nType 'help' for commands.\r\n> ");
         app_state = STATE_IDLE;
-
-        /* Initialize motor tuning defaults and show help prompt */
-        Debug_InitMotorDefaults();
     }
 
     /* Main loop */
@@ -72,7 +70,7 @@ void App_CM7_Main(void)
         g_shared_memory.cm7_heartbeat++;
 
         /* Process serial commands (non-blocking) */
-        Debug_ProcessInput();
+        SerialCmd_Process();
 
         /* State machine */
         switch (app_state) {

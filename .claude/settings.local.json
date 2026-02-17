@@ -3,7 +3,9 @@
     "allow": [
       "Bash(find:*)",
       "Bash(ninja:*)",
-      "Bash(cd:*)"
+      "Bash(cd:*)",
+      "Bash(cmake --build:*)",
+      "Bash(build_st)"
     ]
   }
 }
