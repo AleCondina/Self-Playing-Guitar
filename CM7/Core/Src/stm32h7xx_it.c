@@ -22,6 +22,7 @@
 #include "stm32h7xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "stm32h7xx_nucleo.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -57,7 +58,7 @@
 /* External variables --------------------------------------------------------*/
 
 /* USER CODE BEGIN EV */
-
+extern UART_HandleTypeDef hcom_uart[];
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -213,5 +214,8 @@ void EXTI15_10_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-
+void USART3_IRQHandler(void)
+{
+    HAL_UART_IRQHandler(&hcom_uart[COM1]);
+}
 /* USER CODE END 1 */

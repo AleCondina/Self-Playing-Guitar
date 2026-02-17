@@ -24,6 +24,9 @@
 /* Number of motors currently configured with GPIO pins */
 #define NUM_CONFIGURED_MOTORS   1
 
+/* Step pulse width in microseconds (DRV8825 minimum: 1.9us) */
+#define STEP_PULSE_US           3
+
 /* Motor pin configuration for DRV8825 driver (internal) */
 typedef struct {
     GPIO_TypeDef* step_port;    /* STEP pin GPIO port */
@@ -56,6 +59,22 @@ static MotorConfig_t motor_configs[NUM_MOTORS] = {0};
 static int32_t target_positions[NUM_MOTORS] = {0};
 static uint8_t position_mode[NUM_MOTORS] = {0}; /* 1 if in position control mode */
 
+/* Runtime state tracking */
+static uint8_t motor_enabled_state[NUM_MOTORS] = {0};
+static uint8_t motor_microstep_mode[NUM_MOTORS] = {0};
+
+/**
+ * @brief Microsecond delay using DWT cycle counter
+ * @param us Delay in microseconds
+ * @note  Requires DWT to be enabled (done in Motor_Init)
+ */
+static void Motor_DelayUs(uint32_t us)
+{
+    uint32_t start = DWT->CYCCNT;
+    uint32_t cycles = us * (CM4_CLOCK_MHZ); /* 240 cycles per us at 240 MHz */
+    while ((DWT->CYCCNT - start) < cycles);
+}
+
 /**
  * @brief Initialize GPIO for motor control
  * @param port GPIO port
@@ -78,6 +97,11 @@ static void Motor_InitGPIO(GPIO_TypeDef* port, uint16_t pin)
  */
 int32_t Motor_Init(void)
 {
+    /* Enable DWT cycle counter for microsecond-precision step pulse timing */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
     /* Enable GPIO clocks for PE10-PE14 and PD11 */
     __HAL_RCC_GPIOE_CLK_ENABLE();
     __HAL_RCC_GPIOD_CLK_ENABLE();
@@ -155,6 +179,7 @@ int32_t Motor_Init(void)
 void Motor_Update(MotorState_t states[NUM_MOTORS])
 {
     static uint32_t step_accumulator[NUM_MOTORS] = {0};
+    static int32_t accel_accumulator[NUM_MOTORS] = {0};
     const uint32_t UPDATE_FREQ_HZ = 1000; /* 1kHz update rate */
 
     for (uint8_t i = 0; i < NUM_MOTORS; i++) {
@@ -163,73 +188,84 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
             continue;
         }
 
-        /* Position control mode: calculate speed to reach target with deceleration planning */
-        if (position_mode[i]) {
-            int32_t position_error = target_positions[i] - states[i].position;
-
-            /* Get motor-specific limits */
-            int32_t max_spd = motor_configs[i].max_speed > 0 ?
-                             motor_configs[i].max_speed : MOTOR_MAX_STEP_FREQ;
-            int32_t max_acc = motor_configs[i].max_accel > 0 ?
-                             motor_configs[i].max_accel : MOTOR_MAX_ACCEL;
-
-            if (position_error == 0 && states[i].current_speed == 0) {
-                /* Fully stopped at target - exit position mode */
-                states[i].target_speed = 0;
-                position_mode[i] = 0;
-            } else if (position_error == 0) {
-                /* At target but still moving - decelerate to stop */
-                states[i].target_speed = 0;
-            } else {
-                /* Calculate stopping distance: d = v² / (2*a) */
-                /* Use current speed to determine when to start decelerating */
-                int32_t abs_current_speed = (states[i].current_speed >= 0) ?
-                                            states[i].current_speed : -states[i].current_speed;
-                int32_t abs_error = (position_error >= 0) ? position_error : -position_error;
-
-                /* Stopping distance in steps (add 1 to avoid division issues) */
-                int32_t stopping_distance = (abs_current_speed * abs_current_speed) / (2 * max_acc + 1);
-
-                int32_t desired_speed;
-
-                if (abs_error <= stopping_distance + 1) {
-                    /* Within stopping distance - decelerate */
-                    /* Target speed proportional to sqrt of remaining distance */
-                    /* Approximation: v = sqrt(2 * a * d), simplified to linear ramp down */
-                    desired_speed = (position_error > 0) ? max_acc : -max_acc;
-
-                    /* Minimum speed to keep moving toward target */
-                    if (desired_speed > 0 && desired_speed < 10) desired_speed = 10;
-                    if (desired_speed < 0 && desired_speed > -10) desired_speed = -10;
-                } else {
-                    /* Outside stopping distance - accelerate toward max speed */
-                    desired_speed = (position_error > 0) ? max_spd : -max_spd;
-                }
-
-                states[i].target_speed = desired_speed;
-            }
-        }
-
-        /* Get motor-specific acceleration limit */
+        /* Get motor-specific limits (used by position control and accel limiter) */
+        int32_t max_speed = motor_configs[i].max_speed > 0 ?
+                           motor_configs[i].max_speed : MOTOR_MAX_STEP_FREQ;
         int32_t max_accel = motor_configs[i].max_accel > 0 ?
                            motor_configs[i].max_accel : MOTOR_MAX_ACCEL;
 
-        /* Acceleration limiting */
-        int32_t speed_error = states[i].target_speed - states[i].current_speed;
+        /* Position control mode: P controller with braking distance check
+         * The P controller (gain=10) sets the target speed proportional to
+         * the distance remaining. A braking check prevents overshoot by
+         * comparing stopping distance (v²/2a) against remaining distance.
+         * When the motor can't stop in time, it decelerates to 0. */
+        if (position_mode[i]) {
+            int32_t position_error = target_positions[i] - states[i].position;
+            int32_t abs_error = (position_error >= 0) ? position_error : -position_error;
+            int32_t abs_speed = (states[i].current_speed >= 0) ?
+                                states[i].current_speed : -states[i].current_speed;
 
-        /* Clamp acceleration */
-        if (speed_error > max_accel) {
-            speed_error = max_accel;
-        } else if (speed_error < -max_accel) {
-            speed_error = -max_accel;
+            if (abs_error == 0 && abs_speed == 0) {
+                /* At target AND fully stopped — exit position mode */
+                states[i].target_speed = 0;
+                position_mode[i] = 0;
+            } else {
+                /* Check stopping distance: v² / (2*a) */
+                int32_t stop_dist = (int32_t)((int64_t)abs_speed * abs_speed
+                                    / (2 * max_accel));
+
+                if (abs_error == 0 || stop_dist >= abs_error) {
+                    /* At target or can't stop in time — decelerate */
+                    states[i].target_speed = 0;
+                } else {
+                    /* P controller: accelerate toward target */
+                    int32_t desired_speed = position_error * 10; /* P gain = 10 */
+
+                    /* Clamp to motor's maximum speed */
+                    if (desired_speed > max_speed) {
+                        desired_speed = max_speed;
+                    } else if (desired_speed < -max_speed) {
+                        desired_speed = -max_speed;
+                    }
+
+                    states[i].target_speed = desired_speed;
+                }
+            }
         }
 
-        /* Update current speed */
-        states[i].current_speed += speed_error;
+        /* Acceleration limiting using Bresenham accumulator
+         * max_accel is in steps/s². At 1kHz update rate, the per-tick
+         * speed change must be max_accel / 1000. Since this is often
+         * fractional, we accumulate and apply integer changes. */
+        int32_t speed_error = states[i].target_speed - states[i].current_speed;
 
-        /* Get motor-specific speed limit */
-        int32_t max_speed = motor_configs[i].max_speed > 0 ?
-                           motor_configs[i].max_speed : MOTOR_MAX_STEP_FREQ;
+        if (speed_error != 0) {
+            /* Accumulate fractional acceleration */
+            accel_accumulator[i] += max_accel;
+
+            /* Calculate integer speed change for this tick */
+            int32_t max_delta = accel_accumulator[i] / (int32_t)UPDATE_FREQ_HZ;
+            accel_accumulator[i] %= (int32_t)UPDATE_FREQ_HZ;
+
+            /* Apply speed change toward target */
+            if (speed_error > 0) {
+                if (speed_error <= max_delta) {
+                    states[i].current_speed = states[i].target_speed;
+                    accel_accumulator[i] = 0;
+                } else {
+                    states[i].current_speed += max_delta;
+                }
+            } else {
+                if (-speed_error <= max_delta) {
+                    states[i].current_speed = states[i].target_speed;
+                    accel_accumulator[i] = 0;
+                } else {
+                    states[i].current_speed -= max_delta;
+                }
+            }
+        } else {
+            accel_accumulator[i] = 0;
+        }
 
         /* Clamp to min/max speed */
         if (states[i].current_speed > max_speed) {
@@ -260,10 +296,8 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
                 HAL_GPIO_WritePin(motor_configs[i].pins.step_port,
                                 motor_configs[i].pins.step_pin, GPIO_PIN_SET);
 
-                /* Short delay for step pulse width (minimum 1-2us for most drivers) */
-                /* At 240 MHz, each NOP is ~4ns, so 10 NOPs ≈ 40ns (sufficient) */
-                __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
-                __NOP(); __NOP(); __NOP(); __NOP(); __NOP();
+                /* DRV8825 requires minimum 1.9us HIGH pulse on STEP */
+                Motor_DelayUs(STEP_PULSE_US);
 
                 HAL_GPIO_WritePin(motor_configs[i].pins.step_port,
                                 motor_configs[i].pins.step_pin, GPIO_PIN_RESET);
@@ -281,7 +315,7 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
             step_accumulator[i] = 0;
         }
 
-        /* Update is_moving flag - include position_mode to prevent premature move triggering */
+        /* Update is_moving flag: moving if speed is non-zero OR still in position mode */
         states[i].is_moving = (states[i].current_speed != 0) || position_mode[i];
     }
 }
@@ -341,7 +375,12 @@ void Motor_EmergencyStop(void)
  */
 void Motor_Home(void)
 {
-    /* TODO: Implement homing sequence with limit switches */
+    /* Move all configured motors back to position 0 (the home position) */
+    for (uint8_t i = 0; i < NUM_MOTORS; i++) {
+        if (motor_configs[i].configured) {
+            Motor_MoveToPosition(i, 0);
+        }
+    }
 }
 
 /**
@@ -353,12 +392,13 @@ int32_t Motor_SetLimits(uint8_t motor_id, int32_t max_speed, int32_t max_accel)
         return -1;
     }
 
-    if (max_speed <= 0 || max_accel <= 0) {
-        return -1;
+    /* 0 means "keep current value" - allows updating one without the other */
+    if (max_speed > 0) {
+        motor_configs[motor_id].max_speed = max_speed;
     }
-
-    motor_configs[motor_id].max_speed = max_speed;
-    motor_configs[motor_id].max_accel = max_accel;
+    if (max_accel > 0) {
+        motor_configs[motor_id].max_accel = max_accel;
+    }
 
     return 0;
 }
@@ -374,6 +414,7 @@ int32_t Motor_MoveToPosition(uint8_t motor_id, int32_t position)
 
     target_positions[motor_id] = position;
     position_mode[motor_id] = 1;
+    motor_states[motor_id].is_moving = 1;  /* Mark moving immediately to avoid race */
 
     return 0;
 }
@@ -389,6 +430,7 @@ int32_t Motor_MoveRelative(uint8_t motor_id, int32_t steps)
 
     target_positions[motor_id] = motor_states[motor_id].position + steps;
     position_mode[motor_id] = 1;
+    motor_states[motor_id].is_moving = 1;  /* Mark moving immediately to avoid race */
 
     return 0;
 }
@@ -421,6 +463,7 @@ int32_t Motor_Enable(uint8_t motor_id)
         HAL_GPIO_WritePin(motor_configs[motor_id].pins.en_port,
                           motor_configs[motor_id].pins.en_pin, GPIO_PIN_RESET);
     }
+    motor_enabled_state[motor_id] = 1;
 
     return 0;
 }
@@ -444,6 +487,7 @@ int32_t Motor_Disable(uint8_t motor_id)
         HAL_GPIO_WritePin(motor_configs[motor_id].pins.en_port,
                           motor_configs[motor_id].pins.en_pin, GPIO_PIN_SET);
     }
+    motor_enabled_state[motor_id] = 0;
 
     return 0;
 }
@@ -489,7 +533,47 @@ int32_t Motor_SetMicrostepMode(uint8_t motor_id, uint8_t mode)
     HAL_GPIO_WritePin(motor_configs[motor_id].pins.m2_port,
                       motor_configs[motor_id].pins.m2_pin, m2_state);
 
+    motor_microstep_mode[motor_id] = mode;
+
     return 0;
+}
+
+/**
+ * @brief Get motor max speed limit
+ */
+int32_t Motor_GetMaxSpeed(uint8_t motor_id)
+{
+    if (motor_id >= NUM_MOTORS || !motor_configs[motor_id].configured) return 0;
+    return motor_configs[motor_id].max_speed > 0 ?
+           motor_configs[motor_id].max_speed : MOTOR_MAX_STEP_FREQ;
+}
+
+/**
+ * @brief Get motor max acceleration limit
+ */
+int32_t Motor_GetMaxAccel(uint8_t motor_id)
+{
+    if (motor_id >= NUM_MOTORS || !motor_configs[motor_id].configured) return 0;
+    return motor_configs[motor_id].max_accel > 0 ?
+           motor_configs[motor_id].max_accel : MOTOR_MAX_ACCEL;
+}
+
+/**
+ * @brief Get motor enabled state
+ */
+uint8_t Motor_IsEnabled(uint8_t motor_id)
+{
+    if (motor_id >= NUM_MOTORS) return 0;
+    return motor_enabled_state[motor_id];
+}
+
+/**
+ * @brief Get motor microstep mode
+ */
+uint8_t Motor_GetMicrostepMode(uint8_t motor_id)
+{
+    if (motor_id >= NUM_MOTORS) return 0;
+    return motor_microstep_mode[motor_id];
 }
 
 /**

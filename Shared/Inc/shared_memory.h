@@ -38,6 +38,13 @@
 #define CMD_EMERGENCY_STOP      (1U << 3)   /* Emergency stop all motion */
 #define CMD_RESET_ERRORS        (1U << 4)   /* Clear error flags */
 #define CMD_STOP_SOLENOID       (1U << 5)   /* Stop solenoid(s) */
+#define CMD_SET_MOTOR_ACCEL     (1U << 6)   /* Set motor acceleration -----*/ 
+#define CMD_SET_MOTOR_MAXSPEED  (1U << 7)   /* Set motor max speed -----*/
+#define CMD_MOTOR_MOVE_REL      (1U << 8)   /* Relative position move -----*/
+#define CMD_MOTOR_MOVE_ABS      (1U << 9)   /* Absolute position move -----*/
+#define CMD_SET_MICROSTEP       (1U << 10)  /* Set microstepping mode -----*/
+#define CMD_MOTOR_ENABLE        (1U << 11)  /* Enable/disable motor -----*/
+#define CMD_MOTOR_ZERO          (1U << 12)  /* Zero motor position -----*/
 
 /* Status flags: CM4 → CM7 (bit field) */
 #define MOTOR_STATUS_READY      (1U << 0)   /* Motors initialized and ready */
@@ -71,26 +78,33 @@ typedef struct {
     volatile uint8_t solenoid_duty_cycle;               /* Duty cycle 1-99% (0 = use default 50%) */
     volatile uint8_t solenoid_active_mask;              /* Bit field: which solenoids are running */
 
+    /* ===== Motor Extended Commands (CM7 → CM4) ===== */
+    volatile uint8_t  motor_cmd_id;                    /* Motor ID for current command */
+    volatile uint8_t  motor_cmd_microstep_mode;        /* Microstep mode (0-5) */
+    volatile uint8_t  motor_cmd_enable;                /* 1=enable, 0=disable */
+    volatile uint8_t  motor_cmd_reserved;              /* Padding for alignment */
+    volatile int32_t  motor_cmd_position;              /* Target position (absolute or relative) */
+    volatile int32_t  motor_cmd_accel;                 /* Acceleration value */
+    volatile int32_t  motor_cmd_max_speed;             /* Max speed value */
+
     /* Extended solenoid timing control */
     volatile uint16_t solenoid_activation_time_ms;      /* Auto-stop time (0=infinite, 10-5000ms) */
     volatile uint16_t solenoid_burst_cycles;            /* Auto-stop cycles (0=disabled, 1-1000) */
     volatile uint8_t solenoid_mode;                     /* 0=infinite, 1=timed, 2=burst */
     volatile uint8_t solenoid_padding;                  /* Alignment */
 
-    /* ===== Motor Tuning Parameters (CM7 → CM4, adjustable via serial) ===== */
-    volatile int32_t motor_max_speed;                   /* Max speed (steps/sec), 0 = use default */
-    volatile int32_t motor_max_accel;                   /* Max acceleration, 0 = use default */
-    volatile int32_t motor_steps_per_move;              /* Steps per oscillation move, 0 = use default */
-    volatile uint32_t motor_settle_time_ms;             /* Settling time (ms) between moves */
-    volatile uint8_t motor_test_enabled;                /* 0 = stopped, 1 = running oscillation test */
-    volatile uint8_t motor_microstep_mode;              /* Microstep mode: 0=full, 1=1/2, 2=1/4, 3=1/8, 4=1/16, 5=1/32 */
-    volatile uint8_t motor_microstep_changed;           /* Flag: 1 = CM4 should apply new microstep mode */
-    volatile uint8_t motor_test_padding;                /* Padding for alignment */
+
 
     /* ===== CM4 → CM7 Status Channel ===== */
     volatile uint32_t motor_status_flags;               /* Status bit field */
     volatile int32_t current_positions[NUM_MOTORS];     /* Current motor positions (steps) */
-    volatile int32_t current_speeds[NUM_MOTORS];        /* Current motor speeds (steps/sec) */
+    volatile int32_t current_speeds[NUM_MOTORS];        /* Current speed (steps/sec) */
+    volatile int32_t target_speeds_status[NUM_MOTORS];  /* Target speed (steps/sec) */
+    volatile int32_t max_speeds_status[NUM_MOTORS];     /* Max speed limit (steps/sec) */
+    volatile int32_t max_accels_status[NUM_MOTORS];     /* Max accel limit (steps/sec^2) */
+    volatile uint8_t motor_enabled[NUM_MOTORS];         /* 1=enabled, 0=disabled */
+    volatile uint8_t motor_microstep_status[NUM_MOTORS]; /* Current microstep mode (0-5) */
+    volatile uint8_t motor_is_moving[NUM_MOTORS];       /* 1=moving, 0=stopped */
     volatile uint32_t motor_errors;                     /* Error code bit field */
 
     /* ===== Diagnostics & Health Monitoring ===== */

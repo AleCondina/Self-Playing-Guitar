@@ -38,34 +38,23 @@ void Debug_PrintSharedMemory(void);
 void Debug_PrintMotorStatus(uint8_t motor_id);
 
 /**
- * @brief Process UART input (non-blocking)
- * @note  Call this periodically from main loop to handle serial commands
+ * @brief Start UART RX interrupt reception
+ * @note  Call once after BSP_COM_Init() to begin receiving characters
  */
-void Debug_ProcessInput(void);
+void Debug_UART_StartRx(void);
 
 /**
- * @brief Print available commands
+ * @brief Check if a complete command line is available
+ * @return 1 if line ready, 0 if not
  */
-void Debug_PrintHelp(void);
+uint8_t Debug_UART_IsLineReady(void);
 
 /**
- * @brief Print current motor tuning status
+ * @brief Get the received command line
+ * @param buffer  Destination buffer (caller-provided)
+ * @param max_len Maximum bytes to copy
+ * @return Length of string copied (excluding null terminator)
  */
-void Debug_PrintTuningStatus(void);
-
-/**
- * @brief Initialize motor tuning defaults in shared memory
- */
-void Debug_InitMotorDefaults(void);
-
-/**
- * @brief Print solenoid help
- */
-void Debug_PrintSolenoidHelp(void);
-
-/**
- * @brief Print solenoid status
- */
-void Debug_PrintSolenoidStatus(void);
+uint16_t Debug_UART_GetLine(char *buffer, uint16_t max_len);
 
 #endif /* DEBUG_UART_H */

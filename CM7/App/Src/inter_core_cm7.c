@@ -165,6 +165,96 @@ void InterCore_HomeMotors(void)
 }
 
 /**
+ * @brief Send motor acceleration command to CM4
+ */
+void InterCore_SendMotorAccel(uint8_t motor_id, int32_t accel)
+{
+    if (motor_id >= NUM_MOTORS) return;
+    g_shared_memory.motor_cmd_id = motor_id;
+    g_shared_memory.motor_cmd_accel = accel;
+    g_shared_memory.motor_command_flags |= CMD_SET_MOTOR_ACCEL;
+    __DSB();
+    InterCore_NotifyCM4();
+}
+
+/**
+ * @brief Send motor max speed command to CM4
+ */
+void InterCore_SendMotorMaxSpeed(uint8_t motor_id, int32_t max_speed)
+{
+    if (motor_id >= NUM_MOTORS) return;
+    g_shared_memory.motor_cmd_id = motor_id;
+    g_shared_memory.motor_cmd_max_speed = max_speed;
+    g_shared_memory.motor_command_flags |= CMD_SET_MOTOR_MAXSPEED;
+    __DSB();
+    InterCore_NotifyCM4();
+}
+
+/**
+ * @brief Send relative move command to CM4
+ */
+void InterCore_SendMotorMoveRelative(uint8_t motor_id, int32_t steps)
+{
+    if (motor_id >= NUM_MOTORS) return;
+    g_shared_memory.motor_cmd_id = motor_id;
+    g_shared_memory.motor_cmd_position = steps;
+    g_shared_memory.motor_command_flags |= CMD_MOTOR_MOVE_REL;
+    __DSB();
+    InterCore_NotifyCM4();
+}
+
+/**
+ * @brief Send absolute position move command to CM4
+ */
+void InterCore_SendMotorGoto(uint8_t motor_id, int32_t position)
+{
+    if (motor_id >= NUM_MOTORS) return;
+    g_shared_memory.motor_cmd_id = motor_id;
+    g_shared_memory.motor_cmd_position = position;
+    g_shared_memory.motor_command_flags |= CMD_MOTOR_MOVE_ABS;
+    __DSB();
+    InterCore_NotifyCM4();
+}
+
+/**
+ * @brief Send microstep mode command to CM4
+ */
+void InterCore_SendMotorMicrostep(uint8_t motor_id, uint8_t mode)
+{
+    if (motor_id >= NUM_MOTORS) return;
+    g_shared_memory.motor_cmd_id = motor_id;
+    g_shared_memory.motor_cmd_microstep_mode = mode;
+    g_shared_memory.motor_command_flags |= CMD_SET_MICROSTEP;
+    __DSB();
+    InterCore_NotifyCM4();
+}
+
+/**
+ * @brief Send motor enable/disable command to CM4
+ */
+void InterCore_SendMotorEnable(uint8_t motor_id, uint8_t enable)
+{
+    if (motor_id >= NUM_MOTORS) return;
+    g_shared_memory.motor_cmd_id = motor_id;
+    g_shared_memory.motor_cmd_enable = enable;
+    g_shared_memory.motor_command_flags |= CMD_MOTOR_ENABLE;
+    __DSB();
+    InterCore_NotifyCM4();
+}
+
+/**
+ * @brief Send zero position command to CM4
+ */
+void InterCore_SendMotorZero(uint8_t motor_id)
+{
+    if (motor_id >= NUM_MOTORS) return;
+    g_shared_memory.motor_cmd_id = motor_id;
+    g_shared_memory.motor_command_flags |= CMD_MOTOR_ZERO;
+    __DSB();
+    InterCore_NotifyCM4();
+}
+
+/**
  * @brief Read motor status from CM4
  */
 int32_t InterCore_ReadMotorStatus(uint32_t *status, int32_t positions[NUM_MOTORS], uint32_t *errors)
