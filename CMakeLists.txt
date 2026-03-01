@@ -23,6 +23,14 @@ set(CMAKE_CXX_COMPILER_FORCED "true")
 # Set the project name
 set(CMAKE_PROJECT_NAME NUCLEO_H755ZI)
 
+# Set toolchain file location
+set(CMAKE_TOOLCHAIN_FILE "${CMAKE_SOURCE_DIR}/gcc-arm-none-eabi.cmake")
+
+# Set build type to Debug but still allow for a -DCMAKE_BUILD_TYPE=Release command
+set(CMAKE_BUILD_TYPE "Debug" CACHE STRING "Choose the type of build" FORCE)
+
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
 # Core project settings
 project(${CMAKE_PROJECT_NAME})
 

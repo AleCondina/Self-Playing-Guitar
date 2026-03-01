@@ -1,3 +1,5 @@
+If:
+  PathMatch: [CM7/.*, Drivers/.*, Shared/.*]
 CompileFlags:
   Add:
   - '-ferror-limit=0'
@@ -9,11 +11,11 @@ Diagnostics:
   - unknown_typename
   - unknown_typename_suggest
   - typename_requires_specqual
-If:
-  PathMatch: CM7/.*
 
 ---
 
+If:
+  PathMatch: CM4/.*
 CompileFlags:
   Add:
   - '-ferror-limit=0'
@@ -25,5 +27,5 @@ Diagnostics:
   - unknown_typename
   - unknown_typename_suggest
   - typename_requires_specqual
-If:
-  PathMatch: CM4/.*
+
+

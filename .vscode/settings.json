@@ -6,10 +6,19 @@
     "cmake.preferredGenerators": [
         "Ninja"
     ],
+    "cmake.additionalCompilerSearchDirs": [
+        "/usr/bin/",
+        "/opt/homebrew/bin/"
+    ],
     "stm32cube-ide-clangd.path": "cube",
     "stm32cube-ide-clangd.arguments": [
         "starm-clangd",
         "--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-gcc",
         "--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-g++"
+    ],
+    // clangd language server fix
+    "clangd.path": "/usr/bin/clangd",
+    "clangd.arguments":[
+        "--query-driver=/usr/bin/arm-none-eabi-gcc"
     ]
 }
