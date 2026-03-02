@@ -34,26 +34,31 @@ void FFT_Init(void)
 
 void FFT_ProcessBlock(uint16_t *adc_buffer)
 {
-    /* 1️⃣ Convert ADC -> float (-1 to +1) */
+    /* 1️ Convert ADC -> float (-1 to +1) */
     for (uint32_t i = 0; i < FFT_SIZE; i++)
     {
         fft_input[i] = ((float32_t)adc_buffer[i] - 2048.0f) / 2048.0f;
     }
 
-    /* 2️⃣ Apply window */
+    /* 2️ Apply window */
     arm_mult_f32(fft_input, window, fft_input, FFT_SIZE);
 
-    /* 3️⃣ FFT */
+    /* 3️ FFT */
     arm_rfft_fast_f32(&fft_instance, fft_input, fft_output, 0);
 
-    /* 4️⃣ Magnitude */
+    /* 4️ Magnitude */
     arm_cmplx_mag_f32(fft_output, fft_mag, FFT_HALF_SIZE);
 
-    /* 5️⃣ Find fundamental */
+    /* 5️ Find fundamental */
     uint32_t peak_bin = 1;
     float32_t peak_val = 0.0f;
 
-    for (uint32_t i = 1; i < FFT_HALF_SIZE / 2; i++)
+    // FFT_HALF_SIZE is the Nyquist frequency (Fs / 2), dividing by 2 again searches for bins half of that
+    // For efficiency since our frequencies won't exceed 500 Hz
+    // also note: starts at index 1 because arm_rfft_fast_f32 has index 0(real DC component)
+    // index 1(real nyquist component)
+    // index 2 and 3(real and imaginary parts)
+    for (uint32_t i = 1; i < FFT_HALF_SIZE / 2; i++)    
     {
         if (fft_mag[i] > peak_val)
         {

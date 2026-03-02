@@ -25,6 +25,7 @@
 #include "inter_core_cm7.h"
 #include "debug_uart.h"
 #include "app_cm7.h"
+#include "stm32h7xx_hal_tim.h"
 #include <string.h>
 /* USER CODE END Includes */
 
@@ -60,6 +61,7 @@
 COM_InitTypeDef BspCOMInit;
 ADC_HandleTypeDef hadc3;
 DMA_HandleTypeDef hdma_adc3;
+TIM_HandleTypeDef htim6;
 
 /* USER CODE BEGIN PV */
 
@@ -70,6 +72,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_BDMA_Init(void);
 static void MX_ADC3_Init(void);
+static void MX_TIM6_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -151,6 +154,7 @@ Error_Handler();
   MX_GPIO_Init();
   MX_BDMA_Init();
   MX_ADC3_Init();
+  MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
 
   /* USER CODE END 2 */
@@ -247,6 +251,34 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
+}
+
+/**
+ * @brief TIM6 Initialization Function
+ * @note  Used as a precise 6 kHz timebase to trigger ADC3
+ */
+static void MX_TIM6_Init(void)
+{
+    TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+    htim6.Instance = TIM6;
+    htim6.Init.Prescaler = 0;
+    htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+    htim6.Init.Period = 10666;   /* 64MHz / (0+1) / (10666+1) = 5999.81 Hz */
+    htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+    
+    if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+    {
+        Error_Handler();
+    }
+
+    /* CRITICAL: Tell TIM6 to send a trigger signal to the ADC on update */
+    sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+    sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+    if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+    {
+        Error_Handler();
+    }
 }
 
 /**

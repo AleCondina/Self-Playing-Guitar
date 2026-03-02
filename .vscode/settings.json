@@ -20,8 +20,9 @@
         "--query-driver=${env:CUBE_BUNDLE_PATH}/gnu-tools-for-stm32/14.3.1+st.2/bin/arm-none-eabi-g++"
     ],
     // clangd
-    "clangd.path": "/usr/bin/clangd",
+    "clangd.path": "/usr/bin/clangd",                           //for linux and mac(vscode extension)
     "clangd.arguments":[
-        "--query-driver=/usr/bin/arm-none-eabi-gcc"
+        "--query-driver=/usr/bin/arm-none-eabi-gcc",            //for linux
+        "--query-driver=/opt/homebrew/bin/arm-none-eabi-gcc"    //for mac
     ]
 }

@@ -58,6 +58,10 @@ void App_CM7_Main(void)
 
     if (app_state != STATE_ERROR) {
         printf("[CM7] CM4 ready! Starting application.\r\n\r\n");
+
+        /* Initialize FFT Processing */
+        printf("[CM7] Initializing FFT engine...\r\n");
+        FFT_Init();
         
         /* Initialize audio input (ADC + DMA) */
         printf("[CM7] Initializing audio input...\r\n");
