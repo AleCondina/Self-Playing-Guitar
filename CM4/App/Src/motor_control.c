@@ -264,7 +264,7 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
                 }
             }
         } else {
-            sol [i] = 0;
+            accel_accumulator[i] = 0;
         }
 
         /* Clamp to min/max speed */

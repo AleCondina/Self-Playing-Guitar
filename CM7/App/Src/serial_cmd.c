@@ -61,15 +61,17 @@ typedef enum {
     DEMO_ZERO_MOTOR,
     DEMO_SET_MICROSTEP,
     DEMO_WAIT_MICROSTEP,
-    DEMO_STRUM_1,
-    DEMO_WAIT_3S_1,
-    DEMO_MOVE_180,
+    DEMO_STRUM_E2,
+    DEMO_WAIT_AFTER_E2,
+    DEMO_MOVE_TO_G,
     DEMO_WAIT_MOVE_DONE,
-    DEMO_WAIT_3S_2,
+    DEMO_WAIT_SETTLE_1,
+    DEMO_STRUM_G,
+    DEMO_WAIT_AFTER_G,
     DEMO_HOME,
     DEMO_WAIT_HOME_DONE,
-    DEMO_WAIT_SETTLE,
-    DEMO_STRUM_2,
+    DEMO_WAIT_SETTLE_2,
+    DEMO_STRUM_HOME,
     DEMO_DONE
 } DemoState_t;
 
@@ -731,7 +733,7 @@ static void Cmd_Demo(char *args)
     }
 
     printf("\r\n===== DEMO START =====\r\n");
-    printf("  Sequence: strum E2 open -> wait 3s -> rotate 180deg -> wait 3s -> home -> strum E2 open\r\n\r\n");
+    printf("  Sequence: strum E2 -> move to G -> strum G -> home -> strum E2\r\n\r\n");
     demo_state = DEMO_ZERO_MOTOR;
 }
 
@@ -741,14 +743,11 @@ static void Cmd_Demo(char *args)
  * Demo sequence:
  *   1. Zero motor 0 position counter
  *   2. Set microstep to 1/16 (mode 4)
- *   3. Strum E2 open string (solenoid 0, 50% duty, 40 burst cycles)
- *   4. Wait 3 seconds
- *   5. Move motor 0 by 1600 steps = 180 degrees at 1/16 microstepping
- *   6. Wait for move to complete
- *   7. Wait 3 seconds
- *   8. Home motor 0 (return to position 0)
- *   9. Wait for home to complete
- *  10. Strum E2 open string again (same as step 3)
+ *   3. Strum E2 open (solenoid 0, string 0, fret 0, 50% duty, 40 burst)
+ *   4. Wait 1s, then move to G string (-1600 steps = 180 deg at 1/16)
+ *   5. Wait for move, settle, then strum G (solenoid 0, string 0, fret 3)
+ *   6. Wait 1s, then home motor 0
+ *   7. Wait for home, settle, then strum E2 open again
  */
 static void Demo_Tick(void)
 {
@@ -777,28 +776,28 @@ static void Demo_Tick(void)
     case DEMO_WAIT_MICROSTEP:
         /* Brief delay for microstep mode to apply on CM4 */
         if (now - demo_timer >= 50) {
-            demo_state = DEMO_STRUM_1;
+            demo_state = DEMO_STRUM_E2;
         }
         break;
 
-    case DEMO_STRUM_1:
-        /* Solenoid 0, E2 string (0), fret 0 (open), 50% duty, 40 burst cycles */
+    case DEMO_STRUM_E2:
+        /* Solenoid 0, string 0, fret 0 (open E2), 50% duty, 40 burst cycles */
         Demo_TriggerSolenoid(0, 0, 0, 50, 40);
         printf("  [Demo] Step 3: Strumming E2 open (sol 0 0 0 50 0 40)\r\n");
         demo_timer = now;
-        demo_state = DEMO_WAIT_3S_1;
+        demo_state = DEMO_WAIT_AFTER_E2;
         break;
 
-    case DEMO_WAIT_3S_1:
-        if (now - demo_timer >= 2000) {
-            demo_state = DEMO_MOVE_180;
+    case DEMO_WAIT_AFTER_E2:
+        if (now - demo_timer >= 1000) {
+            demo_state = DEMO_MOVE_TO_G;
         }
         break;
 
-    case DEMO_MOVE_180:
-        /* 1600 steps at 1/16 microstepping = 180 degrees */
-        InterCore_SendMotorMoveRelative(0, 1600);
-        printf("  [Demo] Step 4: Moving 180 degrees (1600 steps at 1/16)\r\n");
+    case DEMO_MOVE_TO_G:
+        /* 1600 steps at 1/16 microstepping = 180 degrees to G string */
+        InterCore_SendMotorMoveRelative(0, -1600);
+        printf("  [Demo] Step 4: Moving to G string (-1600 steps / 180 deg)\r\n");
         demo_state = DEMO_WAIT_MOVE_DONE;
         break;
 
@@ -807,19 +806,34 @@ static void Demo_Tick(void)
             printf("  [Demo] Move complete (pos: %ld steps)\r\n",
                    (long)g_shared_memory.current_positions[0]);
             demo_timer = now;
-            demo_state = DEMO_WAIT_3S_2;
+            demo_state = DEMO_WAIT_SETTLE_1;
         }
         break;
 
-    case DEMO_WAIT_3S_2:
-        if (now - demo_timer >= 3000) {
+    case DEMO_WAIT_SETTLE_1:
+        /* Settle time before strumming */
+        if (now - demo_timer >= 500) {
+            demo_state = DEMO_STRUM_G;
+        }
+        break;
+
+    case DEMO_STRUM_G:
+        /* Solenoid 0, string 0, fret 3 (G), 50% duty, 40 burst cycles */
+        Demo_TriggerSolenoid(0, 0, 3, 50, 40);
+        printf("  [Demo] Step 5: Strumming G string (sol 0 0 3 50 0 40)\r\n");
+        demo_timer = now;
+        demo_state = DEMO_WAIT_AFTER_G;
+        break;
+
+    case DEMO_WAIT_AFTER_G:
+        if (now - demo_timer >= 1000) {
             demo_state = DEMO_HOME;
         }
         break;
 
     case DEMO_HOME:
         InterCore_HomeMotors();
-        printf("  [Demo] Step 5: Homing motor (returning to position 0)\r\n");
+        printf("  [Demo] Step 6: Homing motor (returning to position 0)\r\n");
         demo_state = DEMO_WAIT_HOME_DONE;
         break;
 
@@ -828,21 +842,21 @@ static void Demo_Tick(void)
             printf("  [Demo] Home reached (pos: %ld steps)\r\n",
                    (long)g_shared_memory.current_positions[0]);
             demo_timer = now;
-            demo_state = DEMO_WAIT_SETTLE;
+            demo_state = DEMO_WAIT_SETTLE_2;
         }
         break;
 
-    case DEMO_WAIT_SETTLE:
-        /* Small settle time after homing before strumming */
+    case DEMO_WAIT_SETTLE_2:
+        /* Settle time after homing before strumming */
         if (now - demo_timer >= 500) {
-            demo_state = DEMO_STRUM_2;
+            demo_state = DEMO_STRUM_HOME;
         }
         break;
 
-    case DEMO_STRUM_2:
-        /* Same strum as before: E2 open, 50% duty, 40 cycles */
+    case DEMO_STRUM_HOME:
+        /* Strum at home: string 0, fret 0 (open), 50% duty, 40 cycles */
         Demo_TriggerSolenoid(0, 0, 0, 50, 40);
-        printf("  [Demo] Step 6: Strumming E2 open again (sol 0 0 0 50 0 40)\r\n");
+        printf("  [Demo] Step 7: Strumming E2 at home (sol 0 0 0 50 0 40)\r\n");
         demo_state = DEMO_DONE;
         break;
 
