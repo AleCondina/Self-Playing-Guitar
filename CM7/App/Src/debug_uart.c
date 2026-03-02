@@ -191,6 +191,57 @@ void Debug_PrintSolenoidStatus(void)
     printf("============================\r\n\r\n");
 }
 
+/* ===== Line-buffered UART API (used by serial_cmd.c) ===== */
+
+static uint8_t uart_line_ready = 0;
+
+void Debug_UART_StartRx(void)
+{
+    cmd_index = 0;
+    uart_line_ready = 0;
+    printf("> ");
+}
+
+uint8_t Debug_UART_IsLineReady(void)
+{
+    if (uart_line_ready) return 1;
+
+    uint8_t ch;
+    while (HAL_UART_Receive(&hcom_uart[COM1], &ch, 1, 0) == HAL_OK) {
+        HAL_UART_Transmit(&hcom_uart[COM1], &ch, 1, 10); /* echo */
+
+        if (ch == '\r' || ch == '\n') {
+            printf("\r\n");
+            cmd_buffer[cmd_index] = '\0';
+            if (cmd_index > 0) {
+                uart_line_ready = 1;
+                return 1;
+            }
+            printf("> ");
+        } else if (ch == '\b' || ch == 127) {
+            if (cmd_index > 0) {
+                cmd_index--;
+                printf(" \b");
+            }
+        } else if (cmd_index < CMD_BUFFER_SIZE - 1) {
+            cmd_buffer[cmd_index++] = ch;
+        }
+    }
+    return 0;
+}
+
+void Debug_UART_GetLine(char *buf, uint16_t size)
+{
+    if (uart_line_ready) {
+        strncpy(buf, cmd_buffer, size - 1);
+        buf[size - 1] = '\0';
+        cmd_index = 0;
+        uart_line_ready = 0;
+    } else {
+        buf[0] = '\0';
+    }
+}
+
 /**
  * @brief Parse and execute a command
  * @param cmd Command string to parse

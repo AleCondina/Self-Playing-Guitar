@@ -72,7 +72,7 @@ void App_CM7_Main(void)
         g_shared_memory.cm7_heartbeat++;
 
         /* Process serial commands (non-blocking) */
-        Debug_ProcessInput();
+        SerialCmd_Process();
 
         /* State machine */
         switch (app_state) {

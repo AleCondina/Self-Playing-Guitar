@@ -237,7 +237,12 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
                     states[i].target_speed = desired_speed;
                 }
             }
-        }
+
+        /* Get motor-specific limits for acceleration and speed clamping */
+        int32_t max_accel = motor_configs[i].max_accel > 0 ?
+                            motor_configs[i].max_accel : MOTOR_MAX_ACCEL;
+        int32_t max_speed = motor_configs[i].max_speed > 0 ?
+                            motor_configs[i].max_speed : MOTOR_MAX_STEP_FREQ;
 
         /* Acceleration limiting using Bresenham accumulator
          * max_accel is in steps/s². At 1kHz update rate, the per-tick

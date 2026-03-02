@@ -38,6 +38,25 @@ void Debug_PrintSharedMemory(void);
 void Debug_PrintMotorStatus(uint8_t motor_id);
 
 /**
+ * @brief Start UART receive (call once before polling)
+ */
+void Debug_UART_StartRx(void);
+
+/**
+ * @brief Check if a complete line is ready
+ * @return 1 if a line is buffered and ready to read, 0 otherwise
+ * @note  Polls UART internally (non-blocking)
+ */
+uint8_t Debug_UART_IsLineReady(void);
+
+/**
+ * @brief Copy the buffered line into caller's buffer and reset
+ * @param buf Destination buffer
+ * @param size Buffer size
+ */
+void Debug_UART_GetLine(char *buf, uint16_t size);
+
+/**
  * @brief Process UART input (non-blocking)
  * @note  Call this periodically from main loop to handle serial commands
  */

@@ -76,6 +76,119 @@ typedef enum {
 static DemoState_t demo_state = DEMO_IDLE;
 static uint32_t demo_timer = 0;
 
+/* ===== Demo2: Smoke on the Water ===== */
+
+/*
+ * Base time unit (ms) - controls overall tempo.
+ * All note durations and breaks are proportional to this value.
+ * At 400ms base, one "1x" beat ≈ 150 BPM feel.
+ * TODO: Tune this to match desired tempo for Smoke on the Water (~112 BPM).
+ */
+#define DEMO2_BASE_UNIT_MS   1000
+
+#define DEMO2_NUM_NOTES      12
+
+/* Solenoid parameters — TODO: calibrate duty & burst on hardware */
+#define DEMO2_SOL_DUTY       50   /* Duty cycle % */
+#define DEMO2_SOL_BURST      40   /* Burst cycles per strum */
+
+/*
+ * Each note in the riff uses 2 steppers + 2 solenoids (E and A strings).
+ *
+ * motor0_steps / motor1_steps: RELATIVE move from previous note position.
+ *   Positive = forward (higher fret), negative = back toward nut.
+ *   TODO: Calibrate these for your fret spacing + microstep mode.
+ *
+ * duration_x10: How long the note rings, as 10× multiplier of base unit.
+ *   10 = 1.0×, 20 = 2.0×, 5 = 0.5×
+ *
+ * break_x10: Silence/travel time before the next note (same scale).
+ */
+typedef struct {
+    int32_t motor0_steps;   /* Stepper 0 (E string) relative steps */
+    int32_t motor1_steps;   /* Stepper 1 (A string) relative steps */
+    uint8_t sol0_string;    /* Solenoid 0: string index (0=E2, 1=A2, ...) */
+    uint8_t sol0_fret;      /* Solenoid 0: fret (0=open, 1-7) */
+    uint8_t sol1_string;    /* Solenoid 1: string index */
+    uint8_t sol1_fret;      /* Solenoid 1: fret (0=open, 1-7) */
+    uint16_t duration_x10;  /* Note duration (10 = 1.0× base) */
+    uint16_t break_x10;     /* Break after note (10 = 1.0× base) */
+} Demo2Note_t;
+
+/*
+ * Smoke on the Water — main riff (4 phrases, 12 notes total)
+ *
+ *   Phrase 1:  n ─ n ─ n ──────── (long break)
+ *   Phrase 2:  n ─ n ─ n · n ──── (short + long break)
+ *   Phrase 3:  n ─ n ─ n ──────── (long break)
+ *   Phrase 4:  n ─ n ──────────── (end)
+ *
+ * Proportional timing from user spec:
+ *   Breaks:    1  1  3 | 1  1  0.5  3 | 1  1  3 | 1  0
+ *   Durations: 1  1  2 | 1  1  0.5  2 | 1  1  2 | 1  2
+ *
+ * Motor steps are all 0 (placeholder) — fill in after calibrating
+ * the number of steps needed to move between fret positions.
+ *
+ * Solenoid string/fret are all 0 (placeholder) — fill in after
+ * determining the correct PWM frequency for each note.
+ * sol0 = E string solenoid, sol1 = A string solenoid.
+ */
+static const Demo2Note_t demo2_notes[DEMO2_NUM_NOTES] = {
+    /* ---- Phrase 1: 3 notes ---- */
+    /* Note  0: First chord (open string position, no motor move) */
+    { .motor0_steps = 0, .motor1_steps = 0, .sol0_string = 0, .sol0_fret = 0, .sol1_string = 1, .sol1_fret = 0, .duration_x10 = 10, .break_x10 = 10 },
+    /* Note  1: Second chord (move steppers to next fret position) */
+    { .motor0_steps = -1600, .motor1_steps = 0, .sol0_string = 0, .sol0_fret = 3, .sol1_string = 1, .sol1_fret = 0, .duration_x10 = 10, .break_x10 = 10 },
+    /* Note  2: Third chord (held longer, followed by long break) */
+    { .motor0_steps = -800, .motor1_steps = 0, .sol0_string = 0, .sol0_fret = 5, .sol1_string = 1, .sol1_fret = 0, .duration_x10 = 20, .break_x10 = 30 },
+
+    /* ---- Phrase 2: 4 notes ---- */
+    /* Note  3: Same as phrase 1 start (move back to first position) */
+    { .motor0_steps = 2400, .motor1_steps = 0, .sol0_string = 0, .sol0_fret = 0, .sol1_string = 1, .sol1_fret = 0, .duration_x10 = 10, .break_x10 = 10 },
+    /* Note  4: Second chord */
+    { .motor0_steps = -1600, .motor1_steps = 0, .sol0_string = 0, .sol0_fret = 3, .sol1_string = 1, .sol1_fret = 0, .duration_x10 = 10, .break_x10 = 10 },
+    /* Note  5: Quick grace note (half duration, half break) */
+    { .motor0_steps = -1600, .motor1_steps = 0, .sol0_string = 0, .sol0_fret = 6, .sol1_string = 1, .sol1_fret = 0, .duration_x10 =  5, .break_x10 =  5 },
+    /* Note  6: Resolve chord (held longer, followed by long break) */
+    { .motor0_steps = 600, .motor1_steps = 0, .sol0_string = 0, .sol0_fret = 5, .sol1_string = 1, .sol1_fret = 0, .duration_x10 = 20, .break_x10 = 30 },
+
+    /* ---- Phrase 3: 3 notes (same as phrase 1) ---- */
+    /* Note  7: First chord */
+    { .motor0_steps = 2600, .motor1_steps = 0, .sol0_string = 0, .sol0_fret = 0, .sol1_string = 1, .sol1_fret = 0, .duration_x10 = 10, .break_x10 = 10 },
+    /* Note  8: Second chord */
+    { .motor0_steps = -1600, .motor1_steps = 0, .sol0_string = 0, .sol0_fret = 3, .sol1_string = 1, .sol1_fret = 0, .duration_x10 = 10, .break_x10 = 10 },
+    /* Note  9: Third chord (held longer, long break) */
+    { .motor0_steps = -800, .motor1_steps = 0, .sol0_string = 0, .sol0_fret = 5, .sol1_string = 1, .sol1_fret = 0, .duration_x10 = 20, .break_x10 = 30 },
+
+    /* ---- Phrase 4: 2 notes (ending) ---- */
+    /* Note 10: Penultimate chord */
+    { .motor0_steps = 800, .motor1_steps = 0, .sol0_string = 0, .sol0_fret = 3, .sol1_string = 1, .sol1_fret = 0, .duration_x10 = 10, .break_x10 = 10 },
+    /* Note 11: Final chord (held long, no break — riff ends) */
+    { .motor0_steps = 1600, .motor1_steps = 0, .sol0_string = 0, .sol0_fret = 0, .sol1_string = 1, .sol1_fret = 0, .duration_x10 = 20, .break_x10 =  0 },
+};
+
+typedef enum {
+    DEMO2_IDLE = 0,
+    DEMO2_INIT_ZERO_M0,      /* Zero motor 0 position */
+    DEMO2_INIT_ZERO_M1,      /* Zero motor 1 position */
+    DEMO2_INIT_MICROSTEP,    /* Set microstep for both motors */
+    DEMO2_WAIT_INIT,         /* Brief settle after init */
+    DEMO2_MOVE_MOTOR0,       /* Send relative move to stepper 0 */
+    DEMO2_MOVE_MOTOR1,       /* Send relative move to stepper 1 */
+    DEMO2_WAIT_MOTORS,       /* Wait for both steppers to finish */
+    DEMO2_TRIGGER_SOL0,      /* Trigger solenoid 0 (E string) */
+    DEMO2_WAIT_SOL0,         /* Brief wait for CM4 to process */
+    DEMO2_TRIGGER_SOL1,      /* Trigger solenoid 1 (A string) */
+    DEMO2_WAIT_DURATION,     /* Wait for note to ring out */
+    DEMO2_WAIT_BREAK,        /* Silence between notes */
+    DEMO2_DONE
+} Demo2State_t;
+
+static Demo2State_t demo2_state = DEMO2_IDLE;
+static uint32_t     demo2_timer    = 0;
+static uint8_t      demo2_note_idx = 0;
+
 /* Forward declarations */
 static void Cmd_Start(char *args);
 static void Cmd_Speed(char *args);
@@ -95,7 +208,9 @@ static void Cmd_Stop(char *args);
 static void Cmd_Status(char *args);
 static void Cmd_Help(char *args);
 static void Cmd_Demo(char *args);
+static void Cmd_Demo2(char *args);
 static void Demo_Tick(void);
+static void Demo2_Tick(void);
 
 /* Command table entry */
 typedef struct {
@@ -122,6 +237,7 @@ static const CmdEntry_t command_table[] = {
     { "stop",      Cmd_Stop,      "stop                    Emergency stop all" },
     { "status",    Cmd_Status,    "status                  Print motor status" },
     { "demo",      Cmd_Demo,      "demo                    Run solenoid+motor demo" },
+    { "demo2",     Cmd_Demo2,     "demo2                   Smoke on the Water (2 strings)" },
     { "help",      Cmd_Help,      "help                    Show this help" },
     { NULL, NULL, NULL }
 };
@@ -177,8 +293,9 @@ void SerialCmd_Init(void)
 
 uint8_t SerialCmd_Process(void)
 {
-    /* Tick demo state machine every call (runs even when no command pending) */
+    /* Tick demo state machines every call (runs even when no command pending) */
     Demo_Tick();
+    Demo2_Tick();
 
     if (!Debug_UART_IsLineReady()) {
         return 0;
@@ -495,10 +612,14 @@ static void Cmd_Presets(char *args)
 static void Cmd_Stop(char *args)
 {
     (void)args;
-    /* Cancel demo if running */
+    /* Cancel demos if running */
     if (demo_state != DEMO_IDLE) {
         demo_state = DEMO_IDLE;
         printf("  Demo cancelled.\r\n");
+    }
+    if (demo2_state != DEMO2_IDLE) {
+        demo2_state = DEMO2_IDLE;
+        printf("  Demo2 cancelled.\r\n");
     }
     InterCore_EmergencyStop();
     printf("  EMERGENCY STOP - all motors stopped\r\n");
@@ -719,6 +840,208 @@ static void Demo_Tick(void)
 
     default:
         demo_state = DEMO_IDLE;
+        break;
+    }
+}
+
+/* ===== Demo2: Smoke on the Water — Command & State Machine ===== */
+
+static void Cmd_Demo2(char *args)
+{
+    (void)args;
+
+    if (demo2_state != DEMO2_IDLE) {
+        printf("  Demo2 already running. Type 'stop' to cancel.\r\n");
+        return;
+    }
+
+    /* Cancel demo1 if it happens to be running */
+    if (demo_state != DEMO_IDLE) {
+        demo_state = DEMO_IDLE;
+        InterCore_EmergencyStop();
+        printf("  Demo1 cancelled.\r\n");
+    }
+
+    /* Auto-start system if not started */
+    if (!system_started) {
+        system_started = 1;
+        printf("  System auto-started for demo.\r\n");
+    }
+
+    printf("\r\n===== DEMO2: SMOKE ON THE WATER =====\r\n");
+    printf("  2 steppers (motor 0 + 1) and 2 solenoids (E + A strings)\r\n");
+    printf("  Base tempo unit: %u ms\r\n", DEMO2_BASE_UNIT_MS);
+    printf("  12 notes across 4 phrases\r\n");
+    printf("  NOTE: motor steps are placeholders — calibrate on hardware!\r\n\r\n");
+
+    demo2_state = DEMO2_INIT_ZERO_M0;
+}
+
+/**
+ * @brief Demo2 state machine tick — called every main loop iteration (~1ms)
+ *
+ * Plays the Smoke on the Water riff using a data-driven note table.
+ * For each note the sequence is:
+ *   1. Move stepper 0 (E string fret)  →  relative steps
+ *   2. Move stepper 1 (A string fret)  →  relative steps
+ *   3. Wait for both motors to finish
+ *   4. Trigger solenoid 0 (E string pluck)
+ *   5. Brief delay for CM4 to process
+ *   6. Trigger solenoid 1 (A string pluck)
+ *   7. Wait for note duration
+ *   8. Wait for break (silence)
+ *   9. Advance to next note or finish
+ */
+static void Demo2_Tick(void)
+{
+    if (demo2_state == DEMO2_IDLE) {
+        return;
+    }
+
+    uint32_t now = HAL_GetTick();
+    const Demo2Note_t *note = &demo2_notes[demo2_note_idx];
+
+    switch (demo2_state) {
+
+    /* ---------- Initialization ---------- */
+
+    case DEMO2_INIT_ZERO_M0:
+        InterCore_SendMotorZero(0);
+        printf("  [Demo2] Init: Motor 0 position zeroed\r\n");
+        demo2_state = DEMO2_INIT_ZERO_M1;
+        break;
+
+    case DEMO2_INIT_ZERO_M1:
+        InterCore_SendMotorZero(1);
+        printf("  [Demo2] Init: Motor 1 position zeroed\r\n");
+        demo2_state = DEMO2_INIT_MICROSTEP;
+        break;
+
+    case DEMO2_INIT_MICROSTEP:
+        /* 1/16 microstepping for both motors (mode 4 = 3200 steps/rev) */
+        InterCore_SendMotorMicrostep(0, 4);
+        InterCore_SendMotorMicrostep(1, 4);
+        printf("  [Demo2] Init: Microstep 1/16 set for motors 0 & 1\r\n");
+        demo2_timer = now;
+        demo2_state = DEMO2_WAIT_INIT;
+        break;
+
+    case DEMO2_WAIT_INIT:
+        if (now - demo2_timer >= 100) {
+            demo2_note_idx = 0;
+            printf("  [Demo2] Starting riff — %u notes to play\r\n\r\n",
+                   DEMO2_NUM_NOTES);
+            demo2_state = DEMO2_MOVE_MOTOR0;
+        }
+        break;
+
+    /* ---------- Per-note: move steppers ---------- */
+
+    case DEMO2_MOVE_MOTOR0:
+        if (note->motor0_steps != 0) {
+            InterCore_SendMotorMoveRelative(0, note->motor0_steps);
+            printf("  [Demo2] Note %2u: Motor 0 → %ld steps\r\n",
+                   demo2_note_idx, (long)note->motor0_steps);
+        }
+        demo2_timer = now;
+        demo2_state = DEMO2_MOVE_MOTOR1;
+        break;
+
+    case DEMO2_MOVE_MOTOR1:
+        /* Small delay between motor commands so CM4 processes the first */
+        if (now - demo2_timer >= 10) {
+            if (note->motor1_steps != 0) {
+                InterCore_SendMotorMoveRelative(1, note->motor1_steps);
+                printf("  [Demo2] Note %2u: Motor 1 → %ld steps\r\n",
+                       demo2_note_idx, (long)note->motor1_steps);
+            }
+            demo2_state = DEMO2_WAIT_MOTORS;
+        }
+        break;
+
+    case DEMO2_WAIT_MOTORS:
+        /* Wait for both steppers to reach their target positions */
+        if (!g_shared_memory.motor_is_moving[0] &&
+            !g_shared_memory.motor_is_moving[1]) {
+            demo2_state = DEMO2_TRIGGER_SOL0;
+        }
+        break;
+
+    /* ---------- Per-note: trigger solenoids ---------- */
+
+    case DEMO2_TRIGGER_SOL0:
+        /* Solenoid 0 — string/fret read from the note table */
+        Demo_TriggerSolenoid(0, note->sol0_string, note->sol0_fret,
+                             DEMO2_SOL_DUTY, DEMO2_SOL_BURST);
+        printf("  [Demo2] Note %2u: Sol 0 (str %u fret %u) triggered\r\n",
+               demo2_note_idx, note->sol0_string, note->sol0_fret);
+        demo2_timer = now;
+        demo2_state = DEMO2_WAIT_SOL0;
+        break;
+
+    case DEMO2_WAIT_SOL0:
+        /* Wait for CM4 to process solenoid 0 command before sending sol 1 */
+        if (now - demo2_timer >= 10) {
+            demo2_state = DEMO2_TRIGGER_SOL1;
+        }
+        break;
+
+    case DEMO2_TRIGGER_SOL1:
+        /* Solenoid 1 — string/fret read from the note table */
+        Demo_TriggerSolenoid(1, note->sol1_string, note->sol1_fret,
+                             DEMO2_SOL_DUTY, DEMO2_SOL_BURST);
+        printf("  [Demo2] Note %2u: Sol 1 (str %u fret %u) triggered\r\n",
+               demo2_note_idx, note->sol1_string, note->sol1_fret);
+        demo2_timer = now;
+        demo2_state = DEMO2_WAIT_DURATION;
+        break;
+
+    /* ---------- Per-note: timing ---------- */
+
+    case DEMO2_WAIT_DURATION: {
+        /* Let the note ring for its proportional duration */
+        uint32_t dur_ms = (uint32_t)note->duration_x10 * DEMO2_BASE_UNIT_MS / 10;
+        if (now - demo2_timer >= dur_ms) {
+            if (note->break_x10 > 0) {
+                demo2_timer = now;
+                demo2_state = DEMO2_WAIT_BREAK;
+            } else {
+                /* No break after this note — advance or finish */
+                demo2_note_idx++;
+                if (demo2_note_idx >= DEMO2_NUM_NOTES) {
+                    demo2_state = DEMO2_DONE;
+                } else {
+                    demo2_state = DEMO2_MOVE_MOTOR0;
+                }
+            }
+        }
+        break;
+    }
+
+    case DEMO2_WAIT_BREAK: {
+        /* Silence between notes */
+        uint32_t brk_ms = (uint32_t)note->break_x10 * DEMO2_BASE_UNIT_MS / 10;
+        if (now - demo2_timer >= brk_ms) {
+            demo2_note_idx++;
+            if (demo2_note_idx >= DEMO2_NUM_NOTES) {
+                demo2_state = DEMO2_DONE;
+            } else {
+                demo2_state = DEMO2_MOVE_MOTOR0;
+            }
+        }
+        break;
+    }
+
+    /* ---------- Done ---------- */
+
+    case DEMO2_DONE:
+        printf("\r\n===== DEMO2 (Smoke on the Water) COMPLETE =====\r\n");
+        printf("> ");
+        demo2_state = DEMO2_IDLE;
+        break;
+
+    default:
+        demo2_state = DEMO2_IDLE;
         break;
     }
 }

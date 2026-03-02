@@ -84,6 +84,15 @@ typedef struct {
     volatile uint8_t solenoid_mode;                     /* 0=infinite, 1=timed, 2=burst */
     volatile uint8_t solenoid_padding;                  /* Alignment */
 
+    /* ===== Per-Motor Command Parameters (CM7 → CM4) ===== */
+    volatile uint8_t motor_cmd_id;                         /* Motor ID for per-motor commands (0-5) */
+    volatile uint8_t motor_cmd_enable;                     /* Motor enable flag (0=disable, 1=enable) */
+    volatile uint8_t motor_cmd_microstep_mode;             /* Microstep mode (0-5) */
+    volatile uint8_t motor_cmd_padding;                    /* Alignment padding */
+    volatile int32_t motor_cmd_accel;                      /* Acceleration for per-motor command */
+    volatile int32_t motor_cmd_max_speed;                  /* Max speed for per-motor command */
+    volatile int32_t motor_cmd_position;                   /* Position/steps for per-motor command */
+
     /* ===== Motor Tuning Parameters (CM7 → CM4, adjustable via serial) ===== */
     volatile int32_t motor_max_speed;                   /* Max speed (steps/sec), 0 = use default */
     volatile int32_t motor_max_accel;                   /* Max acceleration, 0 = use default */
