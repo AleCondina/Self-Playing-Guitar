@@ -56,6 +56,10 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/../Shared/Inc
+
+    # add missing cmsis dsp include paths
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Drivers/CMSIS/DSP/Include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Drivers/CMSIS/DSP/PrivateInclude
 )
 
 # Add sources to executable
@@ -67,6 +71,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/audio_input.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/fft_processing.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../Shared/Src/shared_memory.c
+
+    # adding missing CMSIS-DSP files
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Drivers/CMSIS/DSP/Source/WindowFunctions/WindowFunctions.c
 )
 
 # Link directories setup

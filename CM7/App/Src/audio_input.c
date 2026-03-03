@@ -7,15 +7,26 @@
  */
 
 #include "audio_input.h"
+#include "application_config.h"
 #include <stddef.h>
+#include <stdint.h>
 #include <string.h>
+#include <stdio.h>
 
 /* ADC and DMA Handle definitions */
 extern ADC_HandleTypeDef hadc3;           /* ADC3 for audio input */
 extern DMA_HandleTypeDef hdma_adc3;       /* DMA for ADC3 */
 
+
+#if defined(__ICCARM__)
+#pragma location = ".RAM_d3"
+
 /* Audio buffer: Circular DMA buffer (2x half-buffers for ping-pong) */
 static uint16_t audio_buffer[AUDIO_BUFFER_SIZE] = {0};
+
+#elif defined(__CC_ARM) || defined(__GNUC__)
+__attribute__((section(".audio_buffer"))) static uint16_t audio_buffer[AUDIO_BUFFER_SIZE];
+#endif
 
 /* Flag to indicate which half-buffer has new data */
 static volatile uint8_t new_samples_ready = 0;
@@ -57,6 +68,8 @@ int32_t Audio_Init(void)
 
 int32_t Audio_Start(void)
 {
+
+    printf("[CM7] Audio buffer address: %p\r\n", (void*)audio_buffer);
     /* Start ADC3 in DMA circular mode */
     if (HAL_ADC_Start_DMA(&hadc3, (uint32_t*)audio_buffer, AUDIO_BUFFER_SIZE) != HAL_OK) {
         return -1;  /* Failed to start ADC with DMA */

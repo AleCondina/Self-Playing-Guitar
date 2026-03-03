@@ -14,9 +14,13 @@
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
 #include "stm32h7xx_hal_adc.h"
+#include "stm32h7xx_hal_tim.h"
 #include <stdio.h>
 
 extern ADC_HandleTypeDef hadc3;
+extern TIM_HandleTypeDef htim6;
+
+
 /* Application state */
 typedef enum {
     STATE_INIT,
@@ -62,25 +66,34 @@ void App_CM7_Main(void)
         /* Initialize FFT Processing */
         printf("[CM7] Initializing FFT engine...\r\n");
         FFT_Init();
-        
+
         /* Initialize audio input (ADC + DMA) */
         printf("[CM7] Initializing audio input...\r\n");
-        if (HAL_ADC_GetState(&hadc3) != HAL_ADC_STATE_READY) {
+
+        /* CRITICAL: Calibrate ADC before doing anything else */
+        if (HAL_ADCEx_Calibration_Start(&hadc3, ADC_CALIB_OFFSET, ADC_SINGLE_ENDED) != HAL_OK) {
+            printf("[CM7] ERROR: ADC3 Calibration failed!\r\n");
+            app_state = STATE_ERROR;
+        } else if (HAL_ADC_GetState(&hadc3) != HAL_ADC_STATE_READY) {
             printf("[CM7] ERROR: Failed to initialize audio input!\r\n");
             app_state = STATE_ERROR;
         } else {
-            printf("[CM7] Audio input initialized.\r\n");
-            
-            /* Start audio acquisition */
-            if (Audio_Start() != 0) {
-                printf("[CM7] ERROR: Failed to start audio acquisition!\r\n");
-                app_state = STATE_ERROR;
-            } else {
-                printf("[CM7] Audio acquisition started.\r\n");
-                app_state = STATE_IDLE;
+                printf("[CM7] Audio input initialized and calibrated.\r\n");
+                
+
+                /* Start audio acquisition */
+                if (Audio_Start() != 0) {
+                    printf("[CM7] ERROR: Failed to start audio acquisition!\r\n");
+                    app_state = STATE_ERROR;
+                } else {
+                    printf("[CM7] Audio acquisition started.\r\n");
+                    //starting timer
+                    HAL_TIM_Base_Start(&htim6);
+                    app_state = STATE_IDLE;
+                }
             }
         }
-    }
+    
 
     /* Main loop */
     while (1) {
@@ -103,13 +116,16 @@ void App_CM7_Main(void)
 
             case STATE_RUNNING:
                 /* Main application logic */
+                
 
                 /* Check for new audio samples (from ADC DMA) */
                 if (Audio_HasNewSamples()) {
                     uint16_t* audio_buf = Audio_GetBuffer(); /* Get the ready buffer (no parameter needed) */
                     
                     /* Process the audio buffer with FFT */
-                    /* TODO: Implement pitch detection from FFT */
+                    /* Tell the CPU to fetch fresh data from physical RAM, not the cache */
+                    // SCB_InvalidateDCache_by_Addr((uint32_t *)audio_buf, AUDIO_BUFFER_SIZE / 2 * sizeof(uint16_t));
+                    
                     FFT_ProcessBlock(audio_buf);
                     // float fundamental_freq = FFT_GetFundamentals();
                     printf("[CM7] Fundamental frequency peak detected: %.2f \n", FFT_GetFundamental());

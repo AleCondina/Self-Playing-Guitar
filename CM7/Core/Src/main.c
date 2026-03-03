@@ -25,6 +25,7 @@
 #include "inter_core_cm7.h"
 #include "debug_uart.h"
 #include "app_cm7.h"
+#include "stm32h7xx_hal_adc.h"
 #include "stm32h7xx_hal_tim.h"
 #include <string.h>
 /* USER CODE END Includes */
@@ -61,6 +62,7 @@
 COM_InitTypeDef BspCOMInit;
 ADC_HandleTypeDef hadc3;
 DMA_HandleTypeDef hdma_adc3;
+
 TIM_HandleTypeDef htim6;
 
 /* USER CODE BEGIN PV */
@@ -178,6 +180,7 @@ Error_Handler();
     Error_Handler();
   }
 
+
   /* USER CODE BEGIN 2 */
   /* Print startup banner */
   printf("\r\n[CM7] Initialization complete, starting application...\r\n");
@@ -186,7 +189,7 @@ Error_Handler();
   App_CM7_Main();
   /* USER CODE END 2 */
 
-  
+
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
@@ -254,34 +257,6 @@ void SystemClock_Config(void)
 }
 
 /**
- * @brief TIM6 Initialization Function
- * @note  Used as a precise 6 kHz timebase to trigger ADC3
- */
-static void MX_TIM6_Init(void)
-{
-    TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-    htim6.Instance = TIM6;
-    htim6.Init.Prescaler = 0;
-    htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim6.Init.Period = 10666;   /* 64MHz / (0+1) / (10666+1) = 5999.81 Hz */
-    htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-    
-    if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    /* CRITICAL: Tell TIM6 to send a trigger signal to the ADC on update */
-    sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
-    sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-    if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
-    {
-        Error_Handler();
-    }
-}
-
-/**
   * @brief ADC3 Initialization Function
   * @param None
   * @retval None
@@ -302,18 +277,17 @@ static void MX_ADC3_Init(void)
   /** Common config
   */
   hadc3.Instance = ADC3;
-  hadc3.Init.ClockPrescaler = ADC_CLOCK_ASYNC_DIV4;
-  hadc3.Init.Resolution = ADC_RESOLUTION_12B;
+  hadc3.Init.Resolution = ADC_RESOLUTION_16B;
   hadc3.Init.ScanConvMode = ADC_SCAN_DISABLE;
   hadc3.Init.EOCSelection = ADC_EOC_SINGLE_CONV;
   hadc3.Init.LowPowerAutoWait = DISABLE;
-  hadc3.Init.ContinuousConvMode = ENABLE; /* continuous for DMA circular */
+  hadc3.Init.ContinuousConvMode = DISABLE;
   hadc3.Init.NbrOfConversion = 1;
   hadc3.Init.DiscontinuousConvMode = DISABLE;
-  hadc3.Init.ExternalTrigConv = ADC_SOFTWARE_START;
-  hadc3.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_NONE;
-  hadc3.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DMA_CIRCULAR; /* DMA circular */
-  hadc3.Init.Overrun = ADC_OVR_DATA_OVERWRITTEN;
+  hadc3.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T6_TRGO;
+  hadc3.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
+  hadc3.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DMA_CIRCULAR;
+  hadc3.Init.Overrun = ADC_OVR_DATA_PRESERVED;
   hadc3.Init.LeftBitShift = ADC_LEFTBITSHIFT_NONE;
   hadc3.Init.OversamplingMode = DISABLE;
   hadc3.Init.Oversampling.Ratio = 1;
@@ -326,7 +300,7 @@ static void MX_ADC3_Init(void)
   */
   sConfig.Channel = ADC_CHANNEL_0;
   sConfig.Rank = ADC_REGULAR_RANK_1;
-  sConfig.SamplingTime = ADC_SAMPLETIME_16CYCLES_5; /* longer sample time for stability */
+  sConfig.SamplingTime = ADC_SAMPLETIME_1CYCLE_5;
   sConfig.SingleDiff = ADC_SINGLE_ENDED;
   sConfig.OffsetNumber = ADC_OFFSET_NONE;
   sConfig.Offset = 0;
@@ -338,6 +312,44 @@ static void MX_ADC3_Init(void)
   /* USER CODE BEGIN ADC3_Init 2 */
 
   /* USER CODE END ADC3_Init 2 */
+
+}
+
+/**
+  * @brief TIM6 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_TIM6_Init(void)
+{
+
+  /* USER CODE BEGIN TIM6_Init 0 */
+
+  /* USER CODE END TIM6_Init 0 */
+
+  TIM_MasterConfigTypeDef sMasterConfig = {0};
+
+  /* USER CODE BEGIN TIM6_Init 1 */
+
+  /* USER CODE END TIM6_Init 1 */
+  htim6.Instance = TIM6;
+  htim6.Init.Prescaler = 0;
+  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim6.Init.Period = 10666;
+  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
+  sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN TIM6_Init 2 */
+
+  /* USER CODE END TIM6_Init 2 */
 
 }
 
