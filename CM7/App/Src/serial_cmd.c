@@ -78,6 +78,181 @@ typedef enum {
 static DemoState_t demo_state = DEMO_IDLE;
 static uint32_t demo_timer = 0;
 
+/* ===== Demo2: Smoke on the Water State Machine ===== */
+/*
+ * Smoke on the Water riff structure (12 notes, power chords):
+ *   Phrase 1: n1  n2  n3            (3 notes, n3 held longer)
+ *   Phrase 2: n4  n5  n6  n7        (4 notes, n6->n7 short gap, n7 held longer)
+ *   Phrase 3: n8  n9  n10           (3 notes, n10 held longer)
+ *   Phrase 4: n11 n12               (2 notes, n12 held longer)
+ *
+ * Each note uses:
+ *   - 2 stepper motors (motor 0 for E string fret, motor 1 for A string fret)
+ *   - 2 solenoids (solenoid 0 on E string, solenoid 1 on A string)
+ *
+ * Timing proportions (user-defined):
+ *   Note durations:  1  1  2,  1  1  0.5  2,  1  1  2,  1  2
+ *   Gaps after note: 1  1  3,  1  1  0.5  3,  1  1  3,  1  0
+ *
+ * TODO: Motor 1 hardware must be configured on CM4 side before this demo works
+ *       with 2 steppers. Currently only motor 0 is wired up.
+ */
+
+/* Base timing units - adjust these to change overall tempo */
+#define DEMO2_BASE_GAP_MS       1000  /* 1x gap between notes (ms) - tune this */
+#define DEMO2_BASE_DURATION_MS  300   /* 1x note actuation duration (ms) - tune this */
+#define DEMO2_SETTLE_MS         200   /* Settle time after stepper movement (ms) */
+#define DEMO2_CMD_DELAY_MS        5   /* Delay between sequential shared-mem commands (ms) */
+
+#define DEMO2_NUM_NOTES  12
+
+typedef struct {
+    int32_t motor0_steps;     /* Relative steps for motor 0 (E string stepper) */
+    int32_t motor1_steps;     /* Relative steps for motor 1 (A string stepper) */
+    uint8_t sol0_string;      /* String index for solenoid 0 (0 = E2) */
+    uint8_t sol0_fret;        /* Fret index for solenoid 0 */
+    uint8_t sol1_string;      /* String index for solenoid 1 (1 = A2) */
+    uint8_t sol1_fret;        /* Fret index for solenoid 1 */
+    uint16_t duration_ms;     /* How long to actuate solenoids for this note */
+    uint16_t gap_after_ms;    /* Silence after this note before next note starts */
+    const char *label;        /* Note name for debug output */
+} Demo2Note_t;
+
+/*
+ * Smoke on the Water note table
+ *
+ * TODO: Fill in the actual values after testing:
+ *   - motor0_steps / motor1_steps: measure how many steps to move between fret positions
+ *   - sol0_fret / sol1_fret: set to the correct fret for each note's pitch
+ *
+ * Step values are RELATIVE moves from the previous note's position.
+ * First note starts from home (open string / fret 0).
+ *
+ * Duration and gap are pre-calculated from the proportional values:
+ *   duration = proportion * DEMO2_BASE_DURATION_MS
+ *   gap      = proportion * DEMO2_BASE_GAP_MS
+ */
+static const Demo2Note_t demo2_notes[DEMO2_NUM_NOTES] = {
+    /* ---- Phrase 1: 3 notes ---- */
+    /* n1:  dur=1x(300ms)  gap=1x(1000ms)  */
+    { .motor0_steps = 0,    .motor1_steps = 0,       /* TODO: steps to fret position */
+      .sol0_string = 0, .sol0_fret = 0,             
+      .sol1_string = 1, .sol1_fret = 0,              /* TODO: A string fret */
+      .duration_ms = 300, .gap_after_ms = 1000,
+      .label = "Phrase1 Note1" },
+
+    /* n2:  dur=1x(300ms)  gap=1x(1000ms)  */
+    { .motor0_steps = -1600,    .motor1_steps = 0,       /* TODO: steps from n1 to n2 */
+      .sol0_string = 0, .sol0_fret = 3,             
+      .sol1_string = 1, .sol1_fret = 0,              /* TODO: A string fret */
+      .duration_ms = 300, .gap_after_ms = 1000,
+      .label = "Phrase1 Note2" },
+
+    /* n3:  dur=2x(600ms)  gap=3x(3000ms) — held longer, then big break */
+    { .motor0_steps = -1400,    .motor1_steps = 0,       /* TODO: steps from n2 to n3 */
+      .sol0_string = 0, .sol0_fret = 5,            
+      .sol1_string = 1, .sol1_fret = 0,              /* TODO: A string fret */
+      .duration_ms = 600, .gap_after_ms = 2000,
+      .label = "Phrase1 Note3 (held)" },
+
+    /* ---- Phrase 2: 4 notes (n6->n7 has shorter 0.5x gap) ---- */
+    /* n4:  dur=1x(300ms)  gap=1x(1000ms)  */
+    { .motor0_steps = 3000,    .motor1_steps = 0,       /* TODO: steps from n3 to n4 */
+      .sol0_string = 0, .sol0_fret = 0,              
+      .sol1_string = 1, .sol1_fret = 0,              /* TODO: A string fret */
+      .duration_ms = 300, .gap_after_ms = 1000,
+      .label = "Phrase2 Note1" },
+
+    /* n5:  dur=1x(300ms)  gap=1x(1000ms)  */
+    { .motor0_steps = -1600,    .motor1_steps = 0,       /* TODO: steps from n4 to n5 */
+      .sol0_string = 0, .sol0_fret = 3,             
+      .sol1_string = 1, .sol1_fret = 0,              /* TODO: A string fret */
+      .duration_ms = 300, .gap_after_ms = 1000,
+      .label = "Phrase2 Note2" },
+
+    /* n6:  dur=0.5x(150ms)  gap=0.5x(500ms) — short note, quick transition to n7 */
+    { .motor0_steps = -2150,    .motor1_steps = 0,       /* TODO: steps from n5 to n6 */
+      .sol0_string = 0, .sol0_fret = 6,             
+      .sol1_string = 1, .sol1_fret = 0,              /* TODO: A string fret */
+      .duration_ms = 150, .gap_after_ms = 500,
+      .label = "Phrase2 Note3 (short)" },
+
+    /* n7:  dur=2x(600ms)  gap=3x(3000ms) — held longer, then big break */
+    { .motor0_steps = 750,    .motor1_steps = 0,       /* TODO: steps from n6 to n7 */
+      .sol0_string = 0, .sol0_fret = 5,             
+      .sol1_string = 1, .sol1_fret = 0,              /* TODO: A string fret */
+      .duration_ms = 600, .gap_after_ms = 2000,
+      .label = "Phrase2 Note4 (held)" },
+
+    /* ---- Phrase 3: 3 notes (n10 held longer) ---- */
+    /* n8:  dur=1x(300ms)  gap=1x(1000ms)  */
+    { .motor0_steps = 3000,    .motor1_steps = 0,       /* TODO: steps from n7 to n8 */
+      .sol0_string = 0, .sol0_fret = 0,             
+      .sol1_string = 1, .sol1_fret = 0,              /* TODO: A string fret */
+      .duration_ms = 300, .gap_after_ms = 1000,
+      .label = "Phrase3 Note1" },
+
+    /* n9:  dur=1x(300ms)  gap=1x(1000ms)  */
+    { .motor0_steps = -1600,    .motor1_steps = 0,       /* TODO: steps from n8 to n9 */
+      .sol0_string = 0, .sol0_fret = 3,            
+      .sol1_string = 1, .sol1_fret = 0,              /* TODO: A string fret */
+      .duration_ms = 300, .gap_after_ms = 1000,
+      .label = "Phrase3 Note2" },
+
+    /* n10: dur=2x(600ms)  gap=3x(3000ms) — held longer, then big break */
+    { .motor0_steps = -1400,    .motor1_steps = 0,       /* TODO: steps from n9 to n10 */
+      .sol0_string = 0, .sol0_fret = 5,             
+      .sol1_string = 1, .sol1_fret = 0,              /* TODO: A string fret */
+      .duration_ms = 600, .gap_after_ms = 2000,
+      .label = "Phrase3 Note3 (held)" },
+
+    /* ---- Phrase 4: 2 notes ---- */
+    /* n11: dur=1x(300ms)  gap=1x(1000ms)  */
+    { .motor0_steps = 1400,    .motor1_steps = 0,       /* TODO: steps from n10 to n11 */
+      .sol0_string = 0, .sol0_fret = 3,             
+      .sol1_string = 1, .sol1_fret = 0,              /* TODO: A string fret */
+      .duration_ms = 300, .gap_after_ms = 1000,
+      .label = "Phrase4 Note1" },
+
+    /* n12: dur=2x(600ms)  gap=0(end) — last note, held longer */
+    { .motor0_steps = 1600,    .motor1_steps = 0,       /* TODO: steps from n11 to n12 */
+      .sol0_string = 0, .sol0_fret = 0,             
+      .sol1_string = 1, .sol1_fret = 0,              /* TODO: A string fret */
+      .duration_ms = 600, .gap_after_ms = 0,
+      .label = "Phrase4 Note2 (held, end)" },
+};
+
+typedef enum {
+    DEMO2_IDLE = 0,
+    DEMO2_INIT_ZERO_MOT0,       /* Zero motor 0 position */
+    DEMO2_INIT_WAIT_ZERO0,      /* Wait for CM4 to process */
+    DEMO2_INIT_ZERO_MOT1,       /* Zero motor 1 position */
+    DEMO2_INIT_WAIT_ZERO1,      /* Wait for CM4 to process */
+    DEMO2_INIT_USTEP_MOT0,      /* Set microstep for motor 0 */
+    DEMO2_INIT_WAIT_USTEP0,     /* Wait for CM4 to process */
+    DEMO2_INIT_USTEP_MOT1,      /* Set microstep for motor 1 */
+    DEMO2_INIT_WAIT_USTEP1,     /* Wait for CM4 to process */
+    /* -- Per-note states (loop through these for each note) -- */
+    DEMO2_MOVE_MOTOR0,          /* Send motor 0 relative move */
+    DEMO2_WAIT_MOT_CMD,         /* Wait for CM4 to pick up motor 0 command */
+    DEMO2_MOVE_MOTOR1,          /* Send motor 1 relative move */
+    DEMO2_WAIT_MOTORS_DONE,     /* Wait for both motors to finish moving */
+    DEMO2_SETTLE,               /* Mechanical settle time after motor movement */
+    DEMO2_STRUM_SOL0,           /* Trigger solenoid 0 (E string) */
+    DEMO2_WAIT_SOL_CMD,         /* Wait for CM4 to process solenoid 0 */
+    DEMO2_STRUM_SOL1,           /* Trigger solenoid 1 (A string) */
+    DEMO2_NOTE_RING,            /* Wait for note duration (solenoid stays active) */
+    DEMO2_GAP,                  /* Silence gap before next note */
+    /* -- End states -- */
+    DEMO2_HOME_MOTORS,          /* Home both motors at end */
+    DEMO2_WAIT_HOME,            /* Wait for homing to complete */
+    DEMO2_DONE
+} Demo2State_t;
+
+static Demo2State_t demo2_state = DEMO2_IDLE;
+static uint32_t demo2_timer = 0;
+static uint8_t demo2_note_index = 0;
+
 /* Forward declarations */
 static void Cmd_Start(char *args);
 static void Cmd_Speed(char *args);
@@ -101,6 +276,8 @@ static void Cmd_SolStop(char *args);
 static void Cmd_SolStatus(char *args);
 static void Cmd_Demo(char *args);
 static void Demo_Tick(void);
+static void Cmd_Demo2(char *args);
+static void Demo2_Tick(void);
 
 /* Command table entry */
 typedef struct {
@@ -126,7 +303,8 @@ static const CmdEntry_t command_table[] = {
     { "presets",   Cmd_Presets,   "presets                  List saved presets" },
     { "stop",      Cmd_Stop,      "stop                    Emergency stop all" },
     { "status",    Cmd_Status,    "status                  Print motor status" },
-    { "demo",      Cmd_Demo,      "demo                    Run solenoid+motor demo" },
+    { "demo",      Cmd_Demo,      "demo                    Run solenoid+motor demo (3 notes)" },
+    { "demo2",     Cmd_Demo2,     "demo2                   Smoke on the Water (2 strings)" },
     { "help",      Cmd_Help,      "help                    Show this help" },
     { "sol",       Cmd_Sol,       "sol <id> <str> <fret> [duty] [time] [cycles]  Trigger solenoid" },
     { "solstop",   Cmd_SolStop,   "solstop <id|all>        Stop solenoid(s)" },
@@ -185,8 +363,9 @@ void SerialCmd_Init(void)
 
 uint8_t SerialCmd_Process(void)
 {
-    /* Tick demo state machine every call (runs even when no command pending) */
+    /* Tick demo state machines every call (runs even when no command pending) */
     Demo_Tick();
+    Demo2_Tick();
 
     if (!Debug_UART_IsLineReady()) {
         return 0;
@@ -503,10 +682,14 @@ static void Cmd_Presets(char *args)
 static void Cmd_Stop(char *args)
 {
     (void)args;
-    /* Cancel demo if running */
+    /* Cancel demos if running */
     if (demo_state != DEMO_IDLE) {
         demo_state = DEMO_IDLE;
         printf("  Demo cancelled.\r\n");
+    }
+    if (demo2_state != DEMO2_IDLE) {
+        demo2_state = DEMO2_IDLE;
+        printf("  Demo2 cancelled.\r\n");
     }
     InterCore_EmergencyStop();
     printf("  EMERGENCY STOP - all motors stopped\r\n");
@@ -868,6 +1051,263 @@ static void Demo_Tick(void)
 
     default:
         demo_state = DEMO_IDLE;
+        break;
+    }
+}
+
+/* ===== Demo2 Command & State Machine (Smoke on the Water) ===== */
+
+/**
+ * @brief Trigger a solenoid in TIMED mode (auto-stops after duration_ms)
+ * @note  Uses TIMED mode so note duration is consistent regardless of frequency.
+ *        Must wait ~5ms between calls for different solenoid IDs so CM4 can
+ *        process each command (shared memory has single command channel).
+ */
+static void Demo2_TriggerSolenoidTimed(uint8_t sol_id, uint8_t string, uint8_t fret,
+                                        uint8_t duty, uint16_t duration_ms)
+{
+    g_shared_memory.solenoid_id = sol_id;
+    g_shared_memory.solenoid_string = string;
+    g_shared_memory.solenoid_fret = fret;
+    g_shared_memory.solenoid_duty_cycle = duty;
+    g_shared_memory.solenoid_activation_time_ms = duration_ms;
+    g_shared_memory.solenoid_burst_cycles = 0;
+    g_shared_memory.solenoid_mode = SOLENOID_MODE_TIMED;
+    g_shared_memory.motor_command_flags |= CMD_TRIGGER_SOLENOID;
+    InterCore_NotifyCM4();
+}
+
+static void Cmd_Demo2(char *args)
+{
+    (void)args;
+
+    if (demo2_state != DEMO2_IDLE) {
+        printf("  Demo2 already running. Type 'stop' to cancel.\r\n");
+        return;
+    }
+    if (demo_state != DEMO_IDLE) {
+        printf("  Demo1 is running. Type 'stop' first.\r\n");
+        return;
+    }
+
+    /* Auto-start system if not started */
+    if (!system_started) {
+        system_started = 1;
+        printf("  System auto-started for demo2.\r\n");
+    }
+
+    printf("\r\n===== DEMO2: SMOKE ON THE WATER =====\r\n");
+    printf("  12 notes, 2 solenoids (E+A) + 2 steppers per note\r\n");
+    printf("  Base gap: %dms  Base duration: %dms\r\n\r\n",
+           DEMO2_BASE_GAP_MS, DEMO2_BASE_DURATION_MS);
+
+    demo2_note_index = 0;
+    demo2_state = DEMO2_INIT_ZERO_MOT0;
+}
+
+/**
+ * @brief Demo2 state machine tick (called every main loop iteration)
+ *
+ * Flow for each note:
+ *   1. Move motor 0 to fret position (relative steps)
+ *   2. Move motor 1 to fret position (relative steps)
+ *   3. Wait for both motors to finish + settle
+ *   4. Trigger solenoid 0 (E string) with timed duration
+ *   5. Trigger solenoid 1 (A string) with timed duration
+ *   6. Wait for note to ring
+ *   7. Wait gap, then advance to next note
+ *
+ * After all 12 notes: home both motors and finish.
+ */
+static void Demo2_Tick(void)
+{
+    if (demo2_state == DEMO2_IDLE) {
+        return;
+    }
+
+    uint32_t now = HAL_GetTick();
+    const Demo2Note_t *note = &demo2_notes[demo2_note_index];
+
+    switch (demo2_state) {
+
+    /* ---- Initialization: zero positions and set microstepping ---- */
+
+    case DEMO2_INIT_ZERO_MOT0:
+        InterCore_SendMotorZero(0);
+        printf("  [Demo2] Init: Motor 0 position zeroed\r\n");
+        demo2_timer = now;
+        demo2_state = DEMO2_INIT_WAIT_ZERO0;
+        break;
+
+    case DEMO2_INIT_WAIT_ZERO0:
+        if (now - demo2_timer >= DEMO2_CMD_DELAY_MS) {
+            demo2_state = DEMO2_INIT_ZERO_MOT1;
+        }
+        break;
+
+    case DEMO2_INIT_ZERO_MOT1:
+        InterCore_SendMotorZero(1);
+        printf("  [Demo2] Init: Motor 1 position zeroed\r\n");
+        demo2_timer = now;
+        demo2_state = DEMO2_INIT_WAIT_ZERO1;
+        break;
+
+    case DEMO2_INIT_WAIT_ZERO1:
+        if (now - demo2_timer >= DEMO2_CMD_DELAY_MS) {
+            demo2_state = DEMO2_INIT_USTEP_MOT0;
+        }
+        break;
+
+    case DEMO2_INIT_USTEP_MOT0:
+        /* Mode 4 = 1/16 microstepping: 200 * 16 = 3200 microsteps/rev */
+        InterCore_SendMotorMicrostep(0, 4);
+        printf("  [Demo2] Init: Motor 0 microstep = 1/16\r\n");
+        demo2_timer = now;
+        demo2_state = DEMO2_INIT_WAIT_USTEP0;
+        break;
+
+    case DEMO2_INIT_WAIT_USTEP0:
+        if (now - demo2_timer >= DEMO2_CMD_DELAY_MS) {
+            demo2_state = DEMO2_INIT_USTEP_MOT1;
+        }
+        break;
+
+    case DEMO2_INIT_USTEP_MOT1:
+        InterCore_SendMotorMicrostep(1, 4);
+        printf("  [Demo2] Init: Motor 1 microstep = 1/16\r\n");
+        demo2_timer = now;
+        demo2_state = DEMO2_INIT_WAIT_USTEP1;
+        break;
+
+    case DEMO2_INIT_WAIT_USTEP1:
+        /* Wait a bit longer for microstep config to fully apply */
+        if (now - demo2_timer >= 50) {
+            printf("  [Demo2] Init complete. Playing %d notes...\r\n\r\n", DEMO2_NUM_NOTES);
+            demo2_state = DEMO2_MOVE_MOTOR0;
+        }
+        break;
+
+    /* ---- Per-note: move steppers to fret position ---- */
+
+    case DEMO2_MOVE_MOTOR0:
+        /* If both motors have 0 steps, skip directly to strumming */
+        if (note->motor0_steps == 0 && note->motor1_steps == 0) {
+            printf("  [Demo2] Note %d/%d: %s (open position)\r\n",
+                   demo2_note_index + 1, DEMO2_NUM_NOTES, note->label);
+            demo2_state = DEMO2_STRUM_SOL0;
+            break;
+        }
+        printf("  [Demo2] Note %d/%d: %s\r\n",
+               demo2_note_index + 1, DEMO2_NUM_NOTES, note->label);
+        printf("    Moving motor 0: %ld steps\r\n", (long)note->motor0_steps);
+        InterCore_SendMotorMoveRelative(0, note->motor0_steps);
+        demo2_timer = now;
+        demo2_state = DEMO2_WAIT_MOT_CMD;
+        break;
+
+    case DEMO2_WAIT_MOT_CMD:
+        /* Wait for CM4 to pick up motor 0 command before sending motor 1 */
+        if (now - demo2_timer >= DEMO2_CMD_DELAY_MS) {
+            demo2_state = DEMO2_MOVE_MOTOR1;
+        }
+        break;
+
+    case DEMO2_MOVE_MOTOR1:
+        printf("    Moving motor 1: %ld steps\r\n", (long)note->motor1_steps);
+        InterCore_SendMotorMoveRelative(1, note->motor1_steps);
+        demo2_state = DEMO2_WAIT_MOTORS_DONE;
+        break;
+
+    case DEMO2_WAIT_MOTORS_DONE:
+        /* Wait until both motors have finished moving */
+        if (!g_shared_memory.motor_is_moving[0] &&
+            !g_shared_memory.motor_is_moving[1]) {
+            demo2_timer = now;
+            demo2_state = DEMO2_SETTLE;
+        }
+        break;
+
+    case DEMO2_SETTLE:
+        /* Let vibration settle before strumming */
+        if (now - demo2_timer >= DEMO2_SETTLE_MS) {
+            demo2_state = DEMO2_STRUM_SOL0;
+        }
+        break;
+
+    /* ---- Per-note: actuate both solenoids ---- */
+
+    case DEMO2_STRUM_SOL0:
+        /* Trigger solenoid 0 (E string) with timed duration */
+        Demo2_TriggerSolenoidTimed(0, note->sol0_string, note->sol0_fret,
+                                    50, note->duration_ms);
+        printf("    Strum sol0: str=%u fret=%u dur=%ums\r\n",
+               note->sol0_string, note->sol0_fret, note->duration_ms);
+        demo2_timer = now;
+        demo2_state = DEMO2_WAIT_SOL_CMD;
+        break;
+
+    case DEMO2_WAIT_SOL_CMD:
+        /* Wait for CM4 to process solenoid 0 before triggering solenoid 1 */
+        if (now - demo2_timer >= DEMO2_CMD_DELAY_MS) {
+            demo2_state = DEMO2_STRUM_SOL1;
+        }
+        break;
+
+    case DEMO2_STRUM_SOL1:
+        /* Trigger solenoid 1 (A string) with timed duration */
+        Demo2_TriggerSolenoidTimed(1, note->sol1_string, note->sol1_fret,
+                                    50, note->duration_ms);
+        printf("    Strum sol1: str=%u fret=%u dur=%ums\r\n",
+               note->sol1_string, note->sol1_fret, note->duration_ms);
+        demo2_timer = now;
+        demo2_state = DEMO2_NOTE_RING;
+        break;
+
+    case DEMO2_NOTE_RING:
+        /* Wait for the note's full duration to complete */
+        if (now - demo2_timer >= note->duration_ms) {
+            demo2_state = DEMO2_GAP;
+            demo2_timer = now;
+        }
+        break;
+
+    case DEMO2_GAP:
+        /* Wait the gap between this note and the next */
+        if (now - demo2_timer >= note->gap_after_ms) {
+            demo2_note_index++;
+            if (demo2_note_index < DEMO2_NUM_NOTES) {
+                /* More notes to play - loop back to motor movement */
+                demo2_state = DEMO2_MOVE_MOTOR0;
+            } else {
+                /* All notes played - home the motors */
+                demo2_state = DEMO2_HOME_MOTORS;
+            }
+        }
+        break;
+
+    /* ---- Cleanup: home motors and finish ---- */
+
+    case DEMO2_HOME_MOTORS:
+        printf("\r\n  [Demo2] Homing motors...\r\n");
+        InterCore_HomeMotors();
+        demo2_state = DEMO2_WAIT_HOME;
+        break;
+
+    case DEMO2_WAIT_HOME:
+        if (!g_shared_memory.motor_is_moving[0] &&
+            !g_shared_memory.motor_is_moving[1]) {
+            demo2_state = DEMO2_DONE;
+        }
+        break;
+
+    case DEMO2_DONE:
+        printf("\r\n===== DEMO2 COMPLETE =====\r\n");
+        printf("> ");
+        demo2_state = DEMO2_IDLE;
+        break;
+
+    default:
+        demo2_state = DEMO2_IDLE;
         break;
     }
 }
