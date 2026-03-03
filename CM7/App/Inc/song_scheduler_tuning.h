@@ -2,50 +2,44 @@
 #define SONG_SCHEDULER_TUNING_H
 
 #include <stdint.h>
-#include <stddef.h>
-#include "musicxml_parser.h"
-#include "inter_core_cm7.h"  
+#include "song_event.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
 
-typedef struct {
-    const MusicXml_NoteEvent_t* events;
-    size_t count;
-    size_t index;
-    uint32_t song_start_ms;
+typedef struct
+{
+    SongEvent_t* events;
+    uint32_t count;
+    uint32_t index;
+    uint32_t start_time_ms;
 
-    // simple monophonic: one active note at a time
-    uint32_t active_until_ms;
+    uint8_t  note_active;
+    uint32_t note_end_time;
 
-    // default behavior: choose a string automatically (min motor movement)
-    uint8_t  default_velocity;  // 0..127
-} SongSchedulerTuning_t;
+} SongScheduler_t;
+/**
+ * Initialize scheduler
+ *
+ * events      : array of parsed SongEvent_t
+ * count       : number of events
+ * start_time  : usually HAL_GetTick() at boot
+ */
+void SongScheduler_Init(SongScheduler_t* s,
+                        SongEvent_t* events,
+                        uint32_t count,
+                        uint32_t start_time);
 
-void SongSchedulerTuning_Init(SongSchedulerTuning_t* s,
-                              const MusicXml_NoteEvent_t* events,
-                              size_t count,
-                              uint32_t start_ms);
-
-void SongSchedulerTuning_Update(SongSchedulerTuning_t* s, uint32_t now_ms);
 
 /**
- * Hook into your CM7->CM4 comms.
- * CM7 requests CM4 to tune a string to target_freq_hz and excite for duration_ms.
- *
- * string_id: 0..5
- * start_time_ms: absolute time (HAL_GetTick based) when CM4 should start (optional; you can ignore and execute immediately)
+ * Call periodically in main loop
  */
-int InterCore_PlayNote_Tune(uint8_t string_id,
-                            float target_freq_hz,
-                            uint16_t duration_ms,
-                            uint8_t velocity,
-                            uint32_t start_time_ms);
-
-int InterCore_StopAll(void);
+void SongScheduler_Update(SongScheduler_t* s,
+                          uint32_t now_ms);
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif /* SONG_SCHEDULER_TUNING_H */
+#endif 

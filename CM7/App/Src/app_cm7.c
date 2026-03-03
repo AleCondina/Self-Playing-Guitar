@@ -13,19 +13,26 @@
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
 #include "song_scheduler_tuning.h"
-#include "musicxml_parser.h"
+#include "midi_parser.h"
+#include "song_event.h"
 
 #include <stdio.h>
 
-extern const char g_musicxml[];//test
-extern const size_t g_musicxml_len;//t
 
 
-static SongSchedulerTuning_t g_sched;
-static int g_started = 0;
+extern const uint8_t g_midi_data[];
+extern const uint32_t g_midi_len;
 
-static MusicXml_NoteEvent_t events[256];
-static size_t event_count = 0;
+static SongEvent_t g_events[256];
+static uint32_t g_event_count;
+static SongScheduler_t g_sched;
+
+
+
+
+
+
+
 
 /* Application state */
 typedef enum {
@@ -54,6 +61,9 @@ void App_CM7_Main(void)
            FIRMWARE_VERSION_PATCH);
     printf("=========================================\r\n\r\n");
 
+
+
+
     /* Wait for CM4 to signal ready */
     printf("[CM7] Waiting for CM4 to initialize...\r\n");
     uint32_t timeout = HAL_GetTick() + 5000;
@@ -71,6 +81,21 @@ void App_CM7_Main(void)
         app_state = STATE_IDLE;
     }
 
+
+        MIDI_Parse(g_midi_data,g_midi_len,g_events,256,&g_event_count);
+
+        printf("Parsed %lu events\n", g_event_count);
+
+        for (uint32_t i = 0; i < g_event_count; i++)
+        {
+            printf("%lu: start=%lu dur=%lu freq=%.2f\n",
+            i,
+           g_events[i].start_time_ms,
+           g_events[i].duration_ms,
+           g_events[i].freq);
+        }
+
+        SongScheduler_Init(&g_sched,g_events,g_event_count,HAL_GetTick());
     /* Main loop */
     while (1) {
         /* Update heartbeat */
@@ -92,21 +117,8 @@ void App_CM7_Main(void)
 
             case STATE_RUNNING:
 
-             uint32_t now = HAL_GetTick();
-
-                if (!g_started)
-                {
-                 MusicXml_Info_t info;
-
-                 // parse MusicXML once (you need xml buffer loaded already)
-                 MusicXML_ParseBuffer(g_musicxml, g_musicxml_len, events, 256,&event_count, &info);
-
-                 SongSchedulerTuning_Init(&g_sched, events, event_count, now);
-                 g_started = 1;
-                 }
-
-                 SongSchedulerTuning_Update(&g_sched, now);
-                 break;
+                SongScheduler_Update(&g_sched, HAL_GetTick());
+                break;
 
 
 

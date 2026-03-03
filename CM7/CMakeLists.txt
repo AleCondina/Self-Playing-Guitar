@@ -66,8 +66,9 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/debug_uart.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/audio_input.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/song_scheduler_tuning.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/musicxml_data.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/musicxml_parser.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/midi_data.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/midi_parser.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/note_mapping.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../Shared/Src/shared_memory.c
 )
 

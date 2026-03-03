@@ -1,85 +1,45 @@
 #include "song_scheduler_tuning.h"
-#include "musicxml_parser.h"
+#include <stdio.h>
 
+//#include "inter_core_cm7.h" //uncoment later
 
-
-#include <math.h>
-
-/* Standard MIDI -> frequency */
-static float midi_to_freq(uint8_t midi)
-{
-    // f = 440 * 2^((midi-69)/12)
-    return 440.0f * powf(2.0f, ((float)midi - 69.0f) / 12.0f);
-}
-
-/* Open string frequencies (standard guitar): E2 A2 D3 G3 B3 E4
-   We use these to choose the best string (closest required pitch change). */
-static const float g_open_freq[6] = {
-    82.4069f, 110.0f, 146.8324f, 195.9977f, 246.9417f, 329.6276f
-};
-
-/* You should replace this later with a "current tuned frequency" estimate per string
-   (from your calibration / last known motor position). For MVP we assume open tuning. */
-static float g_est_current_freq[6];
-
-static uint8_t choose_string_min_delta(float target_hz)
-{
-    uint8_t best = 0;
-    float best_cost = 1e9f;
-    for (uint8_t s = 0; s < 6; s++) {
-        float cur = g_est_current_freq[s];
-        float cost = fabsf(target_hz - cur);  // simplest “movement” metric
-        if (cost < best_cost) { best_cost = cost; best = s; }
-    }
-    return best;
-}
-
-void SongSchedulerTuning_Init(SongSchedulerTuning_t* s,
-                              const MusicXml_NoteEvent_t* events,
-                              size_t count,
-                              uint32_t start_ms)
+void SongScheduler_Init(SongScheduler_t* s, SongEvent_t* events,uint32_t count,uint32_t start_time)
 {
     s->events = events;
-    s->count  = count;
-    s->index  = 0;
-    s->song_start_ms = start_ms;
-    s->active_until_ms = 0;
-    s->default_velocity = 100;
-
-    for (uint8_t i = 0; i < 6; i++)
-        g_est_current_freq[i] = g_open_freq[i];
+    s->count = count;
+    s->index = 0;
+    s->start_time_ms = start_time;
+    s->note_active = 0;
+    s->note_end_time = 0;
 }
 
-void SongSchedulerTuning_Update(SongSchedulerTuning_t* s, uint32_t now_ms)
+void SongScheduler_Update(SongScheduler_t* s,uint32_t now_ms)
 {
-    // stop everything if current note is done (optional) //TODO: implement InterCore_StopAll function
-    // if (s->active_until_ms && now_ms >= s->active_until_ms) {
-    //     (void)InterCore_StopAll();
-    //     s->active_until_ms = 0;
-    // }
-
     if (s->index >= s->count)
         return;
 
-    const MusicXml_NoteEvent_t* ev = &s->events[s->index];
-    const uint32_t ev_abs_ms = s->song_start_ms + ev->start_ms;
+    uint32_t elapsed = now_ms - s->start_time_ms;
 
-    if (now_ms < ev_abs_ms)
-        return;
+    SongEvent_t* e = &s->events[s->index];
 
-    const float target_hz = midi_to_freq(ev->midi);
+    /* Start note */
+   /* Start note */
+if (!s->note_active && elapsed >= e->start_time_ms)
+{
+    printf("NOTE START: string=%d freq=%.2f dur=%lu at %lu\n",
+           e->string_id,
+           e->freq,
+           e->duration_ms,
+           now_ms);
 
-    // choose string that requires least change (MVP)
-    const uint8_t string_id = choose_string_min_delta(target_hz);
+    s->note_active = 1;
+    s->note_end_time = e->start_time_ms + e->duration_ms;
+}
+else if (s->note_active && elapsed >= s->note_end_time)
+{
+    printf("NOTE STOP\n");
 
-    const uint8_t vel = (ev->velocity != 0) ? ev->velocity : s->default_velocity;
-
-    // Ask CM4 to tune & excite //TODO: InterCore_PlayNote_Tune is not implemented yet, you need to implement it in inter_core_cm7.c and inter_core_cm4.c (and define the message format in shared_memory.h)
-    // (void)InterCore_PlayNote_Tune(string_id, target_hz, ev->dur_ms, vel, ev_abs_ms);
-
-    // Update our estimate (helps choose next string)
-    g_est_current_freq[string_id] = target_hz;
-
-    s->active_until_ms = ev_abs_ms + ev->dur_ms;
+    s->note_active = 0;
     s->index++;
+}
 }
