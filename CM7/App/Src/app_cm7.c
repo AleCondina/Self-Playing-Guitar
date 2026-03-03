@@ -7,14 +7,18 @@
  */
 
 #include "app_cm7.h"
+#include "application_config.h"
 #include "inter_core_cm7.h"
 #include "debug_uart.h"
 #include "audio_input.h"
 #include "fft_processing.h"
+#include "goertzel_processing.h"
 #include "shared_memory.h"
+#include "stm32h755xx.h"
 #include "stm32h7xx_hal.h"
 #include "stm32h7xx_hal_adc.h"
 #include "stm32h7xx_hal_tim.h"
+#include <stdint.h>
 #include <stdio.h>
 
 extern ADC_HandleTypeDef hadc3;
@@ -124,8 +128,8 @@ void App_CM7_Main(void)
                     
                     /* Process the audio buffer with FFT */
                     /* Tell the CPU to fetch fresh data from physical RAM, not the cache */
-                    // SCB_InvalidateDCache_by_Addr((uint32_t *)audio_buf, AUDIO_BUFFER_SIZE / 2 * sizeof(uint16_t));
-                    
+                    SCB_InvalidateDCache_by_Addr((uint32_t *)audio_buf, AUDIO_BUFFER_SIZE / 2 * sizeof(uint16_t));
+                   
                     FFT_ProcessBlock(audio_buf);
                     // float fundamental_freq = FFT_GetFundamentals();
                     printf("[CM7] Fundamental frequency peak detected: %.2f \n", FFT_GetFundamental());

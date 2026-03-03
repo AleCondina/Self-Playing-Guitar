@@ -1,0 +1,2 @@
+# fixes git detecting empty line changes between mac/linux and windows as changes
+* text=auto eol=lf 
