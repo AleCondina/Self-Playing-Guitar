@@ -14,6 +14,7 @@
 #include "stm32h7xx_hal.h"
 #include "song_scheduler_tuning.h"
 #include "midi_parser.h"
+#include "midi_data.h"
 #include "song_event.h"
 
 #include <stdio.h>
