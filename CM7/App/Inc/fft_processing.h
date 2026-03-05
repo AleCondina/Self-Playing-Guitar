@@ -3,6 +3,10 @@
 
 #include <stdint.h>
 #include "arm_math.h"
+#include "application_config.h"
+
+extern float active_frequencies[];
+extern uint8_t active_string_count;
 
 void FFT_Init(void);
 

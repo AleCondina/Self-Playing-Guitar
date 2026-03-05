@@ -24,7 +24,6 @@
 extern ADC_HandleTypeDef hadc3;
 extern TIM_HandleTypeDef htim6;
 
-
 /* Application state */
 typedef enum {
     STATE_INIT,
@@ -126,28 +125,29 @@ void App_CM7_Main(void)
                 if (Audio_HasNewSamples()) {
                     uint16_t* audio_buf = Audio_GetBuffer(); /* Get the ready buffer (no parameter needed) */
                     
-                    /* Process the audio buffer with FFT */
-                    /* Tell the CPU to fetch fresh data from physical RAM, not the cache */
-                    SCB_InvalidateDCache_by_Addr((uint32_t *)audio_buf, AUDIO_BUFFER_SIZE / 2 * sizeof(uint16_t));
                    
                     FFT_ProcessBlock(audio_buf);
-                    // float fundamental_freq = FFT_GetFundamentals();
-                    printf("[CM7] Fundamental frequency peak detected: %.2f \n", FFT_GetFundamental());
-                    
+                    if (active_string_count > 0) {
+                        printf("[CM7] Detected %d active string(s): ", active_string_count);
+                        for (uint8_t i = 0; i < active_string_count; i++) {
+                            printf("%.2f Hz  ", active_frequencies[i]);
+                        }
+                        printf("\r\n");
+                    }
                     /* Mark data as processed to enable detection of next buffer */
                     Audio_MarkProcessed();
                 }
 
-                /* Test: Send motor speed commands every 5 seconds */
-                if ((HAL_GetTick() % 5000) < 10) {
-                    test_counter++;
+                // /* Test: Send motor speed commands every 5 seconds */
+                // if ((HAL_GetTick() % 5000) < 10) {
+                //     test_counter++;
 
-                    /* Alternate motor speeds for testing */
-                    int32_t speed = (test_counter % 2 == 0) ? 1000 : 500;
+                //     /* Alternate motor speeds for testing */
+                //     int32_t speed = (test_counter % 2 == 0) ? 1000 : 500;
 
-                    printf("[CM7] Test: Setting motor 0 to %ld steps/s\r\n", speed);
-                    InterCore_SendMotorSpeed(0, speed);
-                }
+                //     printf("[CM7] Test: Setting motor 0 to %ld steps/s\r\n", speed);
+                //     InterCore_SendMotorSpeed(0, speed);
+                // }
 
                 /* Check CM4 health */
                 if (!InterCore_IsCM4Alive()) {
@@ -168,10 +168,10 @@ void App_CM7_Main(void)
                 break;
         }
 
-        /* Print diagnostics every 5 seconds */
-        if (HAL_GetTick() - last_debug_time >= 5000) {
-            last_debug_time = HAL_GetTick();
-            Debug_PrintSharedMemory();
-        }
+        // /* Print diagnostics every 5 seconds */
+        // if (HAL_GetTick() - last_debug_time >= 5000) {
+        //     last_debug_time = HAL_GetTick();
+        //     Debug_PrintSharedMemory();
+        // }
     }
 }

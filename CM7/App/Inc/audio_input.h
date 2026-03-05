@@ -15,9 +15,6 @@
 #include "stm32h7xx_hal.h"
 
 
-// TODO: remove
-void test(void);
-
 /**
  * @brief Initialize audio input (ADC + DMA)
  * @return 0 on success, -1 on error
