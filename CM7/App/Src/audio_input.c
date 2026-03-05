@@ -28,6 +28,9 @@ static uint16_t audio_buffer[AUDIO_BUFFER_SIZE] = {0};
 __attribute__((section(".audio_buffer"))) static uint16_t audio_buffer[AUDIO_BUFFER_SIZE];
 #endif
 
+// managed buffer window that will take in half of the DMA samples at a time
+static uint16_t fft_window_buffer[FFT_SIZE] = {0};
+
 /* Flag to indicate which half-buffer has new data */
 static volatile uint8_t new_samples_ready = 0;
 
@@ -40,8 +43,7 @@ static volatile uint8_t data_processed = 1;
  * @brief DMA half-transfer complete callback (first half of buffer ready)
  * @param hdma: DMA handle pointer
  */
-void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
-{
+void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc) {
     if (hadc->Instance == ADC3) {
         new_samples_ready = 0;  /* First half-buffer ready */
         data_processed = 0;     /* Mark that new data is available */
@@ -52,22 +54,19 @@ void HAL_ADC_ConvHalfCpltCallback(ADC_HandleTypeDef* hadc)
  * @brief DMA transfer complete callback (second half of buffer ready)
  * @param hdma: DMA handle pointer
  */
-void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc)
-{
+void HAL_ADC_ConvCpltCallback(ADC_HandleTypeDef* hadc) {
     if (hadc->Instance == ADC3) {
         new_samples_ready = 1;  /* Second half-buffer ready */
         data_processed = 0;     /* Mark that new data is available */
     }
 }
 
-int32_t Audio_Init(void)
-{
+int32_t Audio_Init(void) {
     /* ADC3 is initialized in MX_ADC3_Init (main.c). Nothing to do here. */
     return 0;
 }
 
-int32_t Audio_Start(void)
-{
+int32_t Audio_Start(void) {
 
     printf("[CM7] Audio buffer address: %p\r\n", (void*)audio_buffer);
     /* Start ADC3 in DMA circular mode */
@@ -79,33 +78,35 @@ int32_t Audio_Start(void)
     return 0;  /* Success */
 }
 
-void Audio_Stop(void)
-{
+void Audio_Stop(void) {
     /* Stop ADC3 and DMA */
     HAL_ADC_Stop_DMA(&hadc3);
     new_samples_ready = 0;
 }
 
-uint8_t Audio_HasNewSamples(void)
-{
+uint8_t Audio_HasNewSamples(void) {
     /* Return 1 if new samples are available (not yet processed), 0 otherwise */
     return !data_processed;
 }
 
-uint16_t* Audio_GetBuffer(void)
-{
+uint16_t* Audio_GetBuffer(void) {
+    // Sliding the window buffer to the left, so second half to the [0]. New elements replacing the old
+    memmove(&fft_window_buffer[0], &fft_window_buffer[FFT_HALF_SIZE], FFT_HALF_SIZE * sizeof(uint16_t));
+    
     /* Return pointer to the ready half-buffer */
     if (new_samples_ready == 0) {
-        /* First half: samples [0 ... AUDIO_BUFFER_SIZE/2) */
-        return &audio_buffer[0];
+        // DMA filled up first half of the audio_buffer
+        memcpy(&fft_window_buffer[FFT_HALF_SIZE], &audio_buffer[0], FFT_HALF_SIZE * sizeof(uint16_t));
     } else {
-        /* Second half: samples [AUDIO_BUFFER_SIZE/2 ... AUDIO_BUFFER_SIZE) */
-        return &audio_buffer[AUDIO_BUFFER_SIZE / 2];
+        // DMA filled up second half of the audio_buffer
+        memcpy(&fft_window_buffer[FFT_HALF_SIZE], &audio_buffer[FFT_HALF_SIZE], FFT_HALF_SIZE * sizeof(uint16_t));
     }
+
+    // returning fully assembled, FFT_SIZE sample, 50% overlapped block
+    return fft_window_buffer;
 }
 
-void Audio_MarkProcessed(void)
-{
+void Audio_MarkProcessed(void) {
     /* Mark the current buffer as processed */
     data_processed = 1;
 }

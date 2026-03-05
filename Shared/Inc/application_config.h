@@ -32,9 +32,9 @@
 
 /* ===== Audio Processing Parameters ===== */   //TODO: check and modify for FFT
 #define AUDIO_SAMPLE_RATE_HZ    6000   /* ADC sample rate, technically its at 5999.812 since the register counts to 10666+1*/ 
-#define FFT_SIZE                2048    //2048 for 341ms sampling time, half of it works too with around 20 cents error
+#define FFT_SIZE                2048    //2048 for 341ms sampling time, halved by using an overlapping array to 170ms
 #define FFT_HALF_SIZE           (FFT_SIZE / 2)
-#define AUDIO_BUFFER_SIZE       (FFT_SIZE * 2)   // double the size of FFT_SIZE since each half-buffer does an fft
+#define AUDIO_BUFFER_SIZE       FFT_SIZE   // same size as FFT for overlapping samples at every half-buffer
 #define MAX_HARMONICS           8
 #define FFT_RESOLUTION          (AUDIO_SAMPLE_RATE_HZ / FFT_SIZE)
 
@@ -43,8 +43,8 @@
 #define CM7_AUDIO_PROCESS_FREQ_HZ   100     /* CM7 pitch detection: 100Hz (10ms) */
 
 /* ===== System Clock Configuration ===== */
-#define SYSTEM_CLOCK_MHZ        480     /* CM7 system clock */
-#define CM4_CLOCK_MHZ           240     /* CM4 clock */
+#define SYSTEM_CLOCK_MHZ        64     /* CM7 system clock */
+#define CM4_CLOCK_MHZ           64     /* CM4 clock */
 #define TIM_CLOCK_MHZ           64      /* Timer peripheral clock (ACTUAL measured: 64 MHz, not 240) */
 
 /* ===== Error Codes (bit field) ===== */

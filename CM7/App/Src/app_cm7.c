@@ -37,8 +37,7 @@ static AppState_t app_state = STATE_INIT;
 /**
  * @brief CM7 application main function
  */
-void App_CM7_Main(void)
-{
+void App_CM7_Main(void) {
     uint32_t last_debug_time = 0;
     uint32_t test_counter = 0;
 

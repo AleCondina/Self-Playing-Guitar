@@ -17,8 +17,7 @@ static GoertzelState_t strings[NUM_STRINGS];
 static uint32_t block_size;
 static float dt;
 
-void Goertzel_Init(void)
-{
+void Goertzel_Init(void) {
     block_size = AUDIO_BUFFER_SIZE / 2; /* Half-buffer size */
     dt = (float)block_size / (float)AUDIO_SAMPLE_RATE_HZ; /* Time per block */
 
@@ -38,8 +37,7 @@ void Goertzel_Init(void)
     }
 }
 
-void Goertzel_ProcessBlock(uint16_t *adc_buffer)
-{
+void Goertzel_ProcessBlock(uint16_t *adc_buffer) {
     
     for (int i = 0; i < NUM_STRINGS; i++)
     {
@@ -82,14 +80,12 @@ void Goertzel_ProcessBlock(uint16_t *adc_buffer)
     }
 }
 
-float Goertzel_GetExactFreq(uint8_t string_index)
-{
+float Goertzel_GetExactFreq(uint8_t string_index) {
     if (string_index >= NUM_STRINGS) return 0.0f;
     return strings[string_index].current_freq;
 }
 
-float Goertzel_GetMagnitude(uint8_t string_index)
-{
+float Goertzel_GetMagnitude(uint8_t string_index) {
     if (string_index >= NUM_STRINGS) return 0.0f;
     return strings[string_index].magnitude;
 }

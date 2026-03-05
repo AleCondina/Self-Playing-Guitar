@@ -34,8 +34,7 @@ uint8_t active_string_count;
    Initialization
    ======================= */
 
-void FFT_Init(void)
-{
+void FFT_Init(void) {
     arm_rfft_fast_init_f32(&fft_instance, FFT_SIZE);
 
     /* Hanning window */
@@ -146,12 +145,10 @@ void FFT_ProcessBlock(uint16_t* audio_buf)
    Accessors
    ======================= */
 
-float FFT_GetFundamental(void)
-{
+float FFT_GetFundamental(void) {
     return fundamental_hz;
 }
 
-void FFT_GetHarmonics(float *out)
-{
+void FFT_GetHarmonics(float *out) {
     memcpy(out, harmonics, sizeof(harmonics));
 }
