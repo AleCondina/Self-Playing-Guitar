@@ -89,11 +89,15 @@ void App_CM7_Main(void)
 
         for (uint32_t i = 0; i < g_event_count; i++)
         {
-            printf("%lu: start=%lu dur=%lu freq=%.2f\n",
-            i,
-           g_events[i].start_time_ms,
-           g_events[i].duration_ms,
-           g_events[i].freq);
+printf("%lu: start=%lu dur=%lu end=%lu freq=%d string=%u motor=%u vel=%u\n",
+       i,
+       g_events[i].start_time_ms,
+       g_events[i].duration_ms,
+       g_events[i].start_time_ms + g_events[i].duration_ms,
+       (int)g_events[i].freq,
+       g_events[i].string_id,
+       g_events[i].motor_position,
+       g_events[i].velocity);
         }
 
         SongScheduler_Init(&g_sched,g_events,g_event_count,HAL_GetTick());
