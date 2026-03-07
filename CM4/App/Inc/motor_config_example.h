@@ -5,8 +5,8 @@
  * @note    This example shows how to use the motor control API
  *
  *          Current Pin Configuration (hardcoded in motor_control.c):
- *          - Motor 0: STEP=PE10, DIR=PE11
- *          - Motor 1: STEP=PE12, DIR=PE13
+ *          - Motor 0: STEP=PE10, DIR=PE11, M0=PE12, M1=PE13, M2=PE14, EN=PD11
+ *          - Motor 1: STEP=PD12, DIR=PD13, M0=PE2,  M1=PE4,  M2=PE7,  EN=PC9 (ZIO CN10-12/10/16/18/20/9)
  *
  *          To add more motors, modify motor_control.c Motor_Init() to configure
  *          additional GPIO pins.

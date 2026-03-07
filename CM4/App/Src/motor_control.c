@@ -6,7 +6,8 @@
  *
  *          DRV8825 Driver Pin Configuration (6 pins per motor):
  *          - Motor 0: STEP=PE10, DIR=PE11, M0=PE12, M1=PE13, M2=PE14, EN=PD11
- *          - Motors 1-5: Not configured (structure ready, pins TBD)
+ *          - Motor 1: STEP=PD12, DIR=PD13, M0=PE2,  M1=PE4,  M2=PE7,  EN=PC9 (all ZIO CN10)
+ *          - Motors 2-5: Not configured (structure ready, pins TBD)
  *
  *          Microstepping Modes (M0, M1, M2):
  *          - 0,0,0 = Full step
@@ -22,7 +23,7 @@
 #include "stm32h7xx_hal.h"
 
 /* Number of motors currently configured with GPIO pins */
-#define NUM_CONFIGURED_MOTORS   1
+#define NUM_CONFIGURED_MOTORS   2
 
 /* Step pulse width in microseconds (DRV8825 minimum: 1.9us) */
 #define STEP_PULSE_US           3
@@ -102,9 +103,10 @@ int32_t Motor_Init(void)
     DWT->CYCCNT = 0;
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 
-    /* Enable GPIO clocks for PE10-PE14 and PD11 */
+    /* Enable GPIO clocks for PE10-PE14, PD11 (Motor 0) and PC9, PD12-13 (Motor 1) */
     __HAL_RCC_GPIOE_CLK_ENABLE();
     __HAL_RCC_GPIOD_CLK_ENABLE();
+    __HAL_RCC_GPIOC_CLK_ENABLE();
 
     /* Initialize motor states and clear all pin configs */
     for (uint8_t i = 0; i < NUM_MOTORS; i++) {
@@ -166,7 +168,50 @@ int32_t Motor_Init(void)
     motor_configs[0].configured = 1;
 
     /* ================================================================
-     * Motors 1-5: Structure ready, pins not assigned
+     * Configure Motor 1: DRV8825 driver
+     * STEP=PD12, DIR=PD13, M0=PE2, M1=PE4, M2=PE6, EN=PC9
+     * All pins on ZIO CN10: STEP=CN10-12, DIR=CN10-10, M0=CN10-16,
+     *                       M1=CN10-18, M2=PE7/CN10-20, EN=CN10-9
+     * ================================================================ */
+
+    /* STEP pin - PD12 (ZIO CN10-12) */
+    motor_configs[1].pins.step_port = GPIOD;
+    motor_configs[1].pins.step_pin = GPIO_PIN_12;
+    Motor_InitGPIO(GPIOD, GPIO_PIN_12);
+
+    /* DIR pin - PD13 (ZIO CN10-10) */
+    motor_configs[1].pins.dir_port = GPIOD;
+    motor_configs[1].pins.dir_pin = GPIO_PIN_13;
+    Motor_InitGPIO(GPIOD, GPIO_PIN_13);
+
+    /* M0 microstep pin - PE2 (ZIO CN10-16) */
+    motor_configs[1].pins.m0_port = GPIOE;
+    motor_configs[1].pins.m0_pin = GPIO_PIN_2;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_2);
+
+    /* M1 microstep pin - PE4 (ZIO CN10-18) */
+    motor_configs[1].pins.m1_port = GPIOE;
+    motor_configs[1].pins.m1_pin = GPIO_PIN_4;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_4);
+
+    /* M2 microstep pin - PE7 (ZIO CN10-20) */
+    motor_configs[1].pins.m2_port = GPIOE;
+    motor_configs[1].pins.m2_pin = GPIO_PIN_7;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_7);
+
+    /* EN pin - PC9 (ZIO CN10-9, active LOW, start HIGH = disabled) */
+    motor_configs[1].pins.en_port = GPIOC;
+    motor_configs[1].pins.en_pin = GPIO_PIN_9;
+    Motor_InitGPIO(GPIOC, GPIO_PIN_9);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_SET);  /* Start disabled */
+
+    /* Set motor parameters */
+    motor_configs[1].max_speed = MOTOR_MAX_STEP_FREQ;
+    motor_configs[1].max_accel = MOTOR_MAX_ACCEL;
+    motor_configs[1].configured = 1;
+
+    /* ================================================================
+     * Motors 2-5: Structure ready, pins not assigned
      * To configure, assign ports/pins and set configured = 1
      * ================================================================ */
 
