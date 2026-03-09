@@ -10,6 +10,9 @@
  * Standard open-string frequencies (Hz):
  *   E2 = 82.41   A2 = 110.00   D3 = 146.83
  *   G3 = 196.00  B3 = 246.94   E4 = 329.63
+ *
+ * Chord fields: { string_id, freq_hz, duration_ms, num_strings, string_id2, freq_hz2 }
+ * Set num_strings = 1 for a single note, 2 for a two-string chord.
  ******************************************************************************
  */
 
@@ -19,41 +22,49 @@
 /* =========================================================================
  * Song data  ── edit here to change the song
  * =========================================================================
- * Demo song: simple pentatonic phrase on E2 and A2 strings.
- * All frequencies are in standard equal temperament (A4 = 440 Hz).
+ * Smoke on the Water – Deep Purple (main riff, intro)
+ * Tempo: 112 BPM  |  Time: 4/4
  *
  * String mapping:
  *   0 = E2  (low)    1 = A2    2 = D3
  *   3 = G3           4 = B3    5 = E4 (high)
+ *
+ * All chords are played on G (idx 3) + D (idx 2) strings simultaneously.
+ *
+ * Fret frequencies – G3 string (196.00 Hz open):
+ *   fret 0 = 196.00 Hz   fret 3 = 233.08 Hz
+ *   fret 5 = 261.63 Hz   fret 6 = 277.18 Hz
+ *
+ * Fret frequencies – D3 string (146.83 Hz open):
+ *   fret 0 = 146.83 Hz   fret 3 = 174.61 Hz
+ *   fret 5 = 196.00 Hz   fret 6 = 207.65 Hz
+ *
+ * At 112 BPM:  quarter = 536 ms  |  eighth = 268 ms
  * ========================================================================= */
+
+/* Convenience macro for a two-string chord entry */
+#define CHORD(g_hz, d_hz, dur_ms) \
+    { 3u, (g_hz), (dur_ms), 2u, 2u, (d_hz) }
+
 static const SongNote_t song_notes[] = {
-    /* -- Bar 1: E2 string -- */
-    { 0,  82.41f,  800u },   /* E2  open  */
-    { 0,  87.31f,  400u },   /* F2  fret1 */
-    { 0,  92.50f,  400u },   /* F#2 fret2 */
-    { 0,  98.00f,  800u },   /* G2  fret3 */
-    { 0, 110.00f,  800u },   /* A2  fret5 */
 
-    /* -- Bar 2: A2 string -- */
-    { 1, 110.00f,  800u },   /* A2  open  */
-    { 1, 116.54f,  400u },   /* A#2 fret1 */
-    { 1, 123.47f,  400u },   /* B2  fret2 */
-    { 1, 130.81f,  800u },   /* C3  fret3 */
-    { 1, 146.83f,  800u },   /* D3  fret5 */
+    /* ── Phrase 1: G5 – Bb5 – C5  (one bar, 4 beats) ─────────────────── */
+    CHORD(196.00f, 146.83f,  536u),   /* G(0)D(0)  – open power chord   */
+    CHORD(233.08f, 174.61f,  536u),   /* G(3)D(3)  – Bb5 power chord    */
+    CHORD(261.63f, 196.00f, 1072u),   /* G(5)D(5)  – C5  power chord (held + rest) */
 
-    /* -- Bar 3: D3 string -- */
-    { 2, 146.83f,  800u },   /* D3  open  */
-    { 2, 155.56f,  400u },   /* D#3 fret1 */
-    { 2, 164.81f,  400u },   /* E3  fret2 */
-    { 2, 174.61f,  800u },   /* F3  fret3 */
-    { 2, 196.00f,  800u },   /* G3  fret5 */
+    /* ── Phrase 2: G5 – Bb5 – Db5 – C5  (one bar, 4 beats) ───────────── */
+    CHORD(196.00f, 146.83f,  536u),   /* G(0)D(0)  – open power chord   */
+    CHORD(233.08f, 174.61f,  536u),   /* G(3)D(3)  – Bb5 power chord    */
+    CHORD(277.18f, 207.65f,  268u),   /* G(6)D(6)  – Db5 power chord    */
+    CHORD(261.63f, 196.00f,  804u),   /* G(5)D(5)  – C5  (dotted quarter + rest) */
 
-    /* -- Bar 4: back to E2 -- */
-    { 0, 196.00f,  400u },   /* G2  fret10 (high, tests full range) */
-    { 0, 164.81f,  400u },   /* E3  fret7  */
-    { 0, 146.83f,  400u },   /* D3  fret5  */
-    { 0, 123.47f,  400u },   /* B2  fret2  */
-    { 0,  82.41f, 1200u },   /* E2  open (return home) */
+    /* ── Phrase 3: G5 – Bb5 – C5 – Bb5 – G5  (one bar, 4 beats) ──────── */
+    CHORD(196.00f, 146.83f,  536u),   /* G(0)D(0)  – open power chord   */
+    CHORD(233.08f, 174.61f,  536u),   /* G(3)D(3)  – Bb5 power chord    */
+    CHORD(261.63f, 196.00f,  268u),   /* G(5)D(5)  – C5  power chord    */
+    CHORD(233.08f, 174.61f,  268u),   /* G(3)D(3)  – Bb5 power chord    */
+    CHORD(196.00f, 146.83f,  536u),   /* G(0)D(0)  – return to open (held + rest) */
 };
 
 #define SONG_NOTE_COUNT  ((uint32_t)(sizeof(song_notes) / sizeof(song_notes[0])))
@@ -117,6 +128,24 @@ float SongSched_GetTargetFreq(void)
 {
     if (!s_active) return 0.0f;
     return song_notes[s_note_index].target_freq_hz;
+}
+
+uint8_t SongSched_GetStringCount(void)
+{
+    if (!s_active) return 0u;
+    return song_notes[s_note_index].num_strings;
+}
+
+uint8_t SongSched_GetStringId2(void)
+{
+    if (!s_active) return 0u;
+    return song_notes[s_note_index].string_id2;
+}
+
+float SongSched_GetTargetFreq2(void)
+{
+    if (!s_active) return 0.0f;
+    return song_notes[s_note_index].target_freq_hz2;
 }
 
 uint8_t SongSched_IsActive(void)

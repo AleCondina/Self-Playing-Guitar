@@ -34,13 +34,18 @@ extern "C" {
  * ========================================================================= */
 
 /**
- * @brief One note in the song schedule.
+ * @brief One note (or two-string chord) in the song schedule.
+ *
+ * For a single note set num_strings = 1 and leave string_id2 / target_freq_hz2 at 0.
+ * For a two-string chord set num_strings = 2 and fill all fields.
  */
 typedef struct {
-    uint8_t  string_id;        /**< String to tune: 0=E2, 1=A2, 2=D3,
-                                     3=G3, 4=B3, 5=E4                 */
-    float    target_freq_hz;   /**< Target pitch in Hz                */
-    uint32_t duration_ms;      /**< How long to hold this note (ms)   */
+    uint8_t  string_id;        /**< Primary string: 0=E2,1=A2,2=D3,3=G3,4=B3,5=E4 */
+    float    target_freq_hz;   /**< Primary pitch in Hz                              */
+    uint32_t duration_ms;      /**< How long to hold this note/chord (ms)            */
+    uint8_t  num_strings;      /**< 1 = single note, 2 = chord                       */
+    uint8_t  string_id2;       /**< Second string (valid when num_strings == 2)       */
+    float    target_freq_hz2;  /**< Second pitch in Hz (valid when num_strings == 2)  */
 } SongNote_t;
 
 /* =========================================================================
@@ -74,6 +79,21 @@ uint8_t SongSched_GetStringId(void);
  * Valid only when SongSched_IsActive() returns non-zero.
  */
 float SongSched_GetTargetFreq(void);
+
+/**
+ * @brief Return the number of simultaneous strings in the current note (1 or 2).
+ */
+uint8_t SongSched_GetStringCount(void);
+
+/**
+ * @brief Return the second string index (valid only when SongSched_GetStringCount() == 2).
+ */
+uint8_t SongSched_GetStringId2(void);
+
+/**
+ * @brief Return the second target frequency in Hz (valid only when SongSched_GetStringCount() == 2).
+ */
+float SongSched_GetTargetFreq2(void);
 
 /**
  * @brief Return 1 if the song is playing and a note is active, 0 otherwise.
