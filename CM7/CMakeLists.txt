@@ -73,6 +73,8 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/fft_processing.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../Shared/Src/shared_memory.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/goertzel_processing.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/tuning_controller.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/song_scheduler.c
 
     # adding missing CMSIS-DSP files
     ${CMAKE_CURRENT_SOURCE_DIR}/../Drivers/CMSIS/DSP/Source/WindowFunctions/WindowFunctions.c

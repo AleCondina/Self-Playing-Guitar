@@ -129,6 +129,22 @@ void InterCore_SendMotorEnable(uint8_t motor_id, uint8_t enable);
 void InterCore_SendMotorZero(uint8_t motor_id);
 
 
+/**
+ * @brief Trigger a solenoid at an exact frequency in Hz (tuning controller)
+ * @param solenoid_id  Solenoid index 0–5
+ * @param freq_hz      Drive frequency 40–800 Hz
+ * @param duty_percent Duty cycle 1–99 % (0 = default 50 %)
+ * @param mode         SOLENOID_MODE_INFINITE / TIMED / BURST
+ * @param time_ms      Auto-stop time for TIMED mode (0 = N/A)
+ * @param burst_cycles Auto-stop cycles for BURST mode (0 = N/A)
+ */
+void InterCore_TriggerSolenoidHz(uint8_t  solenoid_id,
+                                  uint16_t freq_hz,
+                                  uint8_t  duty_percent,
+                                  uint8_t  mode,
+                                  uint16_t time_ms,
+                                  uint16_t burst_cycles);
+
 //----------------END OF MOTOR FUNCS -----------------
 
 

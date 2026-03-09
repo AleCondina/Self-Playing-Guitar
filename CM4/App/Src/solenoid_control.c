@@ -366,3 +366,31 @@ uint8_t Solenoid_UpdateAutoStop(void)
 
     return stopped_mask;
 }
+
+/**
+ * @brief Set solenoid drive frequency directly in Hz
+ * @note  Timer count frequency = 640 kHz → ARR = (640000 / freq_hz) - 1
+ */
+int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, uint32_t freq_hz)
+{
+    if (solenoid_id >= SOLENOID_COUNT || freq_hz == 0u) {
+        return -1;
+    }
+
+    /* Guard against ARR overflow (uint16_t max = 65535).
+     * 640000 / 65535 ≈ 10 Hz minimum; 640000 / 1 = 640 kHz maximum.
+     * For guitar strings 40–800 Hz is the expected range. */
+    if (freq_hz < 40u || freq_hz > 800u) {
+        return -1;
+    }
+
+    SolenoidState_t *state = &solenoid_states[solenoid_id];
+
+    uint16_t new_arr = (uint16_t)((640000UL / freq_hz) - 1UL);
+    uint16_t new_ccr = (uint16_t)((new_arr * state->duty_cycle) / 100u);
+
+    __HAL_TIM_SET_AUTORELOAD(state->htim, new_arr);
+    __HAL_TIM_SET_COMPARE(state->htim, state->channel, new_ccr);
+
+    return 0;
+}

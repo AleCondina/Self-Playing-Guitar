@@ -45,6 +45,7 @@
 #define CMD_SET_MICROSTEP       (1U << 10)  /* Set microstepping mode -----*/
 #define CMD_MOTOR_ENABLE        (1U << 11)  /* Enable/disable motor -----*/
 #define CMD_MOTOR_ZERO          (1U << 12)  /* Zero motor position -----*/
+#define CMD_TRIGGER_SOLENOID_HZ (1U << 13)  /* Trigger solenoid at exact Hz (tuning controller) */
 
 /* Status flags: CM4 → CM7 (bit field) */
 #define MOTOR_STATUS_READY      (1U << 0)   /* Motors initialized and ready */
@@ -92,6 +93,7 @@ typedef struct {
     volatile uint16_t solenoid_burst_cycles;            /* Auto-stop cycles (0=disabled, 1-1000) */
     volatile uint8_t solenoid_mode;                     /* 0=infinite, 1=timed, 2=burst */
     volatile uint8_t solenoid_padding;                  /* Alignment */
+    volatile uint16_t solenoid_freq_hz;                 /* Direct Hz drive (CMD_TRIGGER_SOLENOID_HZ) */
 
 
 

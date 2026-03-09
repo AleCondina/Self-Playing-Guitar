@@ -312,6 +312,40 @@ void InterCore_GetCM4Diagnostics(uint32_t *loop_hz, uint32_t *overruns, uint32_t
 }
 
 /**
+ * @brief Trigger a solenoid at an exact frequency in Hz (tuning controller use)
+ *
+ * Uses CMD_TRIGGER_SOLENOID_HZ so CM4 calls Solenoid_SetFrequencyHz() instead
+ * of the string/fret lookup table.  Allows the tuning controller to drive the
+ * solenoid at the precise target note frequency once the string is locked.
+ *
+ * @param solenoid_id  Solenoid index 0–5
+ * @param freq_hz      Drive frequency in Hz (40–800 Hz)
+ * @param duty_percent Duty cycle 1–99 % (0 = use driver default 50 %)
+ * @param mode         SOLENOID_MODE_INFINITE / TIMED / BURST
+ * @param time_ms      Auto-stop time for TIMED mode (0 = ignored)
+ * @param burst_cycles Auto-stop cycles for BURST mode (0 = ignored)
+ */
+void InterCore_TriggerSolenoidHz(uint8_t  solenoid_id,
+                                  uint16_t freq_hz,
+                                  uint8_t  duty_percent,
+                                  uint8_t  mode,
+                                  uint16_t time_ms,
+                                  uint16_t burst_cycles)
+{
+    if (solenoid_id >= NUM_MOTORS) return;
+
+    g_shared_memory.solenoid_id                 = solenoid_id;
+    g_shared_memory.solenoid_freq_hz            = freq_hz;
+    g_shared_memory.solenoid_duty_cycle         = duty_percent;
+    g_shared_memory.solenoid_mode               = mode;
+    g_shared_memory.solenoid_activation_time_ms = time_ms;
+    g_shared_memory.solenoid_burst_cycles       = burst_cycles;
+    g_shared_memory.motor_command_flags        |= CMD_TRIGGER_SOLENOID_HZ;
+    __DSB();
+    InterCore_NotifyCM4();
+}
+
+/**
  * @brief Notify CM4 via HSEM
  */
 void InterCore_NotifyCM4(void)

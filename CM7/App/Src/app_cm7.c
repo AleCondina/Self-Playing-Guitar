@@ -3,6 +3,14 @@
  * @file    app_cm7.c
  * @brief   CM7 application implementation
  * @note    Main control loop for CM7 (pitch detection and command generation)
+ *
+ * Control-hop flow (every ~170 ms, driven by audio DMA half-complete):
+ *   1. Audio_HasNewSamples() fires
+ *   2. FFT_ProcessBlock()  – polyphonic peak detection (legacy / diagnostics)
+ *   3. Goertzel_ProcessBlock() – per-string frequency + magnitude estimation
+ *   4. SongSched_Tick()    – advance note schedule
+ *   5. TuningCtrl_RunHop() – FF + PI control → InterCore_SendMotorGoto()
+ *                             + solenoid coordination
  ******************************************************************************
  */
 
@@ -14,6 +22,8 @@
 #include "audio_input.h"
 #include "fft_processing.h"
 #include "goertzel_processing.h"
+#include "tuning_controller.h"
+#include "song_scheduler.h"
 #include "shared_memory.h"
 #include "stm32h755xx.h"
 #include "stm32h7xx_hal.h"
@@ -75,6 +85,24 @@ void App_CM7_Main(void) {
         printf("[CM7] Initializing FFT engine...\r\n");
         FFT_Init();
 
+        /* Initialize Goertzel per-string pitch estimator */
+        printf("[CM7] Initializing Goertzel estimator...\r\n");
+        Goertzel_Init();
+
+        /* Initialize tuning controller (depends on home being established) */
+        printf("[CM7] Initializing tuning controller...\r\n");
+        TuningCtrl_Init();
+
+        /* Initialize song scheduler */
+        printf("[CM7] Initializing song scheduler (%lu notes)...\r\n",
+               (unsigned long)SongSched_GetNoteCount());
+        SongSched_Init();
+
+        /* Print CSV log header for offline analysis */
+        printf("[TC] timestamp_ms,string_id,target_hz,measured_hz,error_hz,"
+               "ff_steps,trim_steps,cmd_steps,cur_steps,"
+               "lock,pi_en,delay_ctr,confidence,faults\r\n");
+
         /* Initialize audio input (ADC + DMA) */
         printf("[CM7] Initializing audio input...\r\n");
 
@@ -87,7 +115,6 @@ void App_CM7_Main(void) {
             app_state = STATE_ERROR;
         } else {
                 printf("[CM7] Audio input initialized and calibrated.\r\n");
-                
 
                 /* Start audio acquisition */
                 if (Audio_Start() != 0) {
@@ -95,13 +122,12 @@ void App_CM7_Main(void) {
                     app_state = STATE_ERROR;
                 } else {
                     printf("[CM7] Audio acquisition started.\r\n");
-                    //starting timer
                     HAL_TIM_Base_Start(&htim6);
                     app_state = STATE_IDLE;
                 }
             }
         }
-    
+
 
     /* Main loop */
     while (1) {
@@ -119,39 +145,45 @@ void App_CM7_Main(void) {
                 break;
 
             case STATE_RUNNING:
-              /* Process serial commands */
+                /* Process serial commands */
                 SerialCmd_Process();
-                
-                /* Main application logic */
-                
 
-                /* Check for new audio samples (from ADC DMA) */
+                /* ============================================================
+                 * Audio processing and tuning control hop
+                 * Fires every ~170 ms (1024 samples / 6000 Hz sample rate)
+                 * ============================================================ */
                 if (Audio_HasNewSamples()) {
-                    uint16_t* audio_buf = Audio_GetBuffer(); /* Get the ready buffer (no parameter needed) */
-                    
-                   
+                    uint16_t *audio_buf = Audio_GetBuffer();
+
+                    /* --- DSP pipeline --- */
+                    /* FFT: polyphonic peak detection (retained for diagnostics) */
                     FFT_ProcessBlock(audio_buf);
+
+                    /* Goertzel: per-string exact frequency + magnitude */
+                    Goertzel_ProcessBlock(audio_buf);
+
+                    /* Mark buffer consumed before any blocking work */
+                    Audio_MarkProcessed();
+
+                    /* --- Song scheduler tick --- */
+                    SongSched_Tick(HAL_GetTick());
+
+                    /* --- Tuning control hop ---
+                     * Reads Goertzel results and song scheduler state,
+                     * computes PI + FF commands, pushes to CM4 via
+                     * InterCore_SendMotorGoto() / solenoid commands.
+                     */
+                    TuningCtrl_RunHop();
+
+                    /* Diagnostic: print FFT polyphonic results */
                     if (active_string_count > 0) {
-                        printf("[CM7] Detected %d active string(s): ", active_string_count);
+                        printf("[CM7] FFT %d string(s): ", active_string_count);
                         for (uint8_t i = 0; i < active_string_count; i++) {
-                            printf("%.2f Hz  ", active_frequencies[i]);
+                            printf("%.2f Hz  ", (double)active_frequencies[i]);
                         }
                         printf("\r\n");
                     }
-                    /* Mark data as processed to enable detection of next buffer */
-                    Audio_MarkProcessed();
                 }
-
-                // /* Test: Send motor speed commands every 5 seconds */
-                // if ((HAL_GetTick() % 5000) < 10) {
-                //     test_counter++;
-
-                //     /* Alternate motor speeds for testing */
-                //     int32_t speed = (test_counter % 2 == 0) ? 1000 : 500;
-
-                //     printf("[CM7] Test: Setting motor 0 to %ld steps/s\r\n", speed);
-                //     InterCore_SendMotorSpeed(0, speed);
-                // }
 
                 /* Check CM4 health */
                 if (!InterCore_IsCM4Alive()) {
@@ -172,10 +204,15 @@ void App_CM7_Main(void) {
                 break;
         }
 
-        // // /* Print diagnostics every 5 seconds */
-        // // if (HAL_GetTick() - last_debug_time >= 5000) {
-        // //     last_debug_time = HAL_GetTick();
-        // //     Debug_PrintSharedMemory();
-        // // }
+        /* Print diagnostics every 5 seconds */
+        if (HAL_GetTick() - last_debug_time >= 5000u) {
+            last_debug_time = HAL_GetTick();
+            if (app_state == STATE_RUNNING) {
+                printf("[CM7] Song note %lu/%lu | CM4 loop %lu Hz\r\n",
+                       (unsigned long)SongSched_GetNoteIndex(),
+                       (unsigned long)SongSched_GetNoteCount(),
+                       (unsigned long)g_shared_memory.cm4_loop_hz);
+            }
+        }
     }
 }

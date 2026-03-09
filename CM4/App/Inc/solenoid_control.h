@@ -123,4 +123,15 @@ void Solenoid_StartTimed(uint8_t solenoid_id, uint8_t mode,
  */
 uint8_t Solenoid_UpdateAutoStop(void);
 
+/**
+ * @brief Set solenoid drive frequency directly in Hz (tuning controller use)
+ * @param solenoid_id Solenoid index (0-5)
+ * @param freq_hz     Target frequency in Hz (must be > 0)
+ * @return 0 on success, -1 if invalid parameters or frequency out of range
+ * @note  Timer clock: 640 kHz, ARR = (640000 / freq_hz) - 1
+ * @note  Safe range: 40–800 Hz (ARR fits in uint16_t; stays within PWM timer)
+ * @note  Does NOT start PWM – call Solenoid_Start() or Solenoid_StartTimed()
+ */
+int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, uint32_t freq_hz);
+
 #endif /* SOLENOID_CONTROL_H */

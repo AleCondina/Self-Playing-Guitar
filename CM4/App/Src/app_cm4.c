@@ -350,6 +350,29 @@ void App_CM4_Main(void)
                 }
                 InterCore_AckCommand(CMD_MOTOR_ZERO);
             }
+
+            /* Process solenoid direct-Hz trigger (tuning controller actuation) */
+            if (commands & CMD_TRIGGER_SOLENOID_HZ) {
+                uint8_t sol_id  = g_shared_memory.solenoid_id;
+                uint16_t freq   = g_shared_memory.solenoid_freq_hz;
+                uint8_t  duty   = g_shared_memory.solenoid_duty_cycle;
+                uint8_t  mode   = g_shared_memory.solenoid_mode;
+                uint16_t time_ms = g_shared_memory.solenoid_activation_time_ms;
+                uint16_t burst   = g_shared_memory.solenoid_burst_cycles;
+
+                if (sol_id < 6u && freq > 0u) {
+                    if (Solenoid_SetFrequencyHz(sol_id, (uint32_t)freq) == 0) {
+                        if (duty > 0u && duty < 100u) {
+                            Solenoid_SetDutyCycle(sol_id, duty);
+                        }
+                        Solenoid_StartTimed(sol_id, mode, time_ms, burst);
+                        g_shared_memory.solenoid_active_mask = Solenoid_GetActiveMask();
+                    } else {
+                        g_shared_memory.motor_errors |= ERROR_INVALID_COMMAND;
+                    }
+                }
+                InterCore_AckCommand(CMD_TRIGGER_SOLENOID_HZ);
+            }
         }
 
         /* Update solenoid auto-stop timing (1ms loop) */
