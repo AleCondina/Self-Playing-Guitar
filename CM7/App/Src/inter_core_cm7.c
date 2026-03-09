@@ -360,3 +360,47 @@ void InterCore_NotifyCM4(void)
     /* Update CM7 heartbeat */
     g_shared_memory.cm7_heartbeat++;
 }
+
+/******************************************************************************
+ * @brief Play note with tuning (CM7 → CM4)
+ ******************************************************************************/
+int InterCore_PlayNote_Tune(uint8_t string_id,
+                            float freq,
+                            uint16_t duration_ms,
+                            uint8_t velocity,
+                            uint32_t start_time_ms)
+{
+    if (string_id >= NUM_MOTORS)
+        return -1;
+
+    /* Write note parameters into shared memory */
+    g_shared_memory.note_string_id   = string_id;
+    g_shared_memory.note_frequency   = freq;
+    g_shared_memory.note_duration_ms = duration_ms;
+    g_shared_memory.note_velocity    = velocity;
+    g_shared_memory.note_start_time  = start_time_ms;
+
+    /* Set command flag */
+    g_shared_memory.motor_command_flags |= CMD_PLAY_NOTE_TUNE;
+
+    __DSB();
+
+    InterCore_NotifyCM4();
+
+    return 0;
+}
+
+
+/******************************************************************************
+ * @brief Stop all activity
+ ******************************************************************************/
+int InterCore_StopAll(void)
+{
+    g_shared_memory.motor_command_flags |= CMD_STOP_ALL;
+
+    __DSB();
+
+    InterCore_NotifyCM4();
+
+    return 0;
+}

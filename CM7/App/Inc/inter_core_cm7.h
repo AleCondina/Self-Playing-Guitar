@@ -163,4 +163,12 @@ void InterCore_NotifyCM4(void);
  */
 void InterCore_ConfigMPU(void);
 
+int InterCore_PlayNote_Tune(uint8_t string_id,
+                            float target_freq_hz,
+                            uint16_t duration_ms,
+                            uint8_t velocity,
+                            uint32_t start_time_ms);
+
+int InterCore_StopAll(void);
+
 #endif /* INTER_CORE_CM7_H */

@@ -27,6 +27,11 @@
 #include "shared_memory.h"
 #include "stm32h755xx.h"
 #include "stm32h7xx_hal.h"
+#include "song_scheduler_tuning.h"
+#include "midi_parser.h"
+#include "midi_data.h"
+#include "song_event.h"
+
 #include "stm32h7xx_hal_adc.h"
 #include "stm32h7xx_hal_tim.h"
 #include <stdint.h>
@@ -34,6 +39,22 @@
 
 extern ADC_HandleTypeDef hadc3;
 extern TIM_HandleTypeDef htim6;
+
+
+
+extern const uint8_t g_midi_data[];
+extern const uint32_t g_midi_len;
+
+static SongEvent_t g_events[256];
+static uint32_t g_event_count;
+static SongScheduler_t g_sched;
+
+
+
+
+
+
+
 
 /* Application state */
 typedef enum {
@@ -59,6 +80,9 @@ void App_CM7_Main(void) {
            FIRMWARE_VERSION_MINOR,
            FIRMWARE_VERSION_PATCH);
     printf("=========================================\r\n\r\n");
+
+
+
 
     /* Wait for CM4 to signal ready */
     printf("[CM7] Waiting for CM4 to initialize...\r\n");
@@ -129,6 +153,39 @@ void App_CM7_Main(void) {
         }
 
 
+
+       
+
+    MIDI_Parse(g_midi_data,g_midi_len,g_events,256,&g_event_count);
+
+printf("Parsed %lu events\n", g_event_count);
+
+if (g_event_count > 0)
+{
+    uint32_t offset = g_events[0].start_time_ms;
+
+    for (uint32_t i = 0; i < g_event_count; i++)
+    {
+        g_events[i].start_time_ms -= offset;
+    }
+}
+        
+        
+
+        for (uint32_t i = 0; i < g_event_count; i++)
+        {
+printf("%lu: start=%lu dur=%lu end=%lu freq=%d string=%u motor=%u vel=%u\n",
+       i,
+       g_events[i].start_time_ms,
+       g_events[i].duration_ms,
+       g_events[i].start_time_ms + g_events[i].duration_ms,
+       (int)g_events[i].freq,
+       g_events[i].string_id,
+       g_events[i].motor_position,
+       g_events[i].velocity);
+        }
+
+        SongScheduler_Init(&g_sched,g_events,g_event_count,HAL_GetTick());
     /* Main loop */
     while (1) {
         /* Update heartbeat */
@@ -193,6 +250,8 @@ void App_CM7_Main(void) {
                 HAL_Delay(1);
                 break;
 
+
+
             case STATE_ERROR:
                 /* Error state - blink LED or send debug output */
                 printf("[CM7] Error state - halted\r\n");
@@ -214,5 +273,7 @@ void App_CM7_Main(void) {
                        (unsigned long)g_shared_memory.cm4_loop_hz);
             }
         }
+
+         SongScheduler_Update(&g_sched, HAL_GetTick());
     }
 }

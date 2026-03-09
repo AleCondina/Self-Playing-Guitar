@@ -47,6 +47,9 @@
 #define CMD_MOTOR_ZERO          (1U << 12)  /* Zero motor position -----*/
 #define CMD_TRIGGER_SOLENOID_HZ (1U << 13)  /* Trigger solenoid at exact Hz (tuning controller) */
 
+#define CMD_PLAY_NOTE_TUNE   (1U << 6)
+#define CMD_STOP_ALL         (1U << 7)
+
 /* Status flags: CM4 → CM7 (bit field) */
 #define MOTOR_STATUS_READY      (1U << 0)   /* Motors initialized and ready */
 #define MOTOR_STATUS_MOVING     (1U << 1)   /* At least one motor is moving */
@@ -60,6 +63,7 @@
 #define SOLENOID_MODE_BURST     2           /* Auto-stop after N cycles */
 
 /**
+ * 
  * @brief Shared memory structure for inter-core communication
  * @note  Size: ~200 bytes, fits comfortably in 256KB shared region
  * @note  32-byte alignment matches STM32H7 L1 cache line size
@@ -119,6 +123,13 @@ typedef struct {
     /* ===== Inter-Core Synchronization ===== */
     volatile uint32_t cm7_to_cm4_msg_count;             /* Messages sent by CM7 */
     volatile uint32_t cm4_to_cm7_msg_count;             /* Messages sent by CM4 */
+
+
+  uint8_t  note_string_id;
+float    note_frequency;
+uint16_t note_duration_ms;
+uint8_t  note_velocity;
+uint32_t note_start_time;
 
 } __attribute__((aligned(32))) SharedMemory_t;
 
