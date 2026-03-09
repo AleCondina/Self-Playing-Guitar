@@ -34,6 +34,7 @@
 #include "inter_core_cm7.h"
 #include "shared_memory.h"
 #include "application_config.h"
+#include "stm32h7xx_hal.h"
 
 #include <math.h>
 #include <stddef.h>
@@ -426,6 +427,26 @@ void TuningCtrl_RunHop(void)
     /* Coordinate solenoid actuation based on lock-state transitions        */
     /* ------------------------------------------------------------------ */
     ApplyActuation(str, target, curr_lock, prev_lock);
+
+    /* ------------------------------------------------------------------ */
+    /* Second string (chord support)                                        */
+    /* ------------------------------------------------------------------ */
+    if (SongSched_GetStringCount() >= 2u) {
+        uint8_t str2     = SongSched_GetStringId2();
+        float   target2  = SongSched_GetTargetFreq2();
+
+        float   measured2   = Goertzel_GetExactFreq(str2);
+        float   confidence2 = Goertzel_GetMagnitude(str2);
+
+        uint8_t prev_lock2 = s_state[str2].lock_state;
+        TuningCtrl_Update(str2, target2, measured2, confidence2);
+        uint8_t curr_lock2 = s_state[str2].lock_state;
+
+        if (s_state[str2].cmd_steps_abs != s_state[str2].prev_cmd_steps_abs) {
+            InterCore_SendMotorGoto(str2, s_state[str2].cmd_steps_abs);
+        }
+        ApplyActuation(str2, target2, curr_lock2, prev_lock2);
+    }
 
     /* ------------------------------------------------------------------ */
     /* Debug CSV logging (decimated)                                        */
