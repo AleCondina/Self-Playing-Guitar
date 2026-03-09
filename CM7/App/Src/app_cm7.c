@@ -23,6 +23,7 @@
 #include "fft_processing.h"
 #include "goertzel_processing.h"
 #include "tuning_controller.h"
+#include "calibration_controller.h"
 #include "song_scheduler.h"
 #include "shared_memory.h"
 #include "stm32h755xx.h"
@@ -39,6 +40,7 @@ extern TIM_HandleTypeDef htim6;
 typedef enum {
     STATE_INIT,
     STATE_IDLE,
+    STATE_CALIBRATING,
     STATE_RUNNING,
     STATE_ERROR
 } AppState_t;
@@ -140,8 +142,32 @@ void App_CM7_Main(void) {
         /* State machine */
         switch (app_state) {
             case STATE_IDLE:
-                printf("[CM7] System ready for commands.\r\n");
-                app_state = STATE_RUNNING;
+                printf("[CM7] System ready. Starting calibration sweep...\r\n");
+                Cal_Start();
+                app_state = STATE_CALIBRATING;
+                break;
+
+            case STATE_CALIBRATING:
+                /* Process serial commands while calibrating */
+                SerialCmd_Process();
+
+                if (Audio_HasNewSamples()) {
+                    uint16_t *audio_buf = Audio_GetBuffer();
+
+                    /* FFT must run first – Cal_Hop() reads active_frequencies[] */
+                    FFT_ProcessBlock(audio_buf);
+                    Goertzel_ProcessBlock(audio_buf);
+                    Audio_MarkProcessed();
+
+                    Cal_Hop();
+                }
+
+                /* Transition to normal play when calibration finishes */
+                if (Cal_GetStatus() == CAL_STATUS_DONE ||
+                    Cal_GetStatus() == CAL_STATUS_ERROR) {
+                    SongSched_Init();
+                    app_state = STATE_RUNNING;
+                }
                 break;
 
             case STATE_RUNNING:

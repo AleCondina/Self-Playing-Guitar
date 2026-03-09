@@ -54,7 +54,7 @@
  * TODO: replace with measured values during hardware commissioning.
  *       Current values assume ~10 microsteps per Hz as a rough linear first-guess.
  * ========================================================================= */
-const float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     /* E2: 82.41 Hz open, ~123 Hz at fret 7 */
     {  82.4f,  90.0f, 100.0f, 123.5f },
     /* A2: 110.0 Hz open, ~165 Hz at fret 7 */
@@ -69,7 +69,7 @@ const float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     { 329.6f, 370.0f, 415.3f, 493.9f },
 };
 
-const float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     /* E2 – TODO: calibrate. rough: 0 at open, ~400 steps at fret 7 */
     {    0.0f,   80.0f,  185.0f,  400.0f },
     /* A2 */
