@@ -1,45 +1,74 @@
 #include "song_scheduler_tuning.h"
 #include <stdio.h>
 
-//#include "inter_core_cm7.h" //uncoment later
-
-void SongScheduler_Init(SongScheduler_t* s, SongEvent_t* events,uint32_t count,uint32_t start_time)
+void SongScheduler_Init(SongScheduler_t* s,
+                        SongEvent_t* events,
+                        uint32_t count,
+                        uint32_t start_time)
 {
     s->events = events;
     s->count = count;
     s->index = 0;
     s->start_time_ms = start_time;
-    s->note_active = 0;
-    s->note_end_time = 0;
+
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+    {
+        s->active_notes[i].active = 0;
+    }
 }
 
-void SongScheduler_Update(SongScheduler_t* s,uint32_t now_ms)
+void SongScheduler_Update(SongScheduler_t* s, uint32_t now_ms)
 {
-    if (s->index >= s->count)
-        return;
-
     uint32_t elapsed = now_ms - s->start_time_ms;
 
-    SongEvent_t* e = &s->events[s->index];
+    // -------- START NOTES --------
+    while (s->index < s->count)
+    {
+        SongEvent_t* e = &s->events[s->index];
 
-    /* Start note */
-   /* Start note */
-if (!s->note_active && elapsed >= e->start_time_ms)
-{
-    printf("NOTE START: string=%d freq=%.2f dur=%lu at %lu\n",
-           e->string_id,
-           e->freq,
-           e->duration_ms,
-           now_ms);
+        if (elapsed < e->start_time_ms)
+            break;
 
-    s->note_active = 1;
-    s->note_end_time = e->start_time_ms + e->duration_ms;
-}
-else if (s->note_active && elapsed >= s->note_end_time)
-{
-    printf("NOTE STOP\n");
+        printf("NOTE START: idx=%lu string=%u motor=%u freq=%d dur=%lu vel=%u\n",
+               s->index,
+               e->string_id,
+               e->motor_position,
+               (int)e->freq,
+               e->duration_ms,
+               e->velocity);    // Replace with InterCore_PlayNote_Tune(...)
 
-    s->note_active = 0;
-    s->index++;
-}
+        for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+        {
+            if (!s->active_notes[i].active)
+            {
+                s->active_notes[i].active = 1;
+                s->active_notes[i].event = *e;
+                s->active_notes[i].end_time_ms =
+                    e->start_time_ms + e->duration_ms;
+                break;
+            }
+        }
+
+        s->index++;
+    }
+
+    // -------- STOP NOTES --------
+    for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
+    {
+        if (s->active_notes[i].active)
+        {
+            if (elapsed >= s->active_notes[i].end_time_ms)
+            {
+                SongEvent_t* e = &s->active_notes[i].event;
+
+                printf("NOTE STOP: string=%u motor=%u freq=%d at %lu\n",
+                       e->string_id,
+                       e->motor_position,
+                       (int)e->freq,
+                       now_ms); // Replace with InterCore_StopNote(...)
+
+                s->active_notes[i].active = 0;
+            }
+        }
+    }
 }

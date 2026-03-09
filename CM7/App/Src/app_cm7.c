@@ -83,9 +83,23 @@ void App_CM7_Main(void)
     }
 
 
-        MIDI_Parse(g_midi_data,g_midi_len,g_events,256,&g_event_count);
+       
 
-        printf("Parsed %lu events\n", g_event_count);
+    MIDI_Parse(g_midi_data,g_midi_len,g_events,256,&g_event_count);
+
+printf("Parsed %lu events\n", g_event_count);
+
+if (g_event_count > 0)
+{
+    uint32_t offset = g_events[0].start_time_ms;
+
+    for (uint32_t i = 0; i < g_event_count; i++)
+    {
+        g_events[i].start_time_ms -= offset;
+    }
+}
+        
+        
 
         for (uint32_t i = 0; i < g_event_count; i++)
         {
@@ -122,7 +136,7 @@ printf("%lu: start=%lu dur=%lu end=%lu freq=%d string=%u motor=%u vel=%u\n",
 
             case STATE_RUNNING:
 
-                SongScheduler_Update(&g_sched, HAL_GetTick());
+              //  SongScheduler_Update(&g_sched, HAL_GetTick());
                 break;
 
 
@@ -143,5 +157,7 @@ printf("%lu: start=%lu dur=%lu end=%lu freq=%d string=%u motor=%u vel=%u\n",
             last_debug_time = HAL_GetTick();
             Debug_PrintSharedMemory();
         }
+
+         SongScheduler_Update(&g_sched, HAL_GetTick());
     }
 }

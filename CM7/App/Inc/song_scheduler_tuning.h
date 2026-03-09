@@ -8,6 +8,16 @@
 extern "C" {
 #endif
 
+#define MAX_ACTIVE_NOTES 16
+
+typedef struct
+{
+    uint8_t active;
+    SongEvent_t event;
+    uint32_t end_time_ms;
+
+} ActiveNote_t;
+
 typedef struct
 {
     SongEvent_t* events;
@@ -15,26 +25,15 @@ typedef struct
     uint32_t index;
     uint32_t start_time_ms;
 
-    uint8_t  note_active;
-    uint32_t note_end_time;
+    ActiveNote_t active_notes[MAX_ACTIVE_NOTES];
 
 } SongScheduler_t;
-/**
- * Initialize scheduler
- *
- * events      : array of parsed SongEvent_t
- * count       : number of events
- * start_time  : usually HAL_GetTick() at boot
- */
+
 void SongScheduler_Init(SongScheduler_t* s,
                         SongEvent_t* events,
                         uint32_t count,
                         uint32_t start_time);
 
-
-/**
- * Call periodically in main loop
- */
 void SongScheduler_Update(SongScheduler_t* s,
                           uint32_t now_ms);
 
@@ -42,4 +41,4 @@ void SongScheduler_Update(SongScheduler_t* s,
 }
 #endif
 
-#endif 
+#endif
