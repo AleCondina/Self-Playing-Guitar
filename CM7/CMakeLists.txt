@@ -27,7 +27,7 @@ set(STM32_MCU_FLAGS  "-mcpu=cortex-m7 -mfpu=fpv5-d16 -mfloat-abi=hard " )
 
 #Linker options
 set(STM32_LINKER_SCRIPT stm32h755xx_flash_CM7.ld)
-set(STM32_LINKER_OPTION  )
+set(STM32_LINKER_OPTION "-u _printf_float" )
 
 # Set the project name
 set(CMAKE_PROJECT_NAME NUCLEO_H755ZI_CM7)
@@ -56,6 +56,10 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined include paths
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Inc
     ${CMAKE_CURRENT_SOURCE_DIR}/../Shared/Inc
+
+    # add missing cmsis dsp include paths
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Drivers/CMSIS/DSP/Include
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Drivers/CMSIS/DSP/PrivateInclude
 )
 
 # Add sources to executable
@@ -66,7 +70,12 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/debug_uart.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/serial_cmd.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/audio_input.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/fft_processing.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../Shared/Src/shared_memory.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/goertzel_processing.c
+
+    # adding missing CMSIS-DSP files
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Drivers/CMSIS/DSP/Source/WindowFunctions/WindowFunctions.c
 )
 
 # Link directories setup
@@ -77,6 +86,8 @@ target_link_directories(${CMAKE_PROJECT_NAME} PRIVATE
 # Add linked libraries
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE
     # Add user defined libraries
+    ${CMAKE_CURRENT_SOURCE_DIR}/../Drivers/CMSIS/DSP/Lib/libarm_cortexM7lfsp_math.a
+    m # Link C's math library used by DSP functions
 )
 
 # Remove wrong libob.a library dependency when using cpp files

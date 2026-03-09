@@ -68,6 +68,7 @@ TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 string (PB9) */
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
+static void MX_BDMA_Init(void);
 /* USER CODE BEGIN PFP */
 
 static void MX_TIM12_Init(void);
@@ -130,6 +131,7 @@ int main(void)
   /* USER CODE END SysInit */
 
   /* Initialize all configured peripherals */
+  MX_BDMA_Init();
   /* USER CODE BEGIN 2 */
 
   /* Initialize timers for solenoid PWM control (6 independent timers) */
@@ -153,6 +155,17 @@ int main(void)
     /* USER CODE BEGIN 3 */
   }
   /* USER CODE END 3 */
+}
+
+/**
+  * Enable DMA controller clock
+  */
+static void MX_BDMA_Init(void)
+{
+
+  /* DMA controller clock enable */
+  __HAL_RCC_BDMA_CLK_ENABLE();
+
 }
 
 /* USER CODE BEGIN 4 */

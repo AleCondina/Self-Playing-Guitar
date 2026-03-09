@@ -44,7 +44,9 @@
   * @{
   */
 /* Nucleo pin and part number defines */
+#if !defined(USE_NUCLEO_144)
 #define USE_NUCLEO_144
+#endif
 #define USE_NUCLEO_H755ZI_Q
 
 /* COM define */
