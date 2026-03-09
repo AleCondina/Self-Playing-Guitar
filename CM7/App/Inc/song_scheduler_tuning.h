@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define MAX_ACTIVE_NOTES 16
+#define MAX_ACTIVE_NOTES 5
 
 typedef struct
 {
