@@ -26,6 +26,7 @@
 #include "debug_uart.h"
 #include "app_cm7.h"
 #include "stm32h7xx_hal_adc.h"
+#include "stm32h7xx_hal_hsem.h"
 #include "stm32h7xx_hal_tim.h"
 #include <string.h>
 /* USER CODE END Includes */
@@ -130,8 +131,14 @@ int main(void)
 HSEM notification */
 /*HW semaphore Clock enable*/
 __HAL_RCC_HSEM_CLK_ENABLE();
+
+/* --- GPIO: Lock the hardware barrier for CM4 --- */
+HAL_HSEM_FastTake(HSEM_ID_BOOT);
+/* ---------------------------------------------- */
+
 /*Take HSEM */
 HAL_HSEM_FastTake(HSEM_ID_0);
+
 /*Release HSEM in order to notify the CPU2(CM4)*/
 HAL_HSEM_Release(HSEM_ID_0,0);
 /* wait until CPU2 wakes up from stop mode */
@@ -158,6 +165,10 @@ Error_Handler();
   MX_ADC3_Init();
   MX_TIM6_Init();
   /* USER CODE BEGIN 2 */
+
+  /* Release HW semaphore after initializing GPIO and TIM*/
+  HAL_HSEM_Release(HSEM_ID_BOOT, 0);
+
 
   /* USER CODE END 2 */
 
@@ -387,7 +398,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOG_CLK_ENABLE();
 
-  /*Configure GPIO pins : PA1 PA2 PA7 */
+  /*Configure GPIO pins : PA1 PA2 PA7 */  //TODO: Check if necessary since PA7 is used by solenoid 1 in CM4
   GPIO_InitStruct.Pin = GPIO_PIN_1|GPIO_PIN_2|GPIO_PIN_7;
   GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;
   GPIO_InitStruct.Pull = GPIO_NOPULL;

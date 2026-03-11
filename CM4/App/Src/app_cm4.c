@@ -12,6 +12,8 @@
 #include "solenoid_control.h"
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
+#include "stm32h7xx_hal_hsem.h"
+#include "stm32h7xx_hal_rcc.h"
 
 /* External timer handles for debug access (6 independent timers) - All on ZIO connectors */
 extern TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 (PB14) - ZIO CN12-28 */
@@ -39,6 +41,14 @@ void App_CM4_Main(void)
 {
     uint32_t commands = 0;
     MotorState_t *motor_states = NULL;
+
+    __HAL_RCC_HSEM_CLK_ENABLE();
+
+    // wait at the barrier until CM7 is done initiating 
+    while (HAL_HSEM_FastTake(HSEM_ID_BOOT) != HAL_OK){
+    }
+    // Release BOOT semaphore to continue
+    HAL_HSEM_Release(HSEM_ID_BOOT, 0);
 
     /* Initialize motor control system */
     Motor_Init();
