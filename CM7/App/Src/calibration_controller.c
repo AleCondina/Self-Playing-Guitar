@@ -117,6 +117,7 @@ typedef struct {
 static CalPhase_t  s_phase              = CAL_PHASE_IDLE;
 static CalStatus_t s_status             = CAL_STATUS_IDLE;
 static uint8_t     s_str               = 0u;
+static uint8_t     s_string_mask       = 0x3Fu; /* bitmask of strings to sweep */
 static int32_t     s_steps             = 0;
 static uint16_t    s_wait_cnt          = 0u;
 static CalPhase_t  s_after_wait        = CAL_PHASE_IDLE;
@@ -227,9 +228,23 @@ static void Cal_BuildTable(uint8_t str)
  * Public API
  * ========================================================================= */
 
-void Cal_Start(void)
+void Cal_Start(uint8_t string_mask)
 {
-    s_str        = 0u;
+    /* Guard: if mask is empty or no valid strings, abort */
+    if ((string_mask & 0x3Fu) == 0u) {
+        printf("[CAL] ERROR: empty string mask — nothing to calibrate.\r\n");
+        s_status = CAL_STATUS_ERROR;
+        return;
+    }
+
+    s_string_mask = string_mask & 0x3Fu;
+
+    /* Find the first set bit to start on */
+    s_str = 0u;
+    while (s_str < NUM_STRINGS && !((s_string_mask >> s_str) & 1u)) {
+        s_str++;
+    }
+
     s_steps      = 0;
     s_buf_n      = 0u;
     s_no_sig_cnt = 0u;
@@ -238,11 +253,25 @@ void Cal_Start(void)
 
     printf("[CAL] ============================================\r\n");
     printf("[CAL] Feed-forward calibration started\r\n");
-    printf("[CAL] Sweeping strings E2 (0) through E4 (5)\r\n");
+    printf("[CAL] String mask: 0x%02X\r\n", (unsigned)s_string_mask);
     printf("[CAL] Step increment: %d microsteps | Max: %d steps\r\n",
            CAL_STEP_INCREMENT, CAL_MAX_STEPS);
     printf("[CAL] ============================================\r\n");
     printf("[CAL] str, step, freq_hz\r\n");
+}
+
+void Cal_StartStr(uint8_t str_id)
+{
+    if (str_id >= NUM_STRINGS) {
+        printf("[CAL] ERROR: invalid string ID %u\r\n", (unsigned)str_id);
+        return;
+    }
+    Cal_Start((uint8_t)(1u << str_id));
+}
+
+void Cal_StartAll(void)
+{
+    Cal_Start(0x3Fu);
 }
 
 void Cal_Hop(void)
@@ -351,7 +380,9 @@ void Cal_Hop(void)
         StopSolenoid(s_str);
         InterCore_SendMotorGoto(s_str, 0);
 
-        s_str++;
+        /* Advance to the next string in the mask */
+        do { s_str++; } while (s_str < NUM_STRINGS && !((s_string_mask >> s_str) & 1u));
+
         if (s_str >= NUM_STRINGS) {
             printf("[CAL] ============================================\r\n");
             printf("[CAL] Calibration complete. Resuming normal play.\r\n");

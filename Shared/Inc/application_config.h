@@ -19,7 +19,7 @@
 /* ===== Motor Control Parameters ===== */
 #define MOTOR_MIN_STEP_FREQ     200     /* Minimum steps/sec */
 #define MOTOR_MAX_STEP_FREQ     10000   /* Maximum steps/sec */
-#define MOTOR_MAX_ACCEL         1000    /* Max acceleration (steps/sec²) */
+#define MOTOR_MAX_ACCEL         100000    /* Max acceleration (steps/sec²) */
 #define MOTOR_STEPS_PER_REV     200     /* Stepper motor steps per revolution */
 
 /* ===== Solenoid Control Parameters ===== */

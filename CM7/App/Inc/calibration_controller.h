@@ -10,11 +10,15 @@
  *
  * Usage
  * -----
- *  1. Call Cal_Start() once.  All motors must already be at position 0.
+ *  1. Call Cal_Start(mask), Cal_StartStr(id), or Cal_StartAll() once.
+ *     All motors for the selected strings must already be at position 0.
  *  2. Every audio hop (after FFT_ProcessBlock has run), call Cal_Hop()
  *     INSTEAD of TuningCtrl_RunHop().
  *  3. Poll Cal_GetStatus().  When it returns CAL_STATUS_DONE (or ERROR),
  *     resume normal play by switching back to TuningCtrl_RunHop().
+ *
+ * String mask bit layout: bit N corresponds to string N (0=E2 … 5=E4).
+ * Example: Cal_Start(0x0C) sweeps only D3 (bit 2) and G3 (bit 3).
  *
  * The calibration prints CSV progress lines to UART:
  *   [CAL]     str, step, freq_hz          – one line per measurement
@@ -42,13 +46,25 @@ typedef enum {
 } CalStatus_t;
 
 /**
- * @brief Start the calibration sequence from string 0 (E2).
+ * @brief Start calibration for a bitmask of strings.
  *
- * All motors must be at position 0 before calling this.
- * Resets all internal state and begins the E2 sweep immediately on the
- * first Cal_Hop() call.
+ * @param string_mask  Bit N = 1 → sweep string N (0=E2, 1=A2, 2=D3,
+ *                     3=G3, 4=B3, 5=E4).  Strings not in the mask are
+ *                     skipped and their LUT entries are left unchanged.
+ * All motors for the selected strings must be at position 0 beforehand.
  */
-void Cal_Start(void);
+void Cal_Start(uint8_t string_mask);
+
+/**
+ * @brief Start calibration for a single string.
+ * @param str_id  String index 0–5.
+ */
+void Cal_StartStr(uint8_t str_id);
+
+/**
+ * @brief Start calibration for all six strings (E2 → E4).
+ */
+void Cal_StartAll(void);
 
 /**
  * @brief Advance the calibration state machine by one audio hop.

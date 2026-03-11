@@ -46,8 +46,9 @@ typedef enum {
 static AppState_t app_state = STATE_INIT;
 
 /* Set by serial commands to request mode changes on the next audio hop */
-static volatile uint8_t s_request_calibrate = 0u;
-static volatile uint8_t s_request_play      = 0u;
+static volatile uint8_t s_request_calibrate      = 0u;
+static volatile uint8_t s_request_calibrate_mask = 0x3Fu;
+static volatile uint8_t s_request_play            = 0u;
 
 /**
  * @brief CM7 application main function
@@ -80,7 +81,16 @@ void App_CM7_Main(void) {
         printf("[CM7] CM4 ready! Homing motors...\r\n");
         InterCore_HomeMotors();
         HAL_Delay(100);  /* Let CM4 process home command */
-        printf("[CM7] Home position established (all positions zeroed).\r\n\r\n");
+        printf("[CM7] Home position established (all positions zeroed).\r\n");
+
+        /* Set all configured motors to 1/16 microstepping (mode 4) */
+        printf("[CM7] Setting motors to 1/16 microstepping...\r\n");
+        for (uint8_t i = 0u; i < 4u; i++) {
+            InterCore_SendMotorMicrostep(i, 4u);
+        }
+        HAL_Delay(50);  /* Let CM4 apply the new mode */
+        printf("[CM7] Microstep mode set.\r\n\r\n");
+
         Debug_UART_StartRx();
         SerialCmd_Init();
         printf("\r\nType 'help' for commands.\r\n> ");
@@ -184,8 +194,9 @@ void App_CM7_Main(void) {
 
                     /* --- Handle requests from serial commands --- */
                     if (s_request_calibrate) {
+                        uint8_t mask = s_request_calibrate_mask;
                         s_request_calibrate = 0u;
-                        Cal_Start();
+                        Cal_Start(mask);
                         app_state = STATE_CALIBRATING;
                         Audio_MarkProcessed();
                         break;
@@ -252,10 +263,11 @@ void App_CM7_Main(void) {
  * Called from serial_cmd.c handlers; safe to call from the main loop.
  * ========================================================================= */
 
-void App_RequestCalibration(void)
+void App_RequestCalibration(uint8_t string_mask)
 {
     if (app_state != STATE_CALIBRATING) {
-        s_request_calibrate = 1u;
+        s_request_calibrate_mask = string_mask;
+        s_request_calibrate      = 1u;
     }
 }
 
