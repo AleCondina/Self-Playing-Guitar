@@ -25,6 +25,7 @@
  */
 
 #include "serial_cmd.h"
+#include "app_cm7.h"
 #include "debug_uart.h"
 #include "inter_core_cm7.h"
 #include "shared_memory.h"
@@ -100,6 +101,8 @@ static void Cmd_Sol(char *args);
 static void Cmd_SolStop(char *args);
 static void Cmd_SolStatus(char *args);
 static void Cmd_Demo(char *args);
+static void Cmd_Calibrate(char *args);
+static void Cmd_Smoke(char *args);
 static void Demo_Tick(void);
 
 /* Command table entry */
@@ -127,6 +130,8 @@ static const CmdEntry_t command_table[] = {
     { "stop",      Cmd_Stop,      "stop                    Emergency stop all" },
     { "status",    Cmd_Status,    "status                  Print motor status" },
     { "demo",      Cmd_Demo,      "demo                    Run solenoid+motor demo" },
+    { "calibrate", Cmd_Calibrate, "calibrate                Sweep all strings and fill tuning LUT" },
+    { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water" },
     { "help",      Cmd_Help,      "help                    Show this help" },
     { "sol",       Cmd_Sol,       "sol <id> <str> <fret> [duty] [time] [cycles]  Trigger solenoid" },
     { "solstop",   Cmd_SolStop,   "solstop <id|all>        Stop solenoid(s)" },
@@ -696,6 +701,23 @@ static void Cmd_SolStatus(char *args)
            g_shared_memory.solenoid_fret,
            g_shared_memory.solenoid_duty_cycle);
     printf("============================\r\n\r\n");
+}
+
+/* ===== Calibration & Song Commands ===== */
+
+static void Cmd_Calibrate(char *args)
+{
+    (void)args;
+    printf("  Requesting calibration sweep (E2 -> E4)...\r\n");
+    printf("  Watch [CAL] output. Type 'smoke' when done to start playback.\r\n");
+    App_RequestCalibration();
+}
+
+static void Cmd_Smoke(char *args)
+{
+    (void)args;
+    printf("  Starting Smoke on the Water...\r\n");
+    App_RequestPlay();
 }
 
 /* ===== Demo Command & State Machine ===== */

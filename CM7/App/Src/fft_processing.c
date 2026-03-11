@@ -73,7 +73,7 @@ void FFT_ProcessBlock(uint16_t* audio_buf)
         }
     }
     /* Print the absolute loudest thing the ADC hears right now */
-    printf("[DSP Debug] Peak Magnitude: %.1f\r\n", temp_max_mag);
+    // printf("[DSP Debug] Peak Magnitude: %.1f\r\n", temp_max_mag);
     /* ---------------------------------------- */
 
 

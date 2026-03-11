@@ -45,6 +45,10 @@ typedef enum {
 
 static AppState_t app_state = STATE_INIT;
 
+/* Set by serial commands to request mode changes on the next audio hop */
+static volatile uint8_t s_request_calibrate = 0u;
+static volatile uint8_t s_request_play      = 0u;
+
 /**
  * @brief CM7 application main function
  */
@@ -89,10 +93,9 @@ void App_CM7_Main(void) {
         printf("[CM7] Initializing tuning controller...\r\n");
         TuningCtrl_Init();
 
-        /* Initialize song scheduler */
-        printf("[CM7] Initializing song scheduler (%lu notes)...\r\n",
+        /* Register song scheduler note count (not started yet – use 'smoke' command) */
+        printf("[CM7] Song scheduler ready (%lu notes loaded).\r\n",
                (unsigned long)SongSched_GetNoteCount());
-        SongSched_Init();
 
         /* Print CSV log header for offline analysis */
         printf("[TC] timestamp_ms,string_id,target_hz,measured_hz,error_hz,"
@@ -136,9 +139,8 @@ void App_CM7_Main(void) {
         /* State machine */
         switch (app_state) {
             case STATE_IDLE:
-                printf("[CM7] System ready. Starting calibration sweep...\r\n");
-                Cal_Start();
-                app_state = STATE_CALIBRATING;
+                printf("[CM7] System ready. Type 'calibrate' or 'smoke'.\r\n");
+                app_state = STATE_RUNNING;
                 break;
 
             case STATE_CALIBRATING:
@@ -155,10 +157,9 @@ void App_CM7_Main(void) {
                     Cal_Hop();
                 }
 
-                /* Transition to normal play when calibration finishes */
+                /* Return to idle when calibration finishes */
                 if (Cal_GetStatus() == CAL_STATUS_DONE ||
                     Cal_GetStatus() == CAL_STATUS_ERROR) {
-                    SongSched_Init();
                     app_state = STATE_RUNNING;
                 }
                 break;
@@ -181,6 +182,19 @@ void App_CM7_Main(void) {
                     /* Mark buffer consumed before any blocking work */
                     Audio_MarkProcessed();
 
+                    /* --- Handle requests from serial commands --- */
+                    if (s_request_calibrate) {
+                        s_request_calibrate = 0u;
+                        Cal_Start();
+                        app_state = STATE_CALIBRATING;
+                        Audio_MarkProcessed();
+                        break;
+                    }
+                    if (s_request_play) {
+                        s_request_play = 0u;
+                        SongSched_Init();
+                    }
+
                     /* --- Song scheduler tick --- */
                     SongSched_Tick(HAL_GetTick());
 
@@ -191,8 +205,8 @@ void App_CM7_Main(void) {
                      */
                     TuningCtrl_RunHop();
 
-                    /* Diagnostic: print FFT polyphonic results */
-                    if (active_string_count > 0) {
+                    /* Diagnostic: print FFT polyphonic results (only during playback) */
+                    if (SongSched_IsActive() && active_string_count > 0) {
                         printf("[CM7] FFT %d string(s): ", active_string_count);
                         for (uint8_t i = 0; i < active_string_count; i++) {
                             printf("%.2f Hz  ", (double)active_frequencies[i]);
@@ -223,7 +237,7 @@ void App_CM7_Main(void) {
         /* Print diagnostics every 5 seconds */
         if (HAL_GetTick() - last_debug_time >= 5000u) {
             last_debug_time = HAL_GetTick();
-            if (app_state == STATE_RUNNING) {
+            if (app_state == STATE_RUNNING && SongSched_IsActive()) {
                 printf("[CM7] Song note %lu/%lu | CM4 loop %lu Hz\r\n",
                        (unsigned long)SongSched_GetNoteIndex(),
                        (unsigned long)SongSched_GetNoteCount(),
@@ -231,4 +245,21 @@ void App_CM7_Main(void) {
             }
         }
     }
+}
+
+/* =========================================================================
+ * Serial command request API
+ * Called from serial_cmd.c handlers; safe to call from the main loop.
+ * ========================================================================= */
+
+void App_RequestCalibration(void)
+{
+    if (app_state != STATE_CALIBRATING) {
+        s_request_calibrate = 1u;
+    }
+}
+
+void App_RequestPlay(void)
+{
+    s_request_play = 1u;
 }

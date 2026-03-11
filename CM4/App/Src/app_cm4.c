@@ -55,6 +55,18 @@ void App_CM4_Main(void)
     /* Zero position */
     Motor_ZeroPosition(1);
 
+    /* Enable motor 2 driver - D3 string (drive nEN LOW) */
+    Motor_Enable(2);
+
+    /* Zero position */
+    Motor_ZeroPosition(2);
+
+    /* Enable motor 3 driver - G3 string (drive nEN LOW) */
+    Motor_Enable(3);
+
+    /* Zero position */
+    Motor_ZeroPosition(3);
+
     /* Initialize solenoid control system */
     if (Solenoid_Init() != 0) {
         g_shared_memory.motor_errors |= ERROR_INVALID_COMMAND;
