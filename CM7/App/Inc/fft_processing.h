@@ -5,8 +5,12 @@
 #include "arm_math.h"
 #include "application_config.h"
 
+#define NOISE_GATE_THRESHOLD 120000.0f // to be tuned 
+
 extern float active_frequencies[];
+extern float active_magnitudes[];
 extern uint8_t active_string_count;
+
 
 void FFT_Init(void);
 

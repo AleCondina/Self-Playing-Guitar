@@ -6,10 +6,9 @@
  *
  * Control-hop flow (every ~170 ms, driven by audio DMA half-complete):
  *   1. Audio_HasNewSamples() fires
- *   2. FFT_ProcessBlock()  – polyphonic peak detection (legacy / diagnostics)
- *   3. Goertzel_ProcessBlock() – per-string frequency + magnitude estimation
- *   4. SongSched_Tick()    – advance note schedule
- *   5. TuningCtrl_RunHop() – FF + PI control → InterCore_SendMotorGoto()
+ *   2. FFT_ProcessBlock()  – polyphonic peak detection to active_frequencies[] / active_magnitudes[]
+ *   3. SongSched_Tick()    – advance note schedule
+ *   4. TuningCtrl_RunHop() – FF + PI control → InterCore_SendMotorGoto()
  *                             + solenoid coordination
  ******************************************************************************
  */
@@ -21,7 +20,6 @@
 #include "serial_cmd.h"
 #include "audio_input.h"
 #include "fft_processing.h"
-#include "goertzel_processing.h"
 #include "tuning_controller.h"
 #include "calibration_controller.h"
 #include "song_scheduler.h"
@@ -86,10 +84,6 @@ void App_CM7_Main(void) {
         /* Initialize FFT Processing */
         printf("[CM7] Initializing FFT engine...\r\n");
         FFT_Init();
-
-        /* Initialize Goertzel per-string pitch estimator */
-        printf("[CM7] Initializing Goertzel estimator...\r\n");
-        Goertzel_Init();
 
         /* Initialize tuning controller (depends on home being established) */
         printf("[CM7] Initializing tuning controller...\r\n");
@@ -156,7 +150,6 @@ void App_CM7_Main(void) {
 
                     /* FFT must run first – Cal_Hop() reads active_frequencies[] */
                     FFT_ProcessBlock(audio_buf);
-                    Goertzel_ProcessBlock(audio_buf);
                     Audio_MarkProcessed();
 
                     Cal_Hop();
@@ -185,9 +178,6 @@ void App_CM7_Main(void) {
                     /* FFT: polyphonic peak detection (retained for diagnostics) */
                     FFT_ProcessBlock(audio_buf);
 
-                    /* Goertzel: per-string exact frequency + magnitude */
-                    Goertzel_ProcessBlock(audio_buf);
-
                     /* Mark buffer consumed before any blocking work */
                     Audio_MarkProcessed();
 
@@ -195,7 +185,7 @@ void App_CM7_Main(void) {
                     SongSched_Tick(HAL_GetTick());
 
                     /* --- Tuning control hop ---
-                     * Reads Goertzel results and song scheduler state,
+                     * Reads FFT results and song scheduler state,
                      * computes PI + FF commands, pushes to CM4 via
                      * InterCore_SendMotorGoto() / solenoid commands.
                      */

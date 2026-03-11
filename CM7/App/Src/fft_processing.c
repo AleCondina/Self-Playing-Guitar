@@ -6,8 +6,6 @@
 
 #define TIM6_CALIBRATION_FACTOR 1.005245182f // using a calibration value since the clk speed is 64Mhz and Fs 6Khz isnt divisible
 
-#define NOISE_GATE_THRESHOLD 120000.0f // to be tuned 
-
 #define SEARCH_START_BIN (60 / FFT_RESOLUTION) // around 60 Hz
 #define SEARCH_END_BIN   (440 / FFT_RESOLUTION) // around 440 Hz 
 
@@ -26,6 +24,7 @@ static float fundamental_hz = 0.0f;
 static float harmonics[MAX_HARMONICS];
 
 float active_frequencies[NUM_STRINGS];
+float active_magnitudes[MAX_HARMONICS];
 uint8_t active_string_count;
 
 
@@ -123,8 +122,9 @@ void FFT_ProcessBlock(uint16_t* audio_buf)
 
                 /* --- 4. STORE VALID STRING --- */
                 if (is_harmonic == 0) {
-                    if (active_string_count < NUM_STRINGS) {
+                    if (active_string_count < MAX_HARMONICS) {
                         active_frequencies[active_string_count] = exact_freq;
+                        active_magnitudes[active_string_count] = beta; //raw fft magnitude
                         active_string_count++;
                     }
                 }
