@@ -1,37 +1,37 @@
 {
-  "configurations": [
-    {
-      "name": "STM32_CM7",
-      "compileCommands": "${workspaceFolder}/CM7/build/compile_commands.json",
-      "compilerPath": "/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/bin/arm-none-eabi-gcc",
-      "includePath": [
-        "${workspaceFolder}/CM7/App/Inc",
-        "${workspaceFolder}/CM7/Core/Inc",
-        "${workspaceFolder}/Shared/Inc",
-        "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc",
-        "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy",
-        "${workspaceFolder}/Drivers/BSP/STM32H7xx_Nucleo",
-        "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
-        "${workspaceFolder}/Drivers/CMSIS/Include",
-        "${workspaceFolder}/Drivers/CMSIS/DSP/Include",
-        "${workspaceFolder}/Drivers/CMSIS/DSP/PrivateInclude"
-      ]
-    },
-    {
-      "name": "STM32_CM4",
-      "compileCommands": "${workspaceFolder}/CM4/build/compile_commands.json",
-      "compilerPath": "/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/bin/arm-none-eabi-gcc",
-      "includePath": [
-        "${workspaceFolder}/CM4/App/Inc",
-        "${workspaceFolder}/CM4/Core/Inc",
-        "${workspaceFolder}/Shared/Inc",
-        "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc",
-        "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy",
-        "${workspaceFolder}/Drivers/BSP/STM32H7xx_Nucleo",
-        "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
-        "${workspaceFolder}/Drivers/CMSIS/Include"
-      ]
-    }
-  ],
-  "version": 4
+    "configurations": [
+        {
+            "name": "STM32_CM4",
+            "compileCommands": "${workspaceFolder}/CM4/build/compile_commands.json",
+            "compilerPath": "/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/bin/arm-none-eabi-gcc",
+            "includePath": [
+                "${workspaceFolder}/CM4/App/Inc",
+                "${workspaceFolder}/CM4/Core/Inc",
+                "${workspaceFolder}/Shared/Inc",
+                "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc",
+                "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy",
+                "${workspaceFolder}/Drivers/BSP/STM32H7xx_Nucleo",
+                "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+                "${workspaceFolder}/Drivers/CMSIS/Include"
+            ]
+        },
+        {
+            "name": "STM32_CM7",
+            "compileCommands": "${workspaceFolder}/CM7/build/compile_commands.json",
+            "compilerPath": "/Applications/ArmGNUToolchain/15.2.rel1/arm-none-eabi/bin/arm-none-eabi-gcc",
+            "includePath": [
+                "${workspaceFolder}/CM7/App/Inc",
+                "${workspaceFolder}/CM7/Core/Inc",
+                "${workspaceFolder}/Shared/Inc",
+                "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc",
+                "${workspaceFolder}/Drivers/STM32H7xx_HAL_Driver/Inc/Legacy",
+                "${workspaceFolder}/Drivers/BSP/STM32H7xx_Nucleo",
+                "${workspaceFolder}/Drivers/CMSIS/Device/ST/STM32H7xx/Include",
+                "${workspaceFolder}/Drivers/CMSIS/Include",
+                "${workspaceFolder}/Drivers/CMSIS/DSP/Include",
+                "${workspaceFolder}/Drivers/CMSIS/DSP/PrivateInclude"
+            ]
+        }
+    ],
+    "version": 4
 }
