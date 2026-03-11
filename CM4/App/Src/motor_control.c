@@ -8,7 +8,7 @@
  *          - Motor 0: STEP=PE10, DIR=PE11, M0=PE12, M1=PE13, M2=PE14, EN=PD11
  *          - Motor 1: STEP=PD12, DIR=PD13, M0=PE2,  M1=PE4,  M2=PE7,  EN=PC9  (ZIO CN10)
  *          - Motor 2: STEP=PA8,  DIR=PC7,  M0=PC6,  M1=PC8,  M2=PA3,  EN=PC0  
- *          - Motor 3: STEP=PC3,  DIR=PF3,  M0=PF5,  M1=PF10, M2=PB8,  EN=PB9 
+ *          - Motor 3: STEP=PC3,  DIR=PB1,  M0=PF10, M1=PG12, M2=PG14, EN=PG6
  *          - Motors 4-5: Not configured (structure ready, pins TBD)
  *
  *          Microstepping Modes (M0, M1, M2):
@@ -110,8 +110,9 @@ int32_t Motor_Init(void)
     __HAL_RCC_GPIOD_CLK_ENABLE();  /* Motor 0: PD11, Motor 1: PD12-13 */
     __HAL_RCC_GPIOC_CLK_ENABLE();  /* Motor 1: PC9, Motor 2: PC7/PC6/PC8/PC0, Motor 3: PC3 */
     __HAL_RCC_GPIOA_CLK_ENABLE();  /* Motor 2: PA8/PA3 */
-    __HAL_RCC_GPIOB_CLK_ENABLE();  /* Motor 3: PB8/PB9 */
-    __HAL_RCC_GPIOF_CLK_ENABLE();  /* Motor 3: PF3/PF5/PF10 */
+    __HAL_RCC_GPIOB_CLK_ENABLE();  /* Motor 3: PB1 */
+    __HAL_RCC_GPIOF_CLK_ENABLE();  /* Motor 3: PF10 */
+    __HAL_RCC_GPIOG_CLK_ENABLE();  /* Motor 3: PG12/PG14/PG6 */
 
     /* Initialize motor states and clear all pin configs */
     for (uint8_t i = 0; i < NUM_MOTORS; i++) {
@@ -174,7 +175,7 @@ int32_t Motor_Init(void)
 
     /* ================================================================
      * Configure Motor 1: DRV8825 driver
-     * STEP=PD12, DIR=PD13, M0=PE2, M1=PE4, M2=PE6, EN=PC9
+     * STEP=PD12, DIR=PD13, M0=PE2, M1=PE4, M2=PE7, EN=PC9
      * All pins on ZIO CN10: STEP=CN10-12, DIR=CN10-10, M0=CN10-16,
      *                       M1=CN10-18, M2=PE7/CN10-20, EN=CN10-9
      * ================================================================ */
@@ -259,9 +260,9 @@ int32_t Motor_Init(void)
 
     /* ================================================================
      * Configure Motor 3: DRV8825 driver (G3 string)
-     * STEP=PC3, DIR=PF3, M0=PF5, M1=PF10, M2=PB8, EN=PB9
-     * ZIO CN9: A2=PC3, A3=PF3, A4=PF5, A5=PF10
-     * ZIO CN10: D9=PB8, D10=PB9
+     * STEP=PC3, DIR=PB1, M0=PF10, M1=PG12, M2=PG14, EN=PG6
+     * ZIO CN9:  A2=PC3, A3=PB1
+     * ZIO CN10: A7=PF10, D7=PG12, D2=PG14, D26=PG6
      * ================================================================ */
 
     /* STEP pin - PC3 (ZIO CN9, A2) */
@@ -269,31 +270,31 @@ int32_t Motor_Init(void)
     motor_configs[3].pins.step_pin = GPIO_PIN_3;
     Motor_InitGPIO(GPIOC, GPIO_PIN_3);
 
-    /* DIR pin - PF3 (ZIO CN9, A3) */
-    motor_configs[3].pins.dir_port = GPIOF;
-    motor_configs[3].pins.dir_pin = GPIO_PIN_3;
-    Motor_InitGPIO(GPIOF, GPIO_PIN_3);
+    /* DIR pin - PB1 (ZIO CN9, A3) */
+    motor_configs[3].pins.dir_port = GPIOB;
+    motor_configs[3].pins.dir_pin = GPIO_PIN_1;
+    Motor_InitGPIO(GPIOB, GPIO_PIN_1);
 
-    /* M0 microstep pin - PF5 (ZIO CN9, A4) */
+    /* M0 microstep pin - PF10 (ZIO CN10, A7) */
     motor_configs[3].pins.m0_port = GPIOF;
-    motor_configs[3].pins.m0_pin = GPIO_PIN_5;
-    Motor_InitGPIO(GPIOF, GPIO_PIN_5);
-
-    /* M1 microstep pin - PF10 (ZIO CN9, A5) */
-    motor_configs[3].pins.m1_port = GPIOF;
-    motor_configs[3].pins.m1_pin = GPIO_PIN_10;
+    motor_configs[3].pins.m0_pin = GPIO_PIN_10;
     Motor_InitGPIO(GPIOF, GPIO_PIN_10);
 
-    /* M2 microstep pin - PB8 (ZIO CN10, D9) */
-    motor_configs[3].pins.m2_port = GPIOB;
-    motor_configs[3].pins.m2_pin = GPIO_PIN_8;
-    Motor_InitGPIO(GPIOB, GPIO_PIN_8);
+    /* M1 microstep pin - PG12 (ZIO CN10, D7) */
+    motor_configs[3].pins.m1_port = GPIOG;
+    motor_configs[3].pins.m1_pin = GPIO_PIN_12;
+    Motor_InitGPIO(GPIOG, GPIO_PIN_12);
 
-    /* EN pin - PB9 (ZIO CN10, D10, active LOW, start HIGH = disabled) */
-    motor_configs[3].pins.en_port = GPIOB;
-    motor_configs[3].pins.en_pin = GPIO_PIN_9;
-    Motor_InitGPIO(GPIOB, GPIO_PIN_9);
-    HAL_GPIO_WritePin(GPIOB, GPIO_PIN_9, GPIO_PIN_SET);  /* Start disabled */
+    /* M2 microstep pin - PG14 (ZIO CN10, D2) */
+    motor_configs[3].pins.m2_port = GPIOG;
+    motor_configs[3].pins.m2_pin = GPIO_PIN_14;
+    Motor_InitGPIO(GPIOG, GPIO_PIN_14);
+
+    /* EN pin - PG6 (ZIO CN10, D26, active LOW, start HIGH = disabled) */
+    motor_configs[3].pins.en_port = GPIOG;
+    motor_configs[3].pins.en_pin = GPIO_PIN_6;
+    Motor_InitGPIO(GPIOG, GPIO_PIN_6);
+    HAL_GPIO_WritePin(GPIOG, GPIO_PIN_6, GPIO_PIN_SET);  /* Start disabled */
 
     /* Set motor parameters */
     motor_configs[3].max_speed = MOTOR_MAX_STEP_FREQ;

@@ -304,7 +304,7 @@ static void MX_TIM15_Init(void)
 
 /**
  * @brief TIM16 Initialization Function
- * @note  Solenoid 4: B3 string on PB8
+ * @note  Solenoid 4: B3 string on PF6
  * @note  PWM frequency controlled by ARR, duty cycle by CCR
  */
 static void MX_TIM16_Init(void)
@@ -337,7 +337,7 @@ static void MX_TIM16_Init(void)
 
 /**
  * @brief TIM17 Initialization Function
- * @note  Solenoid 5: E4 string (High E) on PB9
+ * @note  Solenoid 5: E4 string (High E) on PF7
  * @note  PWM frequency controlled by ARR, duty cycle by CCR
  */
 static void MX_TIM17_Init(void)

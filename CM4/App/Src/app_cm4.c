@@ -80,8 +80,8 @@ void App_CM4_Main(void)
     Solenoid_SetFrequency(1, 1, 0);  // Solenoid 1: A2 string, 110.00 Hz on PA7
     Solenoid_SetFrequency(2, 2, 0);  // Solenoid 2: D3 string, 146.83 Hz on PA6
     Solenoid_SetFrequency(3, 3, 0);  // Solenoid 3: G3 string, 196.00 Hz on PE5
-    Solenoid_SetFrequency(4, 4, 0);  // Solenoid 4: B3 string, 246.94 Hz on PB8
-    Solenoid_SetFrequency(5, 5, 0);  // Solenoid 5: E4 string (High E), 329.63 Hz on PB9
+    Solenoid_SetFrequency(4, 4, 0);  // Solenoid 4: B3 string, 246.94 Hz on PF6
+    Solenoid_SetFrequency(5, 5, 0);  // Solenoid 5: E4 string (High E), 329.63 Hz on PF7
 
     /* Start all 6 solenoids */
     // Solenoid_Start(0);

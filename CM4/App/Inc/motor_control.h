@@ -8,7 +8,7 @@
  *          - Motor 0: STEP=PE10, DIR=PE11, M0=PE12, M1=PE13, M2=PE14, EN=PD11
  *          - Motor 1: STEP=PD12, DIR=PD13, M0=PE2,  M1=PE4,  M2=PE7,  EN=PC9  (ZIO CN10)
  *          - Motor 2: STEP=PA8,  DIR=PC7,  M0=PC6,  M1=PC8,  M2=PA3,  EN=PC0  (ZIO CN9: D6,D4,D5,D7,A0,A1 - D3)
- *          - Motor 3: STEP=PC3,  DIR=PF3,  M0=PF5,  M1=PF10, M2=PB8,  EN=PB9  (ZIO CN9/CN10: A2,A3,A4,A5,D9,D10 - G3)
+ *          - Motor 3: STEP=PC3,  DIR=PB1,  M0=PF10, M1=PG12, M2=PG14, EN=PG6  (ZIO CN9/CN10: A2,A3,A7,D7,D2,D26 - G3)
  *          - Motors 4-5: Structure ready, pins TBD
  *
  *          Each motor uses: STEP, DIR, EN, M0, M1, M2 (6 pins total)
