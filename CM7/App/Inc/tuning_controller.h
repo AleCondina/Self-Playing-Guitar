@@ -225,8 +225,8 @@ void TuningCtrl_RunHop(void);
  *
  * @param  string_id        String index 0–5 (E2 = 0, …, E4 = 5)
  * @param  target_freq_hz   Desired pitch in Hz from the song scheduler
- * @param  measured_freq_hz Per-string frequency from Goertzel_GetExactFreq()
- * @param  confidence       Goertzel_GetMagnitude() value for this string
+ * @param  measured_freq_hz Per-string frequency from FFT active_frequencies[]
+ * @param  confidence       Target - FFT magnitude value for this string
  */
 void TuningCtrl_Update(uint8_t string_id,
                        float   target_freq_hz,

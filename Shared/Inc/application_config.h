@@ -28,7 +28,7 @@
 #define SOLENOID_DEFAULT_DURATION_MS 50 /* Default solenoid duration */
 #define SOLENOID_DEFAULT_DUTY_CYCLE  50 /* Default duty cycle (%) - validated at 82 Hz */
 #define SOLENOID_MIN_FREQ_HZ         82 /* Minimum frequency: E2 (low E string) */
-#define SOLENOID_MAX_FREQ_HZ        220 /* Maximum frequency: D3 fret 7 */
+#define SOLENOID_MAX_FREQ_HZ        220 /* Maximum frequency: D3 fret 7 */ //TODO: modify possibly
 
 /* ===== Audio Processing Parameters ===== */   //TODO: check and modify for FFT
 #define AUDIO_SAMPLE_RATE_HZ    6000   /* ADC sample rate, technically its at 5999.812 since the register counts to 10666+1*/ 
@@ -43,9 +43,10 @@
 #define CM7_AUDIO_PROCESS_FREQ_HZ   100     /* CM7 pitch detection: 100Hz (10ms) */
 
 /* ===== System Clock Configuration ===== */
-#define SYSTEM_CLOCK_MHZ        64     /* CM7 system clock */
-#define CM4_CLOCK_MHZ           64     /* CM4 clock */
-#define TIM_CLOCK_MHZ           64      /* Timer peripheral clock (ACTUAL measured: 64 MHz, not 240) */
+#define SYSTEM_CLOCK_MHZ        480     /* CM7 system clock */
+#define CM4_CLOCK_MHZ           240     /* CM4 clock */
+#define TIM_CLOCK_MHZ           240      /* Timer peripheral clock (fixed to cm4 speed 240 Hz) */
+#define TIM_PRESCALED_CLK_HZ    2400000  /*Timer clk prescaled by /(1+99) */
 
 /* ===== Error Codes (bit field) ===== */
 #define ERROR_MOTOR_STALL       (1U << 0)   /* Motor stall detected */
@@ -63,5 +64,38 @@
 #define FIRMWARE_VERSION_MAJOR  0
 #define FIRMWARE_VERSION_MINOR  1
 #define FIRMWARE_VERSION_PATCH  0
+
+/* ===== Universal Guitar Frequencies (Hz) ===== */
+#define E2_HZ   82.41f
+#define F2_HZ   87.31f
+#define Fs2_HZ  92.50f  /* F#2 / Gb2 */
+#define G2_HZ   98.00f
+#define Gs2_HZ  103.83f /* G#2 / Ab2 */
+
+#define A2_HZ   110.00f
+#define As2_HZ  116.54f /* A#2 / Bb2 */
+#define B2_HZ   123.47f
+#define C3_HZ   130.81f
+#define Cs3_HZ  138.59f /* C#3 / Db3 */
+
+#define D3_HZ   146.83f
+#define Ds3_HZ  155.56f /* D#3 / Eb3 */
+#define E3_HZ   164.81f
+#define F3_HZ   174.61f
+#define Fs3_HZ  185.00f /* F#3 / Gb3 */
+
+#define G3_HZ   196.00f
+#define Gs3_HZ  207.65f /* G#3 / Ab3 */
+#define A3_HZ   220.00f
+#define As3_HZ  233.08f /* A#3 / Bb3 */
+
+#define B3_HZ   246.94f
+#define C4_HZ   261.63f
+#define Cs4_HZ  277.18f /* C#4 / Db4 */
+#define D4_HZ   293.66f
+#define Ds4_HZ  311.13f /* D#4 / Eb4 */
+
+#define E4_HZ   329.63f
+#define F4_HZ   349.23f
 
 #endif /* APPLICATION_CONFIG_H */

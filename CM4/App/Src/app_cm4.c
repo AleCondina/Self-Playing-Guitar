@@ -376,7 +376,7 @@ void App_CM4_Main(void)
             /* Process solenoid direct-Hz trigger (tuning controller actuation) */
             if (commands & CMD_TRIGGER_SOLENOID_HZ) {
                 uint8_t sol_id  = g_shared_memory.solenoid_id;
-                uint16_t freq   = g_shared_memory.solenoid_freq_hz;
+                uint16_t freq   = g_shared_memory.solenoid_freq_hz; // TODO: check why we are losing precision here by rounding to int
                 uint8_t  duty   = g_shared_memory.solenoid_duty_cycle;
                 uint8_t  mode   = g_shared_memory.solenoid_mode;
                 uint16_t time_ms = g_shared_memory.solenoid_activation_time_ms;

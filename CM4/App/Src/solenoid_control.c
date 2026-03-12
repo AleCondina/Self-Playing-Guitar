@@ -42,8 +42,8 @@ static SolenoidState_t solenoid_states[SOLENOID_COUNT];
 
 /**
  * @brief Frequency lookup table: 6 strings × 8 frets → ARR values
- * @note  ARR = (640,000 / target_frequency) - 1
- * @note  Timer clock: 64 MHz, Prescaler: 99 (÷100) → 640 kHz count frequency
+ * @note  ARR = (2,400,000 / target_frequency) - 1
+ * @note  Timer clock: 240 MHz, Prescaler: 99 (÷100) → 2.40 MHz count frequency
  *
  * Musical Note Reference (Standard Guitar Tuning):
  * String | Open Note | Freq (Hz) | Fret 7 (Hz)
@@ -57,22 +57,22 @@ static SolenoidState_t solenoid_states[SOLENOID_COUNT];
  */
 static const uint16_t SOLENOID_FREQ_TABLE[6][8] = {
     /* String 0: E2 (82.41 Hz) - Low E */
-    {7764, 7329, 6918, 6530, 6163, 5816, 5488, 5179},  /* Frets 0-7 */
+    {29122, 27487, 25945, 24489, 23114, 21817, 20593, 19437},  /* Frets 0-7 */
 
     /* String 1: A2 (110.00 Hz) */
-    {5817, 5490, 5181, 4890, 4615, 4356, 4112, 3881},  /* Frets 0-7 */
+    {21817, 20593, 19437, 18346, 17316, 16344, 15427, 14561},  /* Frets 0-7 */
 
     /* String 2: D3 (146.83 Hz) */
-    {4358, 4113, 3882, 3664, 3459, 3265, 3082, 2910},  /* Frets 0-7 */
+    {16344, 15427, 14561, 13744, 12972, 12244, 11557, 10908},  /* Frets 0-7 */
 
     /* String 3: G3 (196.00 Hz) */
-    {3264, 3081, 2909, 2746, 2592, 2446, 2309, 2179},  /* Frets 0-7 */
+    {12244, 11557, 10908, 10296, 9718, 9172, 8658, 8172},  /* Frets 0-7 */
 
     /* String 4: B3 (246.94 Hz) */
-    {2591, 2445, 2308, 2179, 2056, 1941, 1832, 1729},  /* Frets 0-7 */
+    {9718, 9172, 8658, 8172, 7713, 7280, 6871, 6485},  /* Frets 0-7 */
 
     /* String 5: E4 (329.63 Hz) - High E */
-    {1941, 1832, 1729, 1632, 1540, 1454, 1372, 1295},  /* Frets 0-7 */
+    {7280, 6871, 6485, 6121, 5778, 5454, 5147, 4858},  /* Frets 0-7 */
 };
 
 /**
@@ -288,8 +288,8 @@ uint32_t Solenoid_GetFrequency(uint8_t solenoid_id)
     /* Get current ARR value */
     uint16_t arr = __HAL_TIM_GET_AUTORELOAD(state->htim);
 
-    /* Calculate frequency: freq = 640,000 / (ARR + 1) */
-    uint32_t freq_hz = 640000UL / (arr + 1);
+    /* Calculate frequency: freq = 2,400,000 / (ARR + 1) */
+    uint32_t freq_hz = TIM_PRESCALED_CLK_HZ / (arr + 1);
 
     return freq_hz;
 }
@@ -369,7 +369,7 @@ uint8_t Solenoid_UpdateAutoStop(void)
 
 /**
  * @brief Set solenoid drive frequency directly in Hz
- * @note  Timer count frequency = 640 kHz → ARR = (640000 / freq_hz) - 1
+ * @note  Timer count frequency = 2.40 MHz → ARR = (2,400,000 / freq_hz) - 1
  */
 int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, uint32_t freq_hz)
 {
@@ -378,7 +378,7 @@ int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, uint32_t freq_hz)
     }
 
     /* Guard against ARR overflow (uint16_t max = 65535).
-     * 640000 / 65535 ≈ 10 Hz minimum; 640000 / 1 = 640 kHz maximum.
+     * 2400000 / 65535 ≈ 36 Hz minimum; 2400000 / 1 = 2.4 MHz maximum.
      * For guitar strings 40–800 Hz is the expected range. */
     if (freq_hz < 40u || freq_hz > 800u) {
         return -1;
@@ -386,7 +386,7 @@ int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, uint32_t freq_hz)
 
     SolenoidState_t *state = &solenoid_states[solenoid_id];
 
-    uint16_t new_arr = (uint16_t)((640000UL / freq_hz) - 1UL);
+    uint16_t new_arr = (uint16_t)((TIM_PRESCALED_CLK_HZ / freq_hz) - 1UL);
     uint16_t new_ccr = (uint16_t)((new_arr * state->duty_cycle) / 100u);
 
     __HAL_TIM_SET_AUTORELOAD(state->htim, new_arr);

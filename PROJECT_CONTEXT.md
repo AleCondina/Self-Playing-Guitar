@@ -72,17 +72,11 @@
 
 ### Timer Clock Configuration
 
-**CRITICAL BUG FIX (2026-01-20):**
-- **application_config.h** previously claimed `TIM_CLOCK_MHZ = 240`
-- **Actual measured timer clock: 64 MHz** (HSI-based, no PLL)
-- **Impact:** All ARR calculations must use 64 MHz, not 240 MHz
-- **Fixed in:** `Shared/Inc/application_config.h:45`
-
 **Timer PWM Setup:**
-- Clock source: APB1 @ 64 MHz
+- Clock source: APB1 @ 240 MHz
 - Prescaler: PSC = 99 (÷100)
-- Effective count frequency: 640 kHz
-- Formula: `ARR = (640,000 / target_freq_hz) - 1`
+- Effective count frequency: 2.4 MHz
+- Formula: `ARR = (2,400,000 / target_freq_hz) - 1`
 - Duty cycle: `CCR = ARR × (duty_percent / 100)`
 
 ---

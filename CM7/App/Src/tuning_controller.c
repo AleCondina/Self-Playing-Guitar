@@ -170,10 +170,10 @@ static void ApplyActuation(uint8_t string_id,
     if (lock_now && !lock_prev) {
         /* Rising edge: start solenoid at the exact target frequency.
          * Uses CMD_TRIGGER_SOLENOID_HZ → Solenoid_SetFrequencyHz() on CM4.
-         * This sets ARR = (640000 / freq_hz) - 1 directly instead of using
+         * This sets ARR = (2400000 / freq_hz) - 1 directly instead of using
          * the coarse string/fret lookup table. */
         uint16_t freq_u16 = (target_freq >= 40.0f && target_freq <= 800.0f)
-                            ? (uint16_t)target_freq : 0u;
+                            ? (uint16_t)target_freq : 0u;       //TODO: why are we stripping freq from float to int so early?
         if (freq_u16 > 0u) {
             InterCore_TriggerSolenoidHz(string_id,
                                         freq_u16,

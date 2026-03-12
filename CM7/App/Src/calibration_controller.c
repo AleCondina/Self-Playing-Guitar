@@ -84,7 +84,7 @@
 /** Minimum samples needed to fill the LUT; below this the old table is kept. */
 #define CAL_MIN_SAMPLES      ((uint16_t)TUNING_FF_NUM_POINTS)
 
-/* Open-string frequencies – must match Goertzel open_strings[].
+/* Open-string frequencies – must match FFT open_strings[].
  * String order:  0=E2  1=A2  2=D3  3=G3  4=B3  5=E4 */
 static const float s_open_freq[NUM_STRINGS] = {
      82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f

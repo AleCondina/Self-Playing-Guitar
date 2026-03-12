@@ -13,7 +13,7 @@
  *          - Solenoid 5: TIM17 CH1 (PF7)  → String E4 (330-494 Hz)
  *
  *          Each solenoid is driven via N-channel MOSFET (logic-level, 3.3V)
- *          Timer clock: 64 MHz (APB1), Prescaler: 99 (÷100) → 640 kHz count freq
+ *          Timer clock: 240 MHz (APB1), Prescaler: 99 (÷100) → 2.4 MHz count freq
  ******************************************************************************
  */
 
@@ -128,7 +128,7 @@ uint8_t Solenoid_UpdateAutoStop(void);
  * @param solenoid_id Solenoid index (0-5)
  * @param freq_hz     Target frequency in Hz (must be > 0)
  * @return 0 on success, -1 if invalid parameters or frequency out of range
- * @note  Timer clock: 640 kHz, ARR = (640000 / freq_hz) - 1
+ * @note  Timer clock: 2.4 MHz, ARR = (2400000 / freq_hz) - 1
  * @note  Safe range: 40–800 Hz (ARR fits in uint16_t; stays within PWM timer)
  * @note  Does NOT start PWM – call Solenoid_Start() or Solenoid_StartTimed()
  */

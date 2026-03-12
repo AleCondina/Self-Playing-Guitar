@@ -21,6 +21,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include "application_config.h"
 #include "shared_memory.h"
 #include "inter_core_cm4.h"
 #include "app_cm4.h"
@@ -180,9 +181,9 @@ static void MX_TIM12_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim12.Instance = TIM12;
-    htim12.Init.Prescaler = 99;  /* 64 MHz / 100 = 640 kHz count frequency */
+    htim12.Init.Prescaler = 99;  /* 240 MHz / 100 = 2.4 MHz count frequency */
     htim12.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim12.Init.Period = 7764;   /* Default: 82.41 Hz (E2 open string) */
+    htim12.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / E2_HZ) - 0.5f);   /* Default: 82.41 Hz (E2 open string)  Note: -0.5f for rounding (-1f + 0.5f)*/
     htim12.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim12.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 
@@ -193,7 +194,7 @@ static void MX_TIM12_Init(void)
 
     /* Configure PWM Channel 1: Solenoid 0 (E2 string) */
     sConfigOC.OCMode = TIM_OCMODE_PWM1;
-    sConfigOC.Pulse = 3882;  /* 50% duty cycle (7764 / 2) */
+    sConfigOC.Pulse = htim12.Init.Period / 2 ;  /* 50% duty cycle (Period / 2) */
     sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
     sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
 
@@ -213,9 +214,9 @@ static void MX_TIM13_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim13.Instance = TIM13;
-    htim13.Init.Prescaler = 99;  /* 64 MHz / 100 = 640 kHz count frequency */
+    htim13.Init.Prescaler = 99;  /* 240 MHz / 100 = 2.4 MHz count frequency */
     htim13.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim13.Init.Period = 4358;   /* Default: 146.83 Hz (D3 open string) */
+    htim13.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / D3_HZ) - 0.5f);   /* Default: 146.83 Hz (D3 open string) */
     htim13.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim13.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 
@@ -226,7 +227,7 @@ static void MX_TIM13_Init(void)
 
     /* Configure PWM Channel 1: Solenoid 2 (D3 string) */
     sConfigOC.OCMode = TIM_OCMODE_PWM1;
-    sConfigOC.Pulse = 2179;  /* 50% duty cycle (4358 / 2) */
+    sConfigOC.Pulse = htim13.Init.Period / 2;  /* 50% duty cycle (Period / 2) */
     sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
     sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
 
@@ -246,9 +247,9 @@ static void MX_TIM14_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim14.Instance = TIM14;
-    htim14.Init.Prescaler = 99;  /* 64 MHz / 100 = 640 kHz count frequency */
+    htim14.Init.Prescaler = 99;  /* 240 MHz / 100 = 2.4 MHz count frequency */
     htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim14.Init.Period = 5817;   /* Default: 110.00 Hz (A2 open string) */
+    htim14.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / A2_HZ) - 0.5f);   /* Default: 110.00 Hz (A2 open string) */
     htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim14.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 
@@ -259,7 +260,7 @@ static void MX_TIM14_Init(void)
 
     /* Configure PWM Channel 1: Solenoid 1 (A2 string) */
     sConfigOC.OCMode = TIM_OCMODE_PWM1;
-    sConfigOC.Pulse = 2909;  /* 50% duty cycle (5817 / 2) */
+    sConfigOC.Pulse = htim14.Init.Period / 2;  /* 50% duty cycle (Period / 2) */
     sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
     sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
 
@@ -279,9 +280,9 @@ static void MX_TIM15_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim15.Instance = TIM15;
-    htim15.Init.Prescaler = 99;  /* 64 MHz / 100 = 640 kHz count frequency */
+    htim15.Init.Prescaler = 99;  /* 240 MHz / 100 = 2.4 MHz count frequency */
     htim15.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim15.Init.Period = 3264;   /* Default: 196.00 Hz (G3 open string) */
+    htim15.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / G3_HZ) - 0.5f);   /* Default: 196.00 Hz (G3 open string) */
     htim15.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim15.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 
@@ -292,7 +293,7 @@ static void MX_TIM15_Init(void)
 
     /* Configure PWM Channel 1: Solenoid 3 (G3 string) */
     sConfigOC.OCMode = TIM_OCMODE_PWM1;
-    sConfigOC.Pulse = 1632;  /* 50% duty cycle (3264 / 2) */
+    sConfigOC.Pulse = htim15.Init.Period / 2;  /* 50% duty cycle (Period / 2) */
     sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
     sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
 
@@ -312,9 +313,9 @@ static void MX_TIM16_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim16.Instance = TIM16;
-    htim16.Init.Prescaler = 99;  /* 64 MHz / 100 = 640 kHz count frequency */
+    htim16.Init.Prescaler = 99;  /* 240 MHz / 100 = 2.4 MHz count frequency */
     htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim16.Init.Period = 2591;   /* Default: 246.94 Hz (B3 open string) */
+    htim16.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / B3_HZ) - 0.5f);   /* Default: 246.94 Hz (B3 open string) */
     htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 
@@ -325,7 +326,7 @@ static void MX_TIM16_Init(void)
 
     /* Configure PWM Channel 1: Solenoid 4 (B3 string) */
     sConfigOC.OCMode = TIM_OCMODE_PWM1;
-    sConfigOC.Pulse = 1296;  /* 50% duty cycle (2591 / 2) */
+    sConfigOC.Pulse = htim16.Init.Period / 2;  /* 50% duty cycle (Period / 2) */
     sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
     sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
 
@@ -345,9 +346,9 @@ static void MX_TIM17_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim17.Instance = TIM17;
-    htim17.Init.Prescaler = 99;  /* 64 MHz / 100 = 640 kHz count frequency */
+    htim17.Init.Prescaler = 99;  /* 240 MHz / 100 = 2.4 MHz count frequency */
     htim17.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim17.Init.Period = 1941;   /* Default: 329.63 Hz (E4 open string) */
+    htim17.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / E4_HZ) - 0.5f);   /* Default: 329.63 Hz (E4 open string) */
     htim17.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim17.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 
@@ -358,7 +359,7 @@ static void MX_TIM17_Init(void)
 
     /* Configure PWM Channel 1: Solenoid 5 (E4 string - High E) */
     sConfigOC.OCMode = TIM_OCMODE_PWM1;
-    sConfigOC.Pulse = 971;  /* 50% duty cycle (1941 / 2) */
+    sConfigOC.Pulse = htim17.Init.Period / 2;  /* 50% duty cycle (Period / 2) */
     sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
     sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
 
