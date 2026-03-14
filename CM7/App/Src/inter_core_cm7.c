@@ -326,7 +326,7 @@ void InterCore_GetCM4Diagnostics(uint32_t *loop_hz, uint32_t *overruns, uint32_t
  * @param burst_cycles Auto-stop cycles for BURST mode (0 = ignored)
  */
 void InterCore_TriggerSolenoidHz(uint8_t  solenoid_id,
-                                  uint16_t freq_hz,
+                                  float freq_hz,
                                   uint8_t  duty_percent,
                                   uint8_t  mode,
                                   uint16_t time_ms,

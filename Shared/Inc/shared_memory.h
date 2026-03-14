@@ -93,7 +93,7 @@ typedef struct {
     volatile uint16_t solenoid_burst_cycles;            /* Auto-stop cycles (0=disabled, 1-1000) */
     volatile uint8_t solenoid_mode;                     /* 0=infinite, 1=timed, 2=burst */
     volatile uint8_t solenoid_padding;                  /* Alignment */
-    volatile uint16_t solenoid_freq_hz;                 /* Direct Hz drive (CMD_TRIGGER_SOLENOID_HZ) */
+    volatile float solenoid_freq_hz;                 /* Direct Hz drive (CMD_TRIGGER_SOLENOID_HZ) */
 
 
 

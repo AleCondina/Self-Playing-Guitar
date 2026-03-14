@@ -371,7 +371,7 @@ uint8_t Solenoid_UpdateAutoStop(void)
  * @brief Set solenoid drive frequency directly in Hz
  * @note  Timer count frequency = 2.40 MHz → ARR = (2,400,000 / freq_hz) - 1
  */
-int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, uint32_t freq_hz)
+int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, float freq_hz)
 {
     if (solenoid_id >= SOLENOID_COUNT || freq_hz == 0u) {
         return -1;
@@ -386,7 +386,7 @@ int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, uint32_t freq_hz)
 
     SolenoidState_t *state = &solenoid_states[solenoid_id];
 
-    uint16_t new_arr = (uint16_t)((TIM_PRESCALED_CLK_HZ / freq_hz) - 1UL);
+    uint16_t new_arr = (uint16_t)((TIM_PRESCALED_CLK_HZ / freq_hz) - 0.5f);
     uint16_t new_ccr = (uint16_t)((new_arr * state->duty_cycle) / 100u);
 
     __HAL_TIM_SET_AUTORELOAD(state->htim, new_arr);

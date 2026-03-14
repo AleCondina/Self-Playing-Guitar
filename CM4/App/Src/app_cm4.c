@@ -383,7 +383,7 @@ void App_CM4_Main(void)
                 uint16_t burst   = g_shared_memory.solenoid_burst_cycles;
 
                 if (sol_id < 6u && freq > 0u) {
-                    if (Solenoid_SetFrequencyHz(sol_id, (uint32_t)freq) == 0) {
+                    if (Solenoid_SetFrequencyHz(sol_id, freq) == 0) {
                         if (duty > 0u && duty < 100u) {
                             Solenoid_SetDutyCycle(sol_id, duty);
                         }

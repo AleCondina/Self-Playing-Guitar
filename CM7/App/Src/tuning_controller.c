@@ -48,7 +48,7 @@
  * Feed-forward LUT data
  *
  * Layout: [string_id][breakpoint_index]
- * tuning_ff_freq_bp – target frequency at each breakpoint (Hz)
+ * tuning_ff_freq_bp – target frequency at each breakpoint (Hz) TODO: Use macros in application_config
  * tuning_ff_steps_bp – absolute motor position at each breakpoint (microsteps)
  *
  * String order: 0=E2(82Hz), 1=A2(110Hz), 2=D3(147Hz),
@@ -172,11 +172,11 @@ static void ApplyActuation(uint8_t string_id,
          * Uses CMD_TRIGGER_SOLENOID_HZ → Solenoid_SetFrequencyHz() on CM4.
          * This sets ARR = (2400000 / freq_hz) - 1 directly instead of using
          * the coarse string/fret lookup table. */
-        uint16_t freq_u16 = (target_freq >= 40.0f && target_freq <= 800.0f)
-                            ? (uint16_t)target_freq : 0u;       //TODO: why are we stripping freq from float to int so early?
-        if (freq_u16 > 0u) {
+        float freq = (target_freq >= 40.0f && target_freq <= 800.0f)
+                            ? target_freq : 0.0f;       
+        if (freq > 1e6) {
             InterCore_TriggerSolenoidHz(string_id,
-                                        freq_u16,
+                                        freq,
                                         SOLENOID_DEFAULT_DUTY_CYCLE,
                                         SOLENOID_MODE_INFINITE,
                                         0u,

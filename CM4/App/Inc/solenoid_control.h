@@ -132,6 +132,6 @@ uint8_t Solenoid_UpdateAutoStop(void);
  * @note  Safe range: 40–800 Hz (ARR fits in uint16_t; stays within PWM timer)
  * @note  Does NOT start PWM – call Solenoid_Start() or Solenoid_StartTimed()
  */
-int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, uint32_t freq_hz);
+int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, float freq_hz);
 
 #endif /* SOLENOID_CONTROL_H */

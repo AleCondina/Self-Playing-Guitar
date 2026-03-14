@@ -138,9 +138,9 @@ static void StopSolenoid(uint8_t str_id)
 
 static void StartSolenoid(uint8_t str_id)
 {
-    uint16_t freq_u16 = (uint16_t)s_open_freq[str_id];
+    float freq = s_open_freq[str_id];
     InterCore_TriggerSolenoidHz(str_id,
-                                freq_u16,
+                                freq,
                                 CAL_SOLENOID_DUTY,
                                 SOLENOID_MODE_INFINITE,
                                 0u, 0u);
