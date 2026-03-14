@@ -75,8 +75,8 @@
  *  300 steps/sec is intentionally slow for safety. */
 #define CAL_MOTOR_SPEED      300
 
-/** Solenoid duty cycle during calibration (lighter touch than normal play). */
-#define CAL_SOLENOID_DUTY    30u
+/** Solenoid duty cycle during calibration. If you want a lighter touch just reduce the burst # of cycles or time_ms */
+#define CAL_SOLENOID_DUTY    50u
 
 /** Consecutive hops with no FFT peak before declaring error on this string. */
 #define CAL_NO_SIG_LIMIT     10u

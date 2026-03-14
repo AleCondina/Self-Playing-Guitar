@@ -167,7 +167,7 @@ int32_t Solenoid_SetFrequency(uint8_t solenoid_id, uint8_t string, uint8_t fret)
     uint16_t new_arr = SOLENOID_FREQ_TABLE[string][fret];
 
     /* Calculate new CCR for current duty cycle */
-    uint16_t new_ccr = (new_arr * state->duty_cycle) / 100;
+    uint16_t new_ccr = ((new_arr + 1) * state->duty_cycle) / 100;
 
     /* Update ARR and CCR atomically with auto-reload preload enabled */
     /* Both values will update simultaneously on next timer overflow */
@@ -387,7 +387,7 @@ int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, float freq_hz)
     SolenoidState_t *state = &solenoid_states[solenoid_id];
 
     uint16_t new_arr = (uint16_t)((TIM_PRESCALED_CLK_HZ / freq_hz) - 0.5f);
-    uint16_t new_ccr = (uint16_t)((new_arr * state->duty_cycle) / 100u);
+    uint16_t new_ccr = (uint16_t)(((new_arr + 1) * state->duty_cycle) / 100);
 
     __HAL_TIM_SET_AUTORELOAD(state->htim, new_arr);
     __HAL_TIM_SET_COMPARE(state->htim, state->channel, new_ccr);
