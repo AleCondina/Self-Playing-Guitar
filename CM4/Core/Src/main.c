@@ -239,7 +239,7 @@ static void MX_TIM13_Init(void)
 
 /**
  * @brief TIM14 Initialization Function
- * @note  Solenoid 1: A2 string on PA7
+ * @note  Solenoid 1: A2 string on PF9
  * @note  PWM frequency controlled by ARR, duty cycle by CCR
  */
 static void MX_TIM14_Init(void)

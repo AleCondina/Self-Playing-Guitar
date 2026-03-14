@@ -135,7 +135,7 @@ void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef* htim)
 
         /**
          * TIM14 GPIO Configuration:
-         * PF9 -> TIM14_CH1 (Solenoid 1: A2 string) - ZIO CN9-28
+         * PF9 -> TIM14_CH1 (Solenoid 1: A2 string)
          */
         GPIO_InitStruct.Pin = GPIO_PIN_9;
         GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;         /* Alternate function push-pull */

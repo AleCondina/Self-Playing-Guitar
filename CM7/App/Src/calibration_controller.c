@@ -20,6 +20,7 @@
  *  9. Stop solenoid, return motor to 0, advance to next string.
  *
  * Why FFT instead of Goertzel?
+ * 
  * ----------------------------
  * The Goertzel phase-tracker can only estimate accurately within ±~3 Hz of
  * its filter centre (limited by the hop-rate Nyquist).  A fret-7 sweep spans

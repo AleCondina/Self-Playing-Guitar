@@ -18,7 +18,7 @@
 /* External timer handles for debug access (6 independent timers) - All on ZIO connectors */
 extern TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 (PB14) - ZIO CN12-28 */
 extern TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 (PA6)  - TIM13_CH1  */
-extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 (PA7)  - TIM14_CH1  */
+extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 (PF9)  - TIM14_CH1  */
 extern TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 (PE5)  - ZIO CN10-8 */
 extern TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 (PF6)  - ZIO CN10-7 */
 extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 (PF7)  - ZIO CN9-26 */
@@ -87,7 +87,7 @@ void App_CM4_Main(void)
 
     /* Set frequencies for all 6 strings (open position, fret 0) */
     Solenoid_SetFrequency(0, 0, 0);  // Solenoid 0: E2 string (Low E), 82.41 Hz on PB14
-    Solenoid_SetFrequency(1, 1, 0);  // Solenoid 1: A2 string, 110.00 Hz on PA7
+    Solenoid_SetFrequency(1, 1, 0);  // Solenoid 1: A2 string, 110.00 Hz on PF9
     Solenoid_SetFrequency(2, 2, 0);  // Solenoid 2: D3 string, 146.83 Hz on PA6
     Solenoid_SetFrequency(3, 3, 0);  // Solenoid 3: G3 string, 196.00 Hz on PE5
     Solenoid_SetFrequency(4, 4, 0);  // Solenoid 4: B3 string, 246.94 Hz on PF6
@@ -124,13 +124,13 @@ void App_CM4_Main(void)
     GPIOB->OTYPER &= ~(1UL << 14);
     GPIOB->OSPEEDR |= (0x3UL << (14 * 2));
 
-    /* Configure PA7 as AF9 (TIM14_CH1) - Solenoid 1: A2 */
-    GPIOA->MODER &= ~(0x3UL << (7 * 2));
-    GPIOA->MODER |=  (0x2UL << (7 * 2));      // Alternate function mode
-    GPIOA->AFR[0] &= ~(0xFUL << (7 * 4));
-    GPIOA->AFR[0] |=  (0x9UL << (7 * 4));     // AF9
-    GPIOA->OTYPER &= ~(1UL << 7);             // Push-pull
-    GPIOA->OSPEEDR |= (0x3UL << (7 * 2));     // Very high speed
+    /* Configure PF9 as AF9 (TIM14_CH1) - Solenoid 1: A2 */
+    GPIOF->MODER &= ~(0x3UL << (9 * 2));
+    GPIOF->MODER |=  (0x2UL << (9 * 2));      // Alternate function mode
+    GPIOF->AFR[1] &= ~(0xFUL << ((9-8) * 4));
+    GPIOF->AFR[1] |=  (0x9UL << ((9-8) * 4)); // AF9
+    GPIOF->OTYPER &= ~(1UL << 9);             // Push-pull
+    GPIOF->OSPEEDR |= (0x3UL << (9 * 2));     // Very high speed
     
     /* Configure PA6 as AF9 (TIM13_CH1) - Solenoid 2: D3 */
     GPIOA->MODER &= ~(0x3UL << (6 * 2));

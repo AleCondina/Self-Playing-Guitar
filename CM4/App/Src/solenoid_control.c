@@ -13,7 +13,7 @@
 /* External timer handles (defined in main.c) */
 extern TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 string (PB14) */
 extern TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 string (PA6) */
-extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 string (PA7) */
+extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 string (PF9) */
 extern TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 string (PE5) */
 extern TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 string (PF6) */
 extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 string (PF7) */
