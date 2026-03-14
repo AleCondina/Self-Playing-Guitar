@@ -426,7 +426,11 @@ static void MX_GPIO_Init(void)
 void Error_Handler(void)
 {
   /* USER CODE BEGIN Error_Handler_Debug */
-  /* User can add his own implementation to report the HAL error return state */
+  /* Signal CM7 fault to CM4 before releasing the semaphore */
+  g_shared_memory.motor_errors |= ERROR_COMM_TIMEOUT;
+  /* Release boot semaphore before halting so CM4 is never deadlocked waiting for it.
+   * HAL_HSEM_Release is a no-op if CM7 does not currently hold HSEM_ID_BOOT. */
+  HAL_HSEM_Release(HSEM_ID_BOOT, 0);
   __disable_irq();
   while (1)
   {

@@ -174,7 +174,7 @@ static void ApplyActuation(uint8_t string_id,
          * the coarse string/fret lookup table. */
         float freq = (target_freq >= 40.0f && target_freq <= 800.0f)
                             ? target_freq : 0.0f;       
-        if (freq > 1e6) {
+        if (freq > 1e-6) {
             InterCore_TriggerSolenoidHz(string_id,
                                         freq,
                                         SOLENOID_DEFAULT_DUTY_CYCLE,

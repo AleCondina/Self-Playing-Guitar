@@ -17,8 +17,8 @@
 
 /* External timer handles for debug access (6 independent timers) - All on ZIO connectors */
 extern TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 (PB14) - ZIO CN12-28 */
-extern TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 (PF8)  - ZIO CN9-24 */
-extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 (PF9)  - ZIO CN9-28 */
+extern TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 (PA6)  - TIM13_CH1  */
+extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 (PA7)  - TIM14_CH1  */
 extern TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 (PE5)  - ZIO CN10-8 */
 extern TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 (PF6)  - ZIO CN10-7 */
 extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 (PF7)  - ZIO CN9-26 */
@@ -103,6 +103,7 @@ void App_CM4_Main(void)
 
     /* Direct GPIO configuration for all PWM pins */
     /* Enable all required GPIO clocks */
+    __HAL_RCC_GPIOA_CLK_ENABLE();
     __HAL_RCC_GPIOB_CLK_ENABLE();
     __HAL_RCC_GPIOE_CLK_ENABLE();
     __HAL_RCC_GPIOF_CLK_ENABLE();
@@ -123,22 +124,22 @@ void App_CM4_Main(void)
     GPIOB->OTYPER &= ~(1UL << 14);
     GPIOB->OSPEEDR |= (0x3UL << (14 * 2));
 
-    /* Configure PF9 as AF9 (TIM14_CH1) - Solenoid 1: A2 - ZIO CN9-28 */
-    GPIOF->MODER &= ~(0x3UL << (9 * 2));
-    GPIOF->MODER |= (0x2UL << (9 * 2));
-    GPIOF->AFR[1] &= ~(0xFUL << ((9-8) * 4));
-    GPIOF->AFR[1] |= (0x9UL << ((9-8) * 4));
-    GPIOF->OTYPER &= ~(1UL << 9);
-    GPIOF->OSPEEDR |= (0x3UL << (9 * 2));
-
-    /* Configure PF8 as AF9 (TIM13_CH1) - Solenoid 2: D3 - ZIO CN9-24 */
-    GPIOF->MODER &= ~(0x3UL << (8 * 2));
-    GPIOF->MODER |= (0x2UL << (8 * 2));
-    GPIOF->AFR[1] &= ~(0xFUL << ((8-8) * 4));
-    GPIOF->AFR[1] |= (0x9UL << ((8-8) * 4));
-    GPIOF->OTYPER &= ~(1UL << 8);
-    GPIOF->OSPEEDR |= (0x3UL << (8 * 2));
-
+    /* Configure PA7 as AF9 (TIM14_CH1) - Solenoid 1: A2 */
+    GPIOA->MODER &= ~(0x3UL << (7 * 2));
+    GPIOA->MODER |=  (0x2UL << (7 * 2));      // Alternate function mode
+    GPIOA->AFR[0] &= ~(0xFUL << (7 * 4));
+    GPIOA->AFR[0] |=  (0x9UL << (7 * 4));     // AF9
+    GPIOA->OTYPER &= ~(1UL << 7);             // Push-pull
+    GPIOA->OSPEEDR |= (0x3UL << (7 * 2));     // Very high speed
+    
+    /* Configure PA6 as AF9 (TIM13_CH1) - Solenoid 2: D3 */
+    GPIOA->MODER &= ~(0x3UL << (6 * 2));
+    GPIOA->MODER |=  (0x2UL << (6 * 2));      // Alternate function mode
+    GPIOA->AFR[0] &= ~(0xFUL << (6 * 4));
+    GPIOA->AFR[0] |=  (0x9UL << (6 * 4));     // AF9
+    GPIOA->OTYPER &= ~(1UL << 6);             // Push-pull
+    GPIOA->OSPEEDR |= (0x3UL << (6 * 2));     // Very high speed
+    
     /* Configure PE5 as AF4 (TIM15_CH1) - Solenoid 3: G3 - ZIO CN10-8 */
     GPIOE->MODER &= ~(0x3UL << (5 * 2));
     GPIOE->MODER |= (0x2UL << (5 * 2));
@@ -382,7 +383,7 @@ void App_CM4_Main(void)
                 uint16_t time_ms = g_shared_memory.solenoid_activation_time_ms;
                 uint16_t burst   = g_shared_memory.solenoid_burst_cycles;
 
-                if (sol_id < 6u && freq > 1e6) {
+                if (sol_id < 6u && freq > 1e-6) {
                     if (Solenoid_SetFrequencyHz(sol_id, freq) == 0) {
                         if (duty > 0u && duty < 100u) {
                             Solenoid_SetDutyCycle(sol_id, duty);
