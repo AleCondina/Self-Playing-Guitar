@@ -77,6 +77,12 @@ void App_CM4_Main(void)
     /* Zero position */
     Motor_ZeroPosition(3);
 
+    /* Set all motors to 1/16 microstepping by default */
+    Motor_SetMicrostepMode(0, MOTOR_MICROSTEP_16);
+    Motor_SetMicrostepMode(1, MOTOR_MICROSTEP_16);
+    Motor_SetMicrostepMode(2, MOTOR_MICROSTEP_16);
+    Motor_SetMicrostepMode(3, MOTOR_MICROSTEP_16);
+
     /* Initialize solenoid control system */
     if (Solenoid_Init() != 0) {
         g_shared_memory.motor_errors |= ERROR_INVALID_COMMAND;
