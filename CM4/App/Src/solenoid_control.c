@@ -15,8 +15,8 @@ extern TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 string (PB14) */
 extern TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 string (PA6) */
 extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 string (PA7) */
 extern TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 string (PE5) */
-extern TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 string (PB8) */
-extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 string (PB9) */
+extern TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 string (PF6) */
+extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 string (PF7) */
 
 /**
  * @brief Solenoid state structure for multi-solenoid management
@@ -132,7 +132,7 @@ int32_t Solenoid_Init(void)
     solenoid_states[SOLENOID_STRING_G3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_G3].is_active = 0;
 
-    /* Initialize solenoid 4: TIM16 CH1 (B3 string) on PB8 */
+    /* Initialize solenoid 4: TIM16 CH1 (B3 string) on PF6 */
     solenoid_states[SOLENOID_STRING_B3].htim = &htim16;
     solenoid_states[SOLENOID_STRING_B3].channel = TIM_CHANNEL_1;
     solenoid_states[SOLENOID_STRING_B3].current_string = 4;
@@ -140,7 +140,7 @@ int32_t Solenoid_Init(void)
     solenoid_states[SOLENOID_STRING_B3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_B3].is_active = 0;
 
-    /* Initialize solenoid 5: TIM17 CH1 (E4 string - High E) on PB9 */
+    /* Initialize solenoid 5: TIM17 CH1 (E4 string - High E) on PF7 */
     solenoid_states[SOLENOID_STRING_E4].htim = &htim17;
     solenoid_states[SOLENOID_STRING_E4].channel = TIM_CHANNEL_1;
     solenoid_states[SOLENOID_STRING_E4].current_string = 5;

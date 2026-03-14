@@ -149,8 +149,8 @@ extern "C" {
  * TODO: calibrate per-string by measuring actual frequency vs. motor steps.
  * ========================================================================= */
 
-extern const float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS];
-extern const float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS];
+extern float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS];
+extern float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS];
 
 /* =========================================================================
  * Per-string run-time state

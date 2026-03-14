@@ -7,7 +7,7 @@
  *
  * Key interactions with the rest of the codebase
  * -----------------------------------------------
- *  goertzel_processing  – Goertzel_GetExactFreq(str) / Goertzel_GetMagnitude(str)
+ *  fft_processing       – active_frequencies[i] / active_frequencies[i]
  *  song_scheduler       – SongSched_GetStringId() / SongSched_GetTargetFreq()
  *  inter_core_cm7       – InterCore_SendMotorGoto(), InterCore_TriggerSolenoids()
  *                          InterCore_SendCommand (solenoid stop)
@@ -22,7 +22,7 @@
  *
  * To calibrate:
  *  1. Home each motor (Motor_Home()).
- *  2. Slowly advance in steps and record frequency from Goertzel.
+ *  2. Slowly advance in steps and record frequency from FFT.
  *  3. Fill in tuning_ff_freq_bp and tuning_ff_steps_bp per string.
  *  4. Re-run with a sine sweep to verify linearity between breakpoints.
  ******************************************************************************
@@ -30,7 +30,7 @@
 
 #include "tuning_controller.h"
 #include "song_scheduler.h"
-#include "goertzel_processing.h"
+#include "fft_processing.h"
 #include "inter_core_cm7.h"
 #include "shared_memory.h"
 #include "application_config.h"
@@ -40,6 +40,9 @@
 #include <stddef.h>
 #include <stdio.h>
 #include <string.h>
+
+/* Tuning tolerances - adjust these based on your physical guitar */
+#define TUNE_SEARCH_WINDOW_HZ 15.0f     /* Max allowed drift from target before ignoring */
 
 /* =========================================================================
  * Feed-forward LUT data
@@ -54,7 +57,7 @@
  * TODO: replace with measured values during hardware commissioning.
  *       Current values assume ~10 microsteps per Hz as a rough linear first-guess.
  * ========================================================================= */
-const float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     /* E2: 82.41 Hz open, ~123 Hz at fret 7 */
     {  82.4f,  90.0f, 100.0f, 123.5f },
     /* A2: 110.0 Hz open, ~165 Hz at fret 7 */
@@ -69,7 +72,7 @@ const float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     { 329.6f, 370.0f, 415.3f, 493.9f },
 };
 
-const float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     /* E2 – TODO: calibrate. rough: 0 at open, ~400 steps at fret 7 */
     {    0.0f,   80.0f,  185.0f,  400.0f },
     /* A2 */
@@ -391,9 +394,46 @@ void TuningCtrl_Update(uint8_t string_id,
     s->hop_count++;
 }
 
+/**
+ * @brief Sweeps the FFT array to find the closest valid frequency to the target.
+ * @param target The expected physical frequency from the MIDI file.
+ * @param out_measured Pointer to store the detected frequency.
+ * @param out_confidence Pointer to store the signal magnitude (confidence).
+ */
+static void GetFFTRadarLock(float target, float* out_measured, float* out_confidence)
+{
+    float best_measured = 0.0f;
+    float best_mag      = 0.0f;
+    float min_error     = 9999.0f;
+
+    /* 1. Sweep the active radar pings */
+    for (uint8_t i = 0; i < active_string_count; i++) {
+        float error = fabsf(active_frequencies[i] - target);
+        
+        if (error < min_error) {
+            min_error = error;
+            best_measured = active_frequencies[i];
+            best_mag = active_magnitudes[i];
+        }
+    }
+
+    /* 2. Validate the lock */
+    if (active_string_count > 0 && min_error <= TUNE_SEARCH_WINDOW_HZ) {
+        if (best_mag > NOISE_GATE_THRESHOLD) {
+            *out_measured = best_measured;
+            *out_confidence = best_mag;
+            return; /* Successful lock */
+        }
+    }
+
+    /* Target is missing, out of bounds, or too quiet */
+    *out_measured = 0.0f;
+    *out_confidence = 0.0f;
+}
+
 /* -------------------------------------------------------------------------
  * TuningCtrl_RunHop
- * High-level entry point.  Reads from song scheduler and Goertzel, calls
+ * High-level entry point.  Reads from song scheduler and FFT, calls
  * TuningCtrl_Update(), then issues inter-core commands.
  * --------------------------------------------------------------------- */
 void TuningCtrl_RunHop(void)
@@ -404,9 +444,10 @@ void TuningCtrl_RunHop(void)
     uint8_t  str    = SongSched_GetStringId();
     float    target = SongSched_GetTargetFreq();
 
-    /* Get Goertzel estimate for this string */
-    float measured   = Goertzel_GetExactFreq(str);
-    float confidence = Goertzel_GetMagnitude(str);
+    /* --- Primary String FFT Lock --- */
+    float measured = 0.0f;
+    float confidence = 0.0f;
+    GetFFTRadarLock(target, &measured, &confidence);
 
     /* Store previous lock state before update */
     uint8_t prev_lock = s_state[str].lock_state;
@@ -435,9 +476,11 @@ void TuningCtrl_RunHop(void)
         uint8_t str2     = SongSched_GetStringId2();
         float   target2  = SongSched_GetTargetFreq2();
 
-        float   measured2   = Goertzel_GetExactFreq(str2);
-        float   confidence2 = Goertzel_GetMagnitude(str2);
-
+        /* --- Secondary String FFT Lock --- */
+        float measured2 = 0.0f;
+        float confidence2 = 0.0f;
+        GetFFTRadarLock(target2, &measured2, &confidence2);
+        
         uint8_t prev_lock2 = s_state[str2].lock_state;
         TuningCtrl_Update(str2, target2, measured2, confidence2);
         uint8_t curr_lock2 = s_state[str2].lock_state;
@@ -459,13 +502,13 @@ void TuningCtrl_RunHop(void)
         s_debug_counter = 0u;
 
         const TuningStringState_t *ds = &s_state[str];
-        float err_hz = target - Goertzel_GetExactFreq(str);
+        float err_hz = target - measured;
 
         printf("[TC] %lu,%u,%.2f,%.2f,%.3f,%.1f,%.1f,%ld,%ld,%u,%u,%u,%.0f,%u\r\n",
                (unsigned long)HAL_GetTick(),
                (unsigned int)str,
                (double)target,
-               (double)Goertzel_GetExactFreq(str),
+               (double)measured,
                (double)err_hz,
                (double)ds->ff_steps_abs,
                (double)ds->trim_steps,

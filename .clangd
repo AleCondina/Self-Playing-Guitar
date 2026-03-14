@@ -1,13 +1,10 @@
 If:
-  PathMatch:
-  - CM7/.*
-  - Drivers/.*
-  - Shared/.*
+  PathMatch: CM4/.*
 CompileFlags:
   Add:
   - '-ferror-limit=0'
   - '-Wno-implicit-int'
-  CompilationDatabase: CM7/build
+  CompilationDatabase: CM4/build
 Diagnostics:
   Suppress:
   - unused-includes
@@ -18,12 +15,15 @@ Diagnostics:
 ---
 
 If:
-  PathMatch: CM4/.*
+  PathMatch:
+  - CM7/.*
+  - Drivers/.*
+  - Shared/.*
 CompileFlags:
   Add:
   - '-ferror-limit=0'
   - '-Wno-implicit-int'
-  CompilationDatabase: CM4/build
+  CompilationDatabase: CM7/build
 Diagnostics:
   Suppress:
   - unused-includes

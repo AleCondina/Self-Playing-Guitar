@@ -25,6 +25,7 @@
  */
 
 #include "serial_cmd.h"
+#include "app_cm7.h"
 #include "debug_uart.h"
 #include "inter_core_cm7.h"
 #include "shared_memory.h"
@@ -100,6 +101,8 @@ static void Cmd_Sol(char *args);
 static void Cmd_SolStop(char *args);
 static void Cmd_SolStatus(char *args);
 static void Cmd_Demo(char *args);
+static void Cmd_Calibrate(char *args);
+static void Cmd_Smoke(char *args);
 static void Demo_Tick(void);
 
 /* Command table entry */
@@ -127,6 +130,8 @@ static const CmdEntry_t command_table[] = {
     { "stop",      Cmd_Stop,      "stop                    Emergency stop all" },
     { "status",    Cmd_Status,    "status                  Print motor status" },
     { "demo",      Cmd_Demo,      "demo                    Run solenoid+motor demo" },
+    { "calibrate", Cmd_Calibrate, "calibrate [str ...]      Sweep strings and fill tuning LUT (e.g. 'calibrate 2 3')" },
+    { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water" },
     { "help",      Cmd_Help,      "help                    Show this help" },
     { "sol",       Cmd_Sol,       "sol <id> <str> <fret> [duty] [time] [cycles]  Trigger solenoid" },
     { "solstop",   Cmd_SolStop,   "solstop <id|all>        Stop solenoid(s)" },
@@ -696,6 +701,47 @@ static void Cmd_SolStatus(char *args)
            g_shared_memory.solenoid_fret,
            g_shared_memory.solenoid_duty_cycle);
     printf("============================\r\n\r\n");
+}
+
+/* ===== Calibration & Song Commands ===== */
+
+static void Cmd_Calibrate(char *args)
+{
+    (void)args;
+
+    /* Parse optional string-ID list: "calibrate", "calibrate all",
+     * "calibrate 2", "calibrate 2 3", etc. */
+    char *tok = strtok(NULL, " \t");
+
+    if (tok == NULL || strcmp(tok, "all") == 0) {
+        /* No args or "all" → sweep every string */
+        printf("  Requesting calibration sweep (all strings)...\r\n");
+        printf("  Watch [CAL] output. Type 'smoke' when done.\r\n");
+        App_RequestCalibration(0x3Fu);
+        return;
+    }
+
+    /* Build a bitmask from the listed string IDs */
+    uint8_t mask = 0u;
+    do {
+        int id = atoi(tok);
+        if (id < 0 || id >= NUM_STRINGS) {
+            printf("  Error: string ID %d out of range (0-%d).\r\n", id, NUM_STRINGS - 1);
+            return;
+        }
+        mask |= (uint8_t)(1u << id);
+    } while ((tok = strtok(NULL, " \t")) != NULL);
+
+    printf("  Requesting calibration sweep (mask 0x%02X)...\r\n", (unsigned)mask);
+    printf("  Watch [CAL] output. Type 'smoke' when done.\r\n");
+    App_RequestCalibration(mask);
+}
+
+static void Cmd_Smoke(char *args)
+{
+    (void)args;
+    printf("  Starting Smoke on the Water...\r\n");
+    App_RequestPlay();
 }
 
 /* ===== Demo Command & State Machine ===== */

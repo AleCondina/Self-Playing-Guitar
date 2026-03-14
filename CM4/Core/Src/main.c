@@ -59,11 +59,11 @@
 
 /* Timer handles for solenoid PWM control (6 independent timers) */
 TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 string (PB14) */
-TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 string (PA6) */
-TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 string (PA7) */
+TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 string (PF8) */
+TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 string (PF9) */
 TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 string (PE5) */
-TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 string (PB8) */
-TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 string (PB9) */
+TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 string (PF6) */
+TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 string (PF7) */
 
 /* USER CODE END PV */
 
@@ -304,7 +304,7 @@ static void MX_TIM15_Init(void)
 
 /**
  * @brief TIM16 Initialization Function
- * @note  Solenoid 4: B3 string on PB8
+ * @note  Solenoid 4: B3 string on PF6
  * @note  PWM frequency controlled by ARR, duty cycle by CCR
  */
 static void MX_TIM16_Init(void)
@@ -337,7 +337,7 @@ static void MX_TIM16_Init(void)
 
 /**
  * @brief TIM17 Initialization Function
- * @note  Solenoid 5: E4 string (High E) on PB9
+ * @note  Solenoid 5: E4 string (High E) on PF7
  * @note  PWM frequency controlled by ARR, duty cycle by CCR
  */
 static void MX_TIM17_Init(void)

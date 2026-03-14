@@ -6,10 +6,9 @@
  *
  * Control-hop flow (every ~170 ms, driven by audio DMA half-complete):
  *   1. Audio_HasNewSamples() fires
- *   2. FFT_ProcessBlock()  – polyphonic peak detection (legacy / diagnostics)
- *   3. Goertzel_ProcessBlock() – per-string frequency + magnitude estimation
- *   4. SongSched_Tick()    – advance note schedule
- *   5. TuningCtrl_RunHop() – FF + PI control → InterCore_SendMotorGoto()
+ *   2. FFT_ProcessBlock()  – polyphonic peak detection to active_frequencies[] / active_magnitudes[]
+ *   3. SongSched_Tick()    – advance note schedule
+ *   4. TuningCtrl_RunHop() – FF + PI control → InterCore_SendMotorGoto()
  *                             + solenoid coordination
  ******************************************************************************
  */
@@ -21,8 +20,8 @@
 #include "serial_cmd.h"
 #include "audio_input.h"
 #include "fft_processing.h"
-#include "goertzel_processing.h"
 #include "tuning_controller.h"
+#include "calibration_controller.h"
 #include "song_scheduler.h"
 #include "shared_memory.h"
 #include "stm32h755xx.h"
@@ -60,11 +59,17 @@ static SongScheduler_t g_sched;
 typedef enum {
     STATE_INIT,
     STATE_IDLE,
+    STATE_CALIBRATING,
     STATE_RUNNING,
     STATE_ERROR
 } AppState_t;
 
 static AppState_t app_state = STATE_INIT;
+
+/* Set by serial commands to request mode changes on the next audio hop */
+static volatile uint8_t s_request_calibrate      = 0u;
+static volatile uint8_t s_request_calibrate_mask = 0x3Fu;
+static volatile uint8_t s_request_play            = 0u;
 
 /**
  * @brief CM7 application main function
@@ -100,7 +105,16 @@ void App_CM7_Main(void) {
         printf("[CM7] CM4 ready! Homing motors...\r\n");
         InterCore_HomeMotors();
         HAL_Delay(100);  /* Let CM4 process home command */
-        printf("[CM7] Home position established (all positions zeroed).\r\n\r\n");
+        printf("[CM7] Home position established (all positions zeroed).\r\n");
+
+        /* Set all configured motors to 1/16 microstepping (mode 4) */
+        printf("[CM7] Setting motors to 1/16 microstepping...\r\n");
+        for (uint8_t i = 0u; i < 4u; i++) {
+            InterCore_SendMotorMicrostep(i, 4u);
+        }
+        HAL_Delay(50);  /* Let CM4 apply the new mode */
+        printf("[CM7] Microstep mode set.\r\n\r\n");
+
         Debug_UART_StartRx();
         SerialCmd_Init();
         printf("\r\nType 'help' for commands.\r\n> ");
@@ -109,18 +123,13 @@ void App_CM7_Main(void) {
         printf("[CM7] Initializing FFT engine...\r\n");
         FFT_Init();
 
-        /* Initialize Goertzel per-string pitch estimator */
-        printf("[CM7] Initializing Goertzel estimator...\r\n");
-        Goertzel_Init();
-
         /* Initialize tuning controller (depends on home being established) */
         printf("[CM7] Initializing tuning controller...\r\n");
         TuningCtrl_Init();
 
-        /* Initialize song scheduler */
-        printf("[CM7] Initializing song scheduler (%lu notes)...\r\n",
+        /* Register song scheduler note count (not started yet – use 'smoke' command) */
+        printf("[CM7] Song scheduler ready (%lu notes loaded).\r\n",
                (unsigned long)SongSched_GetNoteCount());
-        SongSched_Init();
 
         /* Print CSV log header for offline analysis */
         printf("[TC] timestamp_ms,string_id,target_hz,measured_hz,error_hz,"
@@ -197,8 +206,29 @@ printf("%lu: start=%lu dur=%lu end=%lu freq=%d string=%u motor=%u vel=%u\n",
         /* State machine */
         switch (app_state) {
             case STATE_IDLE:
-                printf("[CM7] System ready for commands.\r\n");
+                printf("[CM7] System ready. Type 'calibrate' or 'smoke'.\r\n");
                 app_state = STATE_RUNNING;
+                break;
+
+            case STATE_CALIBRATING:
+                /* Process serial commands while calibrating */
+                SerialCmd_Process();
+
+                if (Audio_HasNewSamples()) {
+                    uint16_t *audio_buf = Audio_GetBuffer();
+
+                    /* FFT must run first – Cal_Hop() reads active_frequencies[] */
+                    FFT_ProcessBlock(audio_buf);
+                    Audio_MarkProcessed();
+
+                    Cal_Hop();
+                }
+
+                /* Return to idle when calibration finishes */
+                if (Cal_GetStatus() == CAL_STATUS_DONE ||
+                    Cal_GetStatus() == CAL_STATUS_ERROR) {
+                    app_state = STATE_RUNNING;
+                }
                 break;
 
             case STATE_RUNNING:
@@ -216,24 +246,35 @@ printf("%lu: start=%lu dur=%lu end=%lu freq=%d string=%u motor=%u vel=%u\n",
                     /* FFT: polyphonic peak detection (retained for diagnostics) */
                     FFT_ProcessBlock(audio_buf);
 
-                    /* Goertzel: per-string exact frequency + magnitude */
-                    Goertzel_ProcessBlock(audio_buf);
-
                     /* Mark buffer consumed before any blocking work */
                     Audio_MarkProcessed();
+
+                    /* --- Handle requests from serial commands --- */
+                    if (s_request_calibrate) {
+                        uint8_t mask = s_request_calibrate_mask;
+                        s_request_calibrate = 0u;
+                        Cal_Start(mask);
+                        app_state = STATE_CALIBRATING;
+                        Audio_MarkProcessed();
+                        break;
+                    }
+                    if (s_request_play) {
+                        s_request_play = 0u;
+                        SongSched_Init();
+                    }
 
                     /* --- Song scheduler tick --- */
                     SongSched_Tick(HAL_GetTick());
 
                     /* --- Tuning control hop ---
-                     * Reads Goertzel results and song scheduler state,
+                     * Reads FFT results and song scheduler state,
                      * computes PI + FF commands, pushes to CM4 via
                      * InterCore_SendMotorGoto() / solenoid commands.
                      */
                     TuningCtrl_RunHop();
 
-                    /* Diagnostic: print FFT polyphonic results */
-                    if (active_string_count > 0) {
+                    /* Diagnostic: print FFT polyphonic results (only during playback) */
+                    if (SongSched_IsActive() && active_string_count > 0) {
                         printf("[CM7] FFT %d string(s): ", active_string_count);
                         for (uint8_t i = 0; i < active_string_count; i++) {
                             printf("%.2f Hz  ", (double)active_frequencies[i]);
@@ -266,7 +307,7 @@ printf("%lu: start=%lu dur=%lu end=%lu freq=%d string=%u motor=%u vel=%u\n",
         /* Print diagnostics every 5 seconds */
         if (HAL_GetTick() - last_debug_time >= 5000u) {
             last_debug_time = HAL_GetTick();
-            if (app_state == STATE_RUNNING) {
+            if (app_state == STATE_RUNNING && SongSched_IsActive()) {
                 printf("[CM7] Song note %lu/%lu | CM4 loop %lu Hz\r\n",
                        (unsigned long)SongSched_GetNoteIndex(),
                        (unsigned long)SongSched_GetNoteCount(),
@@ -276,4 +317,22 @@ printf("%lu: start=%lu dur=%lu end=%lu freq=%d string=%u motor=%u vel=%u\n",
 
          SongScheduler_Update(&g_sched, HAL_GetTick());
     }
+}
+
+/* =========================================================================
+ * Serial command request API
+ * Called from serial_cmd.c handlers; safe to call from the main loop.
+ * ========================================================================= */
+
+void App_RequestCalibration(uint8_t string_mask)
+{
+    if (app_state != STATE_CALIBRATING) {
+        s_request_calibrate_mask = string_mask;
+        s_request_calibrate      = 1u;
+    }
+}
+
+void App_RequestPlay(void)
+{
+    s_request_play = 1u;
 }
