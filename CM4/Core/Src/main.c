@@ -60,7 +60,7 @@
 
 /* Timer handles for solenoid PWM control (6 independent timers) */
 TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 string (PB14) */
-TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 string (PF8) */
+TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 string (PA6) */
 TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 string (PF9) */
 TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 string (PE5) */
 TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 string (PF6) */
