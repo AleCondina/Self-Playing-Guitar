@@ -26,11 +26,16 @@
 #include "inter_core_cm7.h"
 #include "debug_uart.h"
 #include "app_cm7.h"
+#include "stm32h7xx_hal.h"
 #include "stm32h7xx_hal_adc.h"
+#include "stm32h7xx_hal_flash_ex.h"
 #include "stm32h7xx_hal_hsem.h"
 #include "stm32h7xx_hal_tim.h"
 #include <string.h>
 /* USER CODE END Includes */
+
+// COMMENT this to toggle between 64Mhz and 480Mhz
+#define CLK_480MHZ_CODE
 
 /* Private typedef -----------------------------------------------------------*/
 /* USER CODE BEGIN PTD */
@@ -123,6 +128,7 @@ int main(void)
   /* Initialize shared memory to zero (AXI SRAM enabled by default) */
   memset((void*)&g_shared_memory, 0, sizeof(SharedMemory_t));
   __DSB(); /* Data synchronization barrier */
+
   /* USER CODE END Init */
 
   /* Configure the system clock */
@@ -219,6 +225,11 @@ Error_Handler();
   * @brief System Clock Configuration
   * @retval None
   */
+
+#ifdef CLK_480MHZ_CODE
+// SMPS pre-initialised + physically stabilised (HAL_Delay) in USER CODE BEGIN Init.
+// PLL: HSI(64MHz) / M=8 → VCO_in=8MHz / N=99 → VCO_out=792MHz / P=2 → SYSCLK=396MHz
+// HCLK = 198MHz (÷2), VOS1 (max 400MHz SYSCLK ✓)
 void SystemClock_Config(void)
 {
   RCC_OscInitTypeDef RCC_OscInitStruct = {0};
@@ -234,6 +245,8 @@ void SystemClock_Config(void)
 
   while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
 
+  HAL_Delay(5); // Delay for stabilizing smps
+
   /** Initializes the RCC Oscillators according to the specified parameters
   * in the RCC_OscInitTypeDef structure.
   */
@@ -247,8 +260,8 @@ void SystemClock_Config(void)
   RCC_OscInitStruct.PLL.PLLP = 2;
   RCC_OscInitStruct.PLL.PLLQ = 5;
   RCC_OscInitStruct.PLL.PLLR = 2;
-  RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_3;
-  RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE;
+  RCC_OscInitStruct.PLL.PLLRGE = RCC_PLL1VCIRANGE_2; // 4-8MHz VCO input range
+  RCC_OscInitStruct.PLL.PLLVCOSEL = RCC_PLL1VCOWIDE; // 192-960MHz VCO output
   RCC_OscInitStruct.PLL.PLLFRACN = 0;
   if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
   {
@@ -286,6 +299,58 @@ static void ConfigureSupplyForSmps(void)
     Error_Handler();
   }
 }
+#else
+// 64Mhz test
+void SystemClock_Config(void)
+{
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  /** Supply configuration update enable
+  */
+  HAL_PWREx_ConfigSupply(PWR_DIRECT_SMPS_SUPPLY);
+
+  /** Configure the main internal regulator output voltage
+  */
+  __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE3);
+
+  while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
+
+  /** Macro to configure the PLL clock source
+  */
+  __HAL_RCC_PLL_PLLSOURCE_CONFIG(RCC_PLLSOURCE_HSI);
+
+  /** Initializes the RCC Oscillators according to the specified parameters
+  * in the RCC_OscInitTypeDef structure.
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_DIV1;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_NONE;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Initializes the CPU, AHB and APB buses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1|RCC_CLOCKTYPE_PCLK2
+                              |RCC_CLOCKTYPE_D3PCLK1|RCC_CLOCKTYPE_D1PCLK1;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_HSI;
+  RCC_ClkInitStruct.SYSCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_HCLK_DIV1;
+  RCC_ClkInitStruct.APB3CLKDivider = RCC_APB3_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_APB1_DIV1;
+  RCC_ClkInitStruct.APB2CLKDivider = RCC_APB2_DIV1;
+  RCC_ClkInitStruct.APB4CLKDivider = RCC_APB4_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+}
+#endif
 
 /**
   * @brief ADC3 Initialization Function

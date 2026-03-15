@@ -4,7 +4,7 @@
 #include <stdio.h>
 #include <math.h>
 
-#define TIM6_CALIBRATION_FACTOR 1.005245182f // using a calibration value since the clk speed is 64Mhz and Fs 6Khz isnt divisible
+#define TIM6_CALIBRATION_FACTOR 1.0f // At 240 MHz: TIM6 period = 39999 → Fs = 240MHz/40000 = exactly 6000 Hz, no correction needed
 
 #define SEARCH_START_BIN (60 / FFT_RESOLUTION) // around 60 Hz
 #define SEARCH_END_BIN   (440 / FFT_RESOLUTION) // around 440 Hz 
