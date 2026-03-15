@@ -64,16 +64,27 @@ void FFT_ProcessBlock(uint16_t* audio_buf)
     /* 4. Calculate Magnitudes from Complex Output */
     arm_cmplx_mag_f32(fft_output, fft_mag, FFT_SIZE / 2);
 
-    // //DEBUG: tune noise gate with guitar
-    // /* --- TEMPORARY NOISE GATE CALIBRATION --- */
-    // float temp_max_mag = 0.0f;
-    // for (uint32_t i = SEARCH_START_BIN; i < SEARCH_END_BIN; i++) {
-    //     if (fft_mag[i] > temp_max_mag) {
-    //         temp_max_mag = fft_mag[i];
-    //     }
-    // }
-    /* Print the absolute loudest thing the ADC hears right now */
-    // printf("[DSP Debug] Peak Magnitude: %.1f\r\n", temp_max_mag);
+    /* --- TEMPORARY NOISE GATE CALIBRATION --- */
+    {
+        static uint8_t dbg_decim = 0;
+        dbg_decim++;
+        if (dbg_decim >= 10) {   /* Print every 10th hop (~1.7 s) to avoid UART flood */
+            dbg_decim = 0;
+            float temp_max_mag = 0.0f;
+            uint32_t temp_max_bin = 0;
+            for (uint32_t i = SEARCH_START_BIN; i < SEARCH_END_BIN; i++) {
+                if (fft_mag[i] > temp_max_mag) {
+                    temp_max_mag = fft_mag[i];
+                    temp_max_bin = i;
+                }
+            }
+            float temp_max_freq = (float)temp_max_bin * ((float)AUDIO_SAMPLE_RATE_HZ / FFT_SIZE);
+            printf("[DSP] Peak: %.0f mag @ %.1f Hz (gate=%.0f) | strings=%u\r\n",
+                   (double)temp_max_mag, (double)temp_max_freq,
+                   (double)NOISE_GATE_THRESHOLD,
+                   (unsigned)active_string_count);
+        }
+    }
     /* ---------------------------------------- */
 
 
