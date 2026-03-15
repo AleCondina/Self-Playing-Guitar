@@ -131,7 +131,7 @@ extern "C" {
 #define TUNING_STALL_MIN_FREQ_DELTA_HZ  0.3f
 
 /** Number of LUT breakpoints per string in the feed-forward tables. */
-#define TUNING_FF_NUM_POINTS    4u
+#define TUNING_FF_NUM_POINTS    7u
 
 /**
  * @brief Mechanical step limits per string.

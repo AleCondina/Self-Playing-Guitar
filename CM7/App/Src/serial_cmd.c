@@ -102,6 +102,7 @@ static void Cmd_SolStop(char *args);
 static void Cmd_SolStatus(char *args);
 static void Cmd_Demo(char *args);
 static void Cmd_Calibrate(char *args);
+static void Cmd_MapFrets(char *args);
 static void Cmd_Smoke(char *args);
 static void Demo_Tick(void);
 
@@ -131,6 +132,7 @@ static const CmdEntry_t command_table[] = {
     { "status",    Cmd_Status,    "status                  Print motor status" },
     { "demo",      Cmd_Demo,      "demo                    Run solenoid+motor demo" },
     { "calibrate", Cmd_Calibrate, "calibrate [str ...]      Sweep strings and fill tuning LUT (e.g. 'calibrate 2 3')" },
+    { "mapfrets",  Cmd_MapFrets,  "mapfrets [str ...]       Measure fret step positions for LUT (e.g. 'mapfrets 0 1')" },
     { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water" },
     { "help",      Cmd_Help,      "help                    Show this help" },
     { "sol",       Cmd_Sol,       "sol <id> <str> <fret> [duty] [time] [cycles]  Trigger solenoid" },
@@ -735,6 +737,34 @@ static void Cmd_Calibrate(char *args)
     printf("  Requesting calibration sweep (mask 0x%02X)...\r\n", (unsigned)mask);
     printf("  Watch [CAL] output. Type 'smoke' when done.\r\n");
     App_RequestCalibration(mask);
+}
+
+static void Cmd_MapFrets(char *args)
+{
+    (void)args;
+
+    char *tok = strtok(NULL, " \t");
+
+    if (tok == NULL || strcmp(tok, "all") == 0) {
+        printf("  Starting LUT builder (all strings)...\r\n");
+        printf("  Pluck each string when prompted. Watch [LUT] output.\r\n");
+        App_RequestLutBuild(0x3Fu);
+        return;
+    }
+
+    uint8_t mask = 0u;
+    do {
+        int id = atoi(tok);
+        if (id < 0 || id >= NUM_STRINGS) {
+            printf("  Error: string ID %d out of range (0-%d).\r\n", id, NUM_STRINGS - 1);
+            return;
+        }
+        mask |= (uint8_t)(1u << id);
+    } while ((tok = strtok(NULL, " \t")) != NULL);
+
+    printf("  Starting LUT builder (mask 0x%02X)...\r\n", (unsigned)mask);
+    printf("  Pluck each string when prompted. Watch [LUT] output.\r\n");
+    App_RequestLutBuild(mask);
 }
 
 static void Cmd_Smoke(char *args)

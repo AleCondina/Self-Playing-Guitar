@@ -22,6 +22,7 @@
 #include "fft_processing.h"
 #include "tuning_controller.h"
 #include "calibration_controller.h"
+#include "lut_builder.h"
 #include "song_scheduler.h"
 #include "shared_memory.h"
 #include "stm32h755xx.h"
@@ -39,6 +40,7 @@ typedef enum {
     STATE_INIT,
     STATE_IDLE,
     STATE_CALIBRATING,
+    STATE_LUT_BUILDING,
     STATE_RUNNING,
     STATE_ERROR
 } AppState_t;
@@ -49,6 +51,8 @@ static AppState_t app_state = STATE_INIT;
 static volatile uint8_t s_request_calibrate      = 0u;
 static volatile uint8_t s_request_calibrate_mask = 0x3Fu;
 static volatile uint8_t s_request_play            = 0u;
+static volatile uint8_t s_request_lutbuild       = 0u;
+static volatile uint8_t s_request_lutbuild_mask  = 0x3Fu;
 
 /**
  * @brief CM7 application main function
@@ -174,6 +178,22 @@ void App_CM7_Main(void) {
                 }
                 break;
 
+            case STATE_LUT_BUILDING:
+                SerialCmd_Process();
+
+                if (Audio_HasNewSamples()) {
+                    uint16_t *audio_buf = Audio_GetBuffer();
+                    FFT_ProcessBlock(audio_buf);
+                    Audio_MarkProcessed();
+                    LutBuilder_Hop();
+                }
+
+                if (LutBuilder_GetStatus() == LUT_STATUS_DONE ||
+                    LutBuilder_GetStatus() == LUT_STATUS_ERROR) {
+                    app_state = STATE_RUNNING;
+                }
+                break;
+
             case STATE_RUNNING:
                 /* Process serial commands */
                 SerialCmd_Process();
@@ -198,6 +218,14 @@ void App_CM7_Main(void) {
                         s_request_calibrate = 0u;
                         Cal_Start(mask);
                         app_state = STATE_CALIBRATING;
+                        Audio_MarkProcessed();
+                        break;
+                    }
+                    if (s_request_lutbuild) {
+                        uint8_t mask = s_request_lutbuild_mask;
+                        s_request_lutbuild = 0u;
+                        LutBuilder_Start(mask);
+                        app_state = STATE_LUT_BUILDING;
                         Audio_MarkProcessed();
                         break;
                     }
@@ -274,4 +302,12 @@ void App_RequestCalibration(uint8_t string_mask)
 void App_RequestPlay(void)
 {
     s_request_play = 1u;
+}
+
+void App_RequestLutBuild(uint8_t string_mask)
+{
+    if (app_state != STATE_LUT_BUILDING) {
+        s_request_lutbuild_mask = string_mask;
+        s_request_lutbuild      = 1u;
+    }
 }
