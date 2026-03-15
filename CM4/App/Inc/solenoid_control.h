@@ -9,11 +9,11 @@
  *          - Solenoid 1: TIM14 CH1 (PA7)  → String A2 (110-165 Hz)
  *          - Solenoid 2: TIM13 CH1 (PA6)  → String D3 (147-220 Hz)
  *          - Solenoid 3: TIM15 CH1 (PE5)  → String G3 (196-294 Hz)
- *          - Solenoid 4: TIM16 CH1 (PF6)  → String B3 (247-370 Hz)
- *          - Solenoid 5: TIM17 CH1 (PF7)  → String E4 (330-494 Hz)
+ *          - Solenoid 4: TIM16 CH1 (PB8)  → String B3 (247-370 Hz)
+ *          - Solenoid 5: TIM17 CH1 (PB9)  → String E4 (330-494 Hz)
  *
  *          Each solenoid is driven via N-channel MOSFET (logic-level, 3.3V)
- *          Timer clock: 240 MHz (APB1), Prescaler: 99 (÷100) → 2.4 MHz count freq
+ *          Timer clock: 200 MHz (timer kernel), Prescaler: 99 (÷100) → 2.0 MHz count freq
  ******************************************************************************
  */
 
@@ -97,7 +97,7 @@ uint8_t Solenoid_GetActiveMask(void);
  * @brief Get current frequency for a solenoid (diagnostics)
  * @param solenoid_id Solenoid index (0-5)
  * @return Frequency in Hz, or 0 if invalid solenoid_id
- * @note  Calculated from current ARR value: freq = 640000 / (ARR + 1)
+ * @note  Calculated from current ARR value: freq = TIM_PRESCALED_CLK_HZ / (ARR + 1)
  */
 uint32_t Solenoid_GetFrequency(uint8_t solenoid_id);
 
@@ -128,7 +128,7 @@ uint8_t Solenoid_UpdateAutoStop(void);
  * @param solenoid_id Solenoid index (0-5)
  * @param freq_hz     Target frequency in Hz (must be > 0)
  * @return 0 on success, -1 if invalid parameters or frequency out of range
- * @note  Timer clock: 2.4 MHz, ARR = (2400000 / freq_hz) - 1
+ * @note  Timer clock: 2.0 MHz, ARR = (2000000 / freq_hz) - 1
  * @note  Safe range: 40–800 Hz (ARR fits in uint16_t; stays within PWM timer)
  * @note  Does NOT start PWM – call Solenoid_Start() or Solenoid_StartTimed()
  */

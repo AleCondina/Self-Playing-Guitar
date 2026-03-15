@@ -447,8 +447,9 @@ void ExitRun0Mode(void)
 {
 #if defined(USE_PWR_LDO_SUPPLY)
   #if defined(SMPS)
-    /* Exit Run* mode by disabling SMPS and enabling LDO */
-    PWR->CR3 = (PWR->CR3 & ~PWR_CR3_SMPSEN) | PWR_CR3_LDOEN;
+    /* Force the internal regulators into pure LDO mode before SystemInit(). */
+    PWR->CR3 = (PWR->CR3 & ~(PWR_CR3_SMPSLEVEL | PWR_CR3_SMPSEXTHP |
+                             PWR_CR3_SMPSEN | PWR_CR3_BYPASS)) | PWR_CR3_LDOEN;
   #else
     /* Enable LDO mode */
     PWR->CR3 |= PWR_CR3_LDOEN;
@@ -467,8 +468,9 @@ void ExitRun0Mode(void)
   while ((PWR->CSR1 & PWR_CSR1_ACTVOSRDY) == 0U)
   {}
 #elif defined(USE_PWR_DIRECT_SMPS_SUPPLY) && defined(SMPS)
-  /* Exit Run* mode */
-  PWR->CR3 &= ~(PWR_CR3_LDOEN);
+  /* Force the internal regulators into direct SMPS mode before SystemInit(). */
+  PWR->CR3 = (PWR->CR3 & ~(PWR_CR3_SMPSLEVEL | PWR_CR3_SMPSEXTHP |
+                           PWR_CR3_LDOEN | PWR_CR3_BYPASS)) | PWR_CR3_SMPSEN;
   /* Wait till voltage level flag is set */
   while ((PWR->CSR1 & PWR_CSR1_ACTVOSRDY) == 0U)
   {}

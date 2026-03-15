@@ -27,7 +27,7 @@
 ### Dual-Core Architecture
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ CM7 (Cortex-M7) @ 240 MHz                                   │
+│ CM7 (Cortex-M7) @ 400 MHz                                   │
 │ - Audio processing (FFT on pickup sensor - future)          │
 │ - Pitch detection and frequency analysis                    │
 │ - Command generation (string/fret → CM4)                    │
@@ -35,7 +35,7 @@
 └─────────────────────────────────────────────────────────────┘
                             ↓ Shared Memory (AXI SRAM)
 ┌─────────────────────────────────────────────────────────────┐
-│ CM4 (Cortex-M4) @ 240 MHz                                   │
+│ CM4 (Cortex-M4) @ 200 MHz                                   │
 │ - Real-time control loop @ 1 kHz (1ms period)               │
 │ - Motor control (stepper motor step generation)             │
 │ - **Solenoid PWM control** (implemented)                    │
@@ -73,10 +73,10 @@
 ### Timer Clock Configuration
 
 **Timer PWM Setup:**
-- Clock source: APB1 @ 240 MHz
+- Clock source: timer kernel @ 200 MHz
 - Prescaler: PSC = 99 (÷100)
-- Effective count frequency: 2.4 MHz
-- Formula: `ARR = (2,400,000 / target_freq_hz) - 1`
+- Effective count frequency: 2.0 MHz
+- Formula: `ARR = (2,000,000 / target_freq_hz) - 1`
 - Duty cycle: `CCR = ARR × (duty_percent / 100)`
 
 ---
@@ -238,12 +238,11 @@ Pre-calculated ARR values for 6 strings × 8 frets = 48 frequencies:
 - **Impact:** Setting frequency for one solenoid overwrites the other
 - **Fix:** Moved solenoid 1 to TIM14 (separate timer, separate ARR)
 
-### Issue 4: HAL GPIO Configuration Not Working
-- **Status:** WORKAROUND (2026-01-28)
-- **Problem:** `HAL_TIM_PWM_MspInit()` doesn't configure GPIO correctly
-- **Impact:** Timer runs but pin stays in input mode (no PWM output)
-- **Workaround:** Added direct GPIO register configuration in `app_cm4.c`
-- **TODO:** Investigate why HAL callback isn't working properly
+### Issue 4: GPIO Routing Drift Between Code Paths
+- **Status:** FIXED (2026-03-15)
+- **Problem:** `.ioc`, HAL MSP init, and `app_cm4.c` used different PWM pin maps
+- **Impact:** Some timer channels were routed to the wrong physical pins, and TIM13 was duplicated on two GPIOs
+- **Fix:** Standardized on the documented PA/PB pin map and removed direct GPIO rerouting from `app_cm4.c`
 
 ---
 
@@ -417,12 +416,11 @@ if (invalid_input) {
 - **Solution:** Use separate timers (TIM12, TIM14) for independent frequencies
 - **Date Fixed:** 2026-01-28
 
-### 5. HAL GPIO Init May Not Work - Use Direct Register Access
-- **Lesson:** `HAL_TIM_PWM_MspInit()` callback may not configure GPIO correctly
-- **Impact:** Timer runs but no PWM signal on pin (pin stays in input mode)
-- **Symptom:** Oscilloscope shows nothing, but timer registers look correct
-- **Solution:** Add direct GPIO register configuration in app_cm4.c as backup
-- **Date Fixed:** 2026-01-28
+### 5. Keep Timer Pin Routing in One Place
+- **Lesson:** Duplicating timer pin routing in both HAL MSP and application code is fragile
+- **Impact:** A single timer channel can appear on multiple pins or on the wrong connector
+- **Solution:** Keep PWM pin routing only in CubeMX/HAL init and remove application-level GPIO remaps
+- **Date Fixed:** 2026-03-15
 
 ---
 
@@ -451,8 +449,8 @@ if (invalid_input) {
 - ✅ Added new GPIO pins: PA7, PE5, PB8, PB9
 - ✅ Updated frequency table to cover all 6 strings × 8 frets = 48 frequencies
 - ✅ Verified PB14 PWM output working at correct frequency
-- ✅ Identified root cause: GPIO not configured in alternate function mode
-- ✅ Added direct GPIO register configuration as workaround
+- ✅ Standardized GPIO routing to PB14, PA7, PA6, PE5, PB8, PB9
+- ✅ Removed direct GPIO register configuration workaround
 - ✅ **All 6 solenoids now have independent frequency control!**
 
 **New Pin Assignments:**

@@ -60,11 +60,11 @@
 
 /* Timer handles for solenoid PWM control (6 independent timers) */
 TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 string (PB14) */
-TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 string (PF8) */
-TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 string (PF9) */
+TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 string (PA6) */
+TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 string (PA7) */
 TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 string (PE5) */
-TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 string (PF6) */
-TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 string (PF7) */
+TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 string (PB8) */
+TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 string (PB9) */
 
 /* USER CODE END PV */
 
@@ -181,7 +181,7 @@ static void MX_TIM12_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim12.Instance = TIM12;
-    htim12.Init.Prescaler = 99;  /* 240 MHz / 100 = 2.4 MHz count frequency */
+    htim12.Init.Prescaler = 99;  /* 200 MHz / 100 = 2.0 MHz count frequency */
     htim12.Init.CounterMode = TIM_COUNTERMODE_UP;
     htim12.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / E2_HZ) - 0.5f);   /* Default: 82.41 Hz (E2 open string)  Note: -0.5f for rounding (-1f + 0.5f)*/
     htim12.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -214,7 +214,7 @@ static void MX_TIM13_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim13.Instance = TIM13;
-    htim13.Init.Prescaler = 99;  /* 240 MHz / 100 = 2.4 MHz count frequency */
+    htim13.Init.Prescaler = 99;  /* 200 MHz / 100 = 2.0 MHz count frequency */
     htim13.Init.CounterMode = TIM_COUNTERMODE_UP;
     htim13.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / D3_HZ) - 0.5f);   /* Default: 146.83 Hz (D3 open string) */
     htim13.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -239,7 +239,7 @@ static void MX_TIM13_Init(void)
 
 /**
  * @brief TIM14 Initialization Function
- * @note  Solenoid 1: A2 string on PF9
+ * @note  Solenoid 1: A2 string on PA7
  * @note  PWM frequency controlled by ARR, duty cycle by CCR
  */
 static void MX_TIM14_Init(void)
@@ -247,7 +247,7 @@ static void MX_TIM14_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim14.Instance = TIM14;
-    htim14.Init.Prescaler = 99;  /* 240 MHz / 100 = 2.4 MHz count frequency */
+    htim14.Init.Prescaler = 99;  /* 200 MHz / 100 = 2.0 MHz count frequency */
     htim14.Init.CounterMode = TIM_COUNTERMODE_UP;
     htim14.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / A2_HZ) - 0.5f);   /* Default: 110.00 Hz (A2 open string) */
     htim14.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -280,7 +280,7 @@ static void MX_TIM15_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim15.Instance = TIM15;
-    htim15.Init.Prescaler = 99;  /* 240 MHz / 100 = 2.4 MHz count frequency */
+    htim15.Init.Prescaler = 99;  /* 200 MHz / 100 = 2.0 MHz count frequency */
     htim15.Init.CounterMode = TIM_COUNTERMODE_UP;
     htim15.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / G3_HZ) - 0.5f);   /* Default: 196.00 Hz (G3 open string) */
     htim15.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -305,7 +305,7 @@ static void MX_TIM15_Init(void)
 
 /**
  * @brief TIM16 Initialization Function
- * @note  Solenoid 4: B3 string on PF6
+ * @note  Solenoid 4: B3 string on PB8
  * @note  PWM frequency controlled by ARR, duty cycle by CCR
  */
 static void MX_TIM16_Init(void)
@@ -313,7 +313,7 @@ static void MX_TIM16_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim16.Instance = TIM16;
-    htim16.Init.Prescaler = 99;  /* 240 MHz / 100 = 2.4 MHz count frequency */
+    htim16.Init.Prescaler = 99;  /* 200 MHz / 100 = 2.0 MHz count frequency */
     htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
     htim16.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / B3_HZ) - 0.5f);   /* Default: 246.94 Hz (B3 open string) */
     htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
@@ -338,7 +338,7 @@ static void MX_TIM16_Init(void)
 
 /**
  * @brief TIM17 Initialization Function
- * @note  Solenoid 5: E4 string (High E) on PF7
+ * @note  Solenoid 5: E4 string (High E) on PB9
  * @note  PWM frequency controlled by ARR, duty cycle by CCR
  */
 static void MX_TIM17_Init(void)
@@ -346,7 +346,7 @@ static void MX_TIM17_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim17.Instance = TIM17;
-    htim17.Init.Prescaler = 99;  /* 240 MHz / 100 = 2.4 MHz count frequency */
+    htim17.Init.Prescaler = 99;  /* 200 MHz / 100 = 2.0 MHz count frequency */
     htim17.Init.CounterMode = TIM_COUNTERMODE_UP;
     htim17.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / E4_HZ) - 0.5f);   /* Default: 329.63 Hz (E4 open string) */
     htim17.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
