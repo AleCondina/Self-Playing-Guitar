@@ -55,6 +55,8 @@ static SolenoidState_t solenoid_states[SOLENOID_COUNT];
  *   4    | B3        |  246.94   |   369.99
  *   5    | E4        |  329.63   |   493.88
  */
+
+ // TODO: change these values using (TIM_PRESCALED_CLK_HZ / target freq ) - 1 + 0.5 for proper integer rounding, eg. (2.2Mhz / 82.41) - 0.5 = 26695 ARR 
 static const uint16_t SOLENOID_FREQ_TABLE[6][8] = {
     /* String 0: E2 (82.41 Hz) - Low E */
     {29122, 27487, 25945, 24489, 23114, 21817, 20593, 19437},  /* Frets 0-7 */

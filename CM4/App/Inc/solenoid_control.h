@@ -6,7 +6,7 @@
  *
  *          Hardware (6 independent timers for independent frequencies):
  *          - Solenoid 0: TIM12 CH1 (PB14) → String E2 (82-123 Hz)
- *          - Solenoid 1: TIM14 CH1 (PA7)  → String A2 (110-165 Hz)
+ *          - Solenoid 1: TIM14 CH1 (PF9)  → String A2 (110-165 Hz)
  *          - Solenoid 2: TIM13 CH1 (PA6)  → String D3 (147-220 Hz)
  *          - Solenoid 3: TIM15 CH1 (PE5)  → String G3 (196-294 Hz)
  *          - Solenoid 4: TIM16 CH1 (PF6)  → String B3 (247-370 Hz)

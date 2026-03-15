@@ -43,11 +43,11 @@
 #define CM7_AUDIO_PROCESS_FREQ_HZ   100     /* CM7 pitch detection: 100Hz (10ms) */
 
 /* ===== System Clock Configuration ===== */
-#define SYSTEM_CLOCK_MHZ        480     /* CM7 system clock */
-#define CM4_CLOCK_MHZ           240     /* CM4 clock */
-#define TIM_CLOCK_MHZ           240      /* Timer peripheral clock (fixed to cm4 speed 240 Hz) */
-#define TIM_PRESCALED_CLK_HZ    2400000  /*Timer clk prescaled by /(1+99) */
-
+#define SYSTEM_CLOCK_MHZ        396     /* CM7 system clock */
+#define CM4_CLOCK_MHZ           SYSTEM_CLOCK_MHZ / 2     /* CM4 clock */
+#define TIM_CLOCK_MHZ           CM4_CLOCK_MHZ      /* Timer peripheral clock (fixed to cm4 speed 240 Hz) */
+#define TIM_PRESCALED_CLK_HZ    2200000  /*Timer clk prescaled by /(1+89) */
+ 
 /* ===== Error Codes (bit field) ===== */
 #define ERROR_MOTOR_STALL       (1U << 0)   /* Motor stall detected */
 #define ERROR_LIMIT_SWITCH      (1U << 1)   /* Limit switch hit */

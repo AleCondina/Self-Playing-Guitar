@@ -88,7 +88,7 @@
 /* Open-string frequencies – must match FFT open_strings[].
  * String order:  0=E2  1=A2  2=D3  3=G3  4=B3  5=E4 */
 static const float s_open_freq[NUM_STRINGS] = {
-     82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f
+     E2_HZ, A2_HZ, D3_HZ, G3_HZ, B3_HZ, E4_HZ
 };
 
 /* =========================================================================
@@ -176,7 +176,7 @@ static void Cal_BuildTable(uint8_t str)
     float fret7_f = open_f * CAL_FRET7_RATIO;
 
     if (s_buf_n < CAL_MIN_SAMPLES) {
-        printf("[CAL] str%u WARN: %u samples – too few, LUT unchanged\r\n",
+        printf("[CAL] str%u WARN: %u samples - too few, LUT unchanged\r\n",
                (unsigned)str, (unsigned)s_buf_n);
         return;
     }
@@ -322,11 +322,37 @@ void Cal_Hop(void)
     {
         float open_f      = s_open_freq[s_str];
         float stop_freq   = open_f * CAL_FRET7_RATIO * CAL_FRET7_MARGIN;
-        float meas_f      = (active_string_count > 0u)
-                            ? active_frequencies[0] : 0.0f;
+        float low_bound   = open_f * 0.80f;
+
+        /* Scan all detected peaks for the best frequency candidate:
+         *   Pass 1 — take the first entry that already falls in [low_bound, stop_freq].
+         *   Pass 2 — if nothing in range, try octave fold-down on any entry above
+         *            stop_freq whose half lands in [low_bound, stop_freq].  This
+         *            handles low strings (e.g. E2) where the 2nd harmonic is louder
+         *            than the fundamental and dominates active_frequencies[0]. */
+        float meas_f = 0.0f;
+        for (uint8_t j = 0u; j < active_string_count; j++) {
+            float f = active_frequencies[j];
+            if (f >= low_bound && f <= stop_freq) {
+                meas_f = f;
+                break;
+            }
+        }
+        if (meas_f == 0.0f) {
+            for (uint8_t j = 0u; j < active_string_count; j++) {
+                float half = active_frequencies[j] * 0.5f;
+                if (half >= low_bound && half <= stop_freq) {
+                    printf("[CAL] str%u harmonic folded: %.2f -> %.2f Hz\r\n",
+                           (unsigned)s_str,
+                           (double)active_frequencies[j], (double)half);
+                    meas_f = half;
+                    break;
+                }
+            }
+        }
 
         /* Reject readings below 80% of open frequency (noise / other string) */
-        uint8_t valid = (active_string_count > 0u) && (meas_f >= open_f * 0.80f);
+        uint8_t valid = (active_string_count > 0u) && (meas_f >= low_bound);
 
         if (!valid) {
             s_no_sig_cnt++;

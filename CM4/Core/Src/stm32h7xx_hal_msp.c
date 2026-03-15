@@ -111,19 +111,19 @@ void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef* htim)
         /* Enable TIM13 clock (APB1 domain) */
         __HAL_RCC_TIM13_CLK_ENABLE();
 
-        /* Enable GPIOF clock for PWM output pin */
-        __HAL_RCC_GPIOF_CLK_ENABLE();
+        /* Enable GPIOA clock for PWM output pin */
+        __HAL_RCC_GPIOA_CLK_ENABLE();
 
         /**
          * TIM13 GPIO Configuration:
-         * PF8 -> TIM13_CH1 (Solenoid 2: D3 string) - ZIO CN9-24
+         * PA6 -> TIM13_CH1 (Solenoid 2: D3 string)
          */
-        GPIO_InitStruct.Pin = GPIO_PIN_8;
+        GPIO_InitStruct.Pin = GPIO_PIN_6;
         GPIO_InitStruct.Mode = GPIO_MODE_AF_PP;         /* Alternate function push-pull */
         GPIO_InitStruct.Pull = GPIO_NOPULL;             /* No pull-up/pull-down */
         GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;    /* Low speed (147 Hz PWM) */
         GPIO_InitStruct.Alternate = GPIO_AF9_TIM13;     /* AF9 = TIM13 */
-        HAL_GPIO_Init(GPIOF, &GPIO_InitStruct);
+        HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
     }
     else if(htim->Instance == TIM14)
     {
@@ -223,8 +223,8 @@ void HAL_TIM_PWM_MspDeInit(TIM_HandleTypeDef* htim)
         /* Disable TIM13 clock */
         __HAL_RCC_TIM13_CLK_DISABLE();
 
-        /* De-initialize GPIO pin (PF8) */
-        HAL_GPIO_DeInit(GPIOF, GPIO_PIN_8);
+        /* De-initialize GPIO pin (PA6) */
+        HAL_GPIO_DeInit(GPIOA, GPIO_PIN_6);
     }
     else if(htim->Instance == TIM14)
     {

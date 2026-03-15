@@ -120,9 +120,24 @@ void InterCore_TriggerSolenoids(uint8_t solenoid_mask, uint32_t duration_ms)
         duration_ms = SOLENOID_MAX_DURATION_MS;
     }
 
-    /* Write to shared memory */
-    g_shared_memory.solenoid_triggers = solenoid_mask & 0x3F; /* Mask to 6 bits */
-    g_shared_memory.solenoid_duration_ms = duration_ms;
+     /* Write to shared memory */
+    // g_shared_memory.solenoid_triggers = solenoid_mask & 0x3F; /* Mask to 6 bits */
+    // g_shared_memory.solenoid_duration_ms = duration_ms;
+
+    /* Write to shared memory.
+     * CM4 CMD_TRIGGER_SOLENOID handler reads solenoid_id (single index), not
+     * solenoid_triggers (bitmask).  InterCore_TriggerSolenoids only supports
+     * single-solenoid triggering; use the lowest set bit as the solenoid_id. */
+    uint8_t sol_id = 0;
+    uint8_t mask = solenoid_mask & 0x3Fu;
+    while (sol_id < 6u && !((mask >> sol_id) & 1u)) { sol_id++; }
+    g_shared_memory.solenoid_id           = sol_id;
+    g_shared_memory.solenoid_string       = sol_id;   /* default: string == solenoid */
+    g_shared_memory.solenoid_fret         = 0u;
+    g_shared_memory.solenoid_mode         = SOLENOID_MODE_TIMED;
+    g_shared_memory.solenoid_activation_time_ms = (uint16_t)duration_ms;
+    g_shared_memory.solenoid_triggers     = mask;     /* kept for legacy readers */
+    g_shared_memory.solenoid_duration_ms  = duration_ms;
 
     /* Set command flag */
     g_shared_memory.motor_command_flags |= CMD_TRIGGER_SOLENOID;
