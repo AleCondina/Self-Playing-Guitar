@@ -5,7 +5,7 @@ Date: 2026-03-15
 This document summarizes the code and configuration changes made in the current workspace update. It covers two main areas:
 
 1. Power and clock reconfiguration to run the board in direct SMPS mode at 400 MHz.
-2. Solenoid PWM cleanup so all 6 solenoids can run independently with one timer per output.
+2. Solenoid PWM cleanup and timer remapping so all 6 solenoids can run independently with one timer output per solenoid, with the low strings moved onto `TIM1`, `TIM2`, `TIM3`, and `TIM4`.
 
 No files were renamed. The files below were modified in place.
 
@@ -25,10 +25,10 @@ Each solenoid now uses its own timer instance, so frequency changes are independ
 
 | Solenoid | Timer | Channel | Pin |
 | --- | --- | --- | --- |
-| 0 | `TIM12` | `CH1` | `PB14` |
-| 1 | `TIM14` | `CH1` | `PA7` |
-| 2 | `TIM13` | `CH1` | `PA6` |
-| 3 | `TIM15` | `CH1` | `PE5` |
+| 0 | `TIM1` | `CH1` | `PE9` |
+| 1 | `TIM3` | `CH2` | `PB5` |
+| 2 | `TIM2` | `CH1` | `PA5` |
+| 3 | `TIM4` | `CH1` | `PB6` |
 | 4 | `TIM16` | `CH1` | `PB8` |
 | 5 | `TIM17` | `CH1` | `PB9` |
 
@@ -58,6 +58,17 @@ That mismatch could make one command appear on the wrong output pin or make beha
 
 The fix was to remove duplicated routing logic and standardize all code and configuration on a single documented timer-to-pin map.
 
+### 3. Requested timer-instance remap
+
+After the routing cleanup, the low strings were remapped to the specific timer instances requested for the board:
+
+- `E2` moved to `TIM1`
+- `D3` moved to `TIM2`
+- `A2` stayed on `TIM3`
+- `G3` moved to `TIM4`
+
+The requested `TIM1` move initially suggested `PA8`, but that pin is already used by the motor-control path for Motor 2 step generation. To avoid a real pin conflict, `E2` was placed on `PE9`, which is a valid `TIM1_CH1` output on STM32H755 and does not collide with the current motor wiring.
+
 ## File-by-File Change List
 
 | File | Change | Why |
@@ -67,11 +78,11 @@ The fix was to remove duplicated routing logic and standardize all code and conf
 | `Shared/Inc/application_config.h` | Updated shared clock constants from `480/240/2.4 MHz` to `400/200/2.0 MHz`. | Keeps timing calculations, delays, and timer math aligned with the new SMPS-safe clocks. |
 | `CM4/mx-generated.cmake` | Changed the CubeMX-generated supply define from `USE_PWR_LDO_SUPPLY` to `USE_PWR_DIRECT_SMPS_SUPPLY`. | Keeps the CM4 build configuration aligned with the runtime power mode. |
 | `CM7/mx-generated.cmake` | Changed the CubeMX-generated supply define from `USE_PWR_LDO_SUPPLY` to `USE_PWR_DIRECT_SMPS_SUPPLY`. | Keeps the CM7 build configuration aligned with the runtime power mode. |
-| `NUCLEO_H755ZI.ioc` | Updated the clock tree values for 400 MHz direct SMPS operation, changed the supply source, adjusted `TIM6.Period` for the new timing base, and added explicit PWM pin assignments for the six solenoid outputs. | Makes the `.ioc` reflect the current intended hardware and clock configuration used by the code. |
+| `NUCLEO_H755ZI.ioc` | Updated the clock tree values for 400 MHz direct SMPS operation, changed the supply source, adjusted `TIM6.Period` for the new timing base, and aligned the solenoid outputs to `PE9/TIM1_CH1`, `PA5/TIM2_CH1`, `PB5/TIM3_CH2`, and `PB6/TIM4_CH1`. | Makes the `.ioc` reflect the current intended hardware and clock configuration used by the code. |
 | `CM4/App/Src/motor_control.c` | Updated the `Motor_DelayUs()` comment so it matches the new clock-dependent behavior. | Prevents stale documentation after the CM4 clock changed from 240 MHz to 200 MHz. |
-| `CM4/Core/Src/main.c` | Updated timer comments and timer init comments to the final solenoid pin map, and updated prescaler comments to the 2.0 MHz timer count base. | Keeps the generated timer setup documentation consistent with the actual routing and timing. |
-| `CM4/Core/Src/stm32h7xx_hal_msp.c` | Re-routed PWM GPIO init/deinit so the six timer outputs use `PB14`, `PA7`, `PA6`, `PE5`, `PB8`, and `PB9`. | Makes the HAL layer own the correct physical routing for all six solenoid outputs. |
-| `CM4/App/Src/app_cm4.c` | Removed the manual GPIO alternate-function remap block, updated debug comments, and aligned the solenoid pin references to the final map. | Eliminates duplicated pin-routing logic that could override CubeMX/HAL setup and create wrong or duplicated outputs. |
+| `CM4/Core/Src/main.c` | Migrated the low-string solenoid timers to `TIM1`, `TIM2`, and `TIM4`, kept solenoid 1 on `TIM3_CH2`, and updated the timer init comments and prescaler notes. | Keeps the timer setup aligned with the requested timer instances and current routing. |
+| `CM4/Core/Src/stm32h7xx_hal_msp.c` | Re-routed PWM GPIO init/deinit so the solenoid outputs use `PE9`, `PA5`, `PB5`, `PB6`, `PB8`, and `PB9`. | Makes the HAL layer own the correct physical routing for all six solenoid outputs. |
+| `CM4/App/Src/app_cm4.c` | Removed the manual GPIO alternate-function remap block, updated the pin references to the final map, and moved the debug readback from the old `TIM12` path to the current `TIM1` path. | Eliminates duplicated pin-routing logic and keeps diagnostics aligned with the active solenoid timer map. |
 | `CM4/App/Src/solenoid_control.c` | Updated pin references, recalculated the solenoid ARR lookup table for a 2.0 MHz timer base, and corrected frequency calculation comments. | Preserves the intended musical frequencies after the timer clock changed from 2.4 MHz to 2.0 MHz. |
 | `CM4/App/Inc/solenoid_control.h` | Updated the documented pin map and timer math notes to match the final routing and 2.0 MHz count frequency. | Keeps the public driver documentation accurate. |
 | `PROJECT_CONTEXT.md` | Updated the architecture description, timer clock description, and issue history to reflect the 400 MHz SMPS configuration and the timer-routing cleanup. | Keeps project-level documentation aligned with the current codebase. |
@@ -80,17 +91,34 @@ The fix was to remove duplicated routing logic and standardize all code and conf
 
 ### What was wrong before
 
-- Solenoid 1 was documented on `PA7`, but code routed `TIM14_CH1` to `PF9`.
-- Solenoid 2 was documented on `PA6`, but the code path also allowed `TIM13_CH1` to appear elsewhere.
-- Solenoids 4 and 5 were documented on `PB8` and `PB9`, but code routed them to `PF6` and `PF7`.
+- Earlier code and documentation disagreed about which GPIO pins carried the solenoid PWM outputs.
+- Several solenoids were previously routed through a mixed `TIM12/TIM13/TIM15` map that no longer matched the requested final timer allocation.
+- Solenoid 2 was previously documented on `PA6`, and an older code path also allowed `TIM13_CH1` to appear elsewhere.
+- Solenoids 4 and 5 were documented on `PB8` and `PB9`, but older code routed them to `PF6` and `PF7`.
+- `PA8` was not usable for the final `E2` timer output because Motor 2 already uses `PA8` as its step pin.
 - The application code manually configured PWM pins after initialization, which created a second routing authority separate from HAL/CubeMX.
 
 ### What is correct now
 
 - Each solenoid has one timer instance.
-- Each timer uses `CH1` only.
+- The current low-string map is `E2 -> TIM1_CH1 -> PE9`, `A2 -> TIM3_CH2 -> PB5`, `D3 -> TIM2_CH1 -> PA5`, and `G3 -> TIM4_CH1 -> PB6`.
+- Solenoid 1 uses `TIM3` channel 2 on `PB5`; the other remapped solenoids use channel 1 on `TIM1`, `TIM2`, and `TIM4`.
 - Each timer output is routed to one intended GPIO pin.
 - The application no longer reprograms timer GPIOs after init.
+
+## Current Rewire Map
+
+Relative to the earlier `PB14/PA6/PE5` layout, the active low-string wiring is now:
+
+- Move `E2` from `PB14` to `PE9`
+- Keep `A2` on `PB5`
+- Move `D3` from `PA6` to `PA5`
+- Move `G3` from `PE5` to `PB6`
+
+The upper strings remain:
+
+- `B3 -> TIM16_CH1 -> PB8`
+- `E4 -> TIM17_CH1 -> PB9`
 
 ## Verification Performed
 

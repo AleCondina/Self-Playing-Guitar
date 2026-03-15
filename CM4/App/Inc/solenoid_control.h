@@ -5,10 +5,10 @@
  * @note    Provides PWM-based frequency control for 6 solenoids (all strings)
  *
  *          Hardware (6 independent timers for independent frequencies):
- *          - Solenoid 0: TIM12 CH1 (PB14) → String E2 (82-123 Hz)
- *          - Solenoid 1: TIM14 CH1 (PA7)  → String A2 (110-165 Hz)
- *          - Solenoid 2: TIM13 CH1 (PA6)  → String D3 (147-220 Hz)
- *          - Solenoid 3: TIM15 CH1 (PE5)  → String G3 (196-294 Hz)
+ *          - Solenoid 0: TIM1 CH1  (PE9)  → String E2 (82-123 Hz)
+ *          - Solenoid 1: TIM3 CH2  (PB5)  → String A2 (110-165 Hz)
+ *          - Solenoid 2: TIM2 CH1  (PA5)  → String D3 (147-220 Hz)
+ *          - Solenoid 3: TIM4 CH1  (PB6)  → String G3 (196-294 Hz)
  *          - Solenoid 4: TIM16 CH1 (PB8)  → String B3 (247-370 Hz)
  *          - Solenoid 5: TIM17 CH1 (PB9)  → String E4 (330-494 Hz)
  *
