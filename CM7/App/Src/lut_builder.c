@@ -66,7 +66,7 @@
 #define LUT_OPEN_FREQ_MIN_RATIO 0.80f
 
 /** Tolerance for accepting open-string detection (Hz). */
-#define LUT_OPEN_TOLERANCE_HZ   5.0f
+#define LUT_OPEN_TOLERANCE_HZ   1.0f
 
 /** Consecutive hops without signal before UART prompt. */
 #define LUT_NO_SIG_PROMPT_HOPS  20u    /* ~3.4 s */
@@ -78,7 +78,7 @@
 #define LUT_HOME_SETTLE_HOPS    6u     /* ~1.0 s */
 
 /** Far target position — motor sweeps toward this (microsteps). */
-#define LUT_MAX_STEPS           2000
+#define LUT_MAX_STEPS           3500
 
 /** Hops to wait after stopping motor at a fret before resuming. */
 #define LUT_LOCK_SETTLE_HOPS    2u     /* ~340 ms */

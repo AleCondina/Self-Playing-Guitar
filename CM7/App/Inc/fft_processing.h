@@ -18,7 +18,7 @@
 extern float active_frequencies[];
 extern float active_magnitudes[];
 extern uint8_t active_string_count;
-
+extern uint8_t fft_print_enabled;
 
 void FFT_Init(void);
 

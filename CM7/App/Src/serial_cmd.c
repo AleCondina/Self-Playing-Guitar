@@ -27,6 +27,7 @@
 #include "serial_cmd.h"
 #include "app_cm7.h"
 #include "tuning_controller.h"
+#include "fft_processing.h"
 #include "debug_uart.h"
 #include "inter_core_cm7.h"
 #include "shared_memory.h"
@@ -106,6 +107,7 @@ static void Cmd_Calibrate(char *args);
 static void Cmd_MapFrets(char *args);
 static void Cmd_PrintLut(char *args);
 static void Cmd_Smoke(char *args);
+static void Cmd_FftPrint(char *args);
 static void Demo_Tick(void);
 
 /* Command table entry */
@@ -137,6 +139,7 @@ static const CmdEntry_t command_table[] = {
     { "mapfrets",  Cmd_MapFrets,  "mapfrets [str ...]       Measure fret step positions for LUT (e.g. 'mapfrets 0 1')" },
     { "printlut",  Cmd_PrintLut,  "printlut                 Print current feed-forward LUT values" },
     { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water" },
+    { "fftprint",  Cmd_FftPrint,  "fftprint                 Toggle live FFT peak output" },
     { "help",      Cmd_Help,      "help                    Show this help" },
     { "sol",       Cmd_Sol,       "sol <id> <str> <fret> [duty] [time] [cycles]  Trigger solenoid" },
     { "solstop",   Cmd_SolStop,   "solstop <id|all>        Stop solenoid(s)" },
@@ -795,6 +798,13 @@ static void Cmd_PrintLut(char *args)
         printf("\r\n");
     }
     printf("==================================================\r\n");
+}
+
+static void Cmd_FftPrint(char *args)
+{
+    (void)args;
+    fft_print_enabled = !fft_print_enabled;
+    printf("  FFT live print: %s\r\n", fft_print_enabled ? "ON" : "OFF");
 }
 
 static void Cmd_Smoke(char *args)

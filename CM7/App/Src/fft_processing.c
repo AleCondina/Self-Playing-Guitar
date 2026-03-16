@@ -33,6 +33,7 @@ static uint8_t noise_floor_initialized = 0;
 float active_frequencies[NUM_STRINGS];
 float active_magnitudes[MAX_HARMONICS];
 uint8_t active_string_count;
+uint8_t fft_print_enabled = 0;
 
 
 
@@ -83,20 +84,20 @@ void FFT_ProcessBlock(uint16_t* audio_buf)
         // printf("[DSP Debug] Peak Magnitude: %.1f\r\n", temp_max_mag);
 
         /* DEBUG: Print noise floor vs magnitude at key bins every ~1 second (every 6th frame at ~6 fps) */
-        static uint32_t dbg_counter = 0;
-        if (++dbg_counter % 6 == 0) {
-            /* Bin 67 ≈ 196 Hz (G3), Bin 28 ≈ 82 Hz (E2), Bin 112 ≈ 330 Hz (E4) */
-            printf("[NF] bin28: mag=%.0f nf=%.0f | bin67: mag=%.0f nf=%.0f | bin112: mag=%.0f nf=%.0f | peak=%.0f\r\n",
-                   fft_mag[28], noise_floor[28],
-                   fft_mag[67], noise_floor[67],
-                   fft_mag[112], noise_floor[112],
-                   temp_max_mag);
-        }
-
-        if (active_string_count > 0) {
-            printf("[CM7] Detected %d active string(s): ", active_string_count);
+        // static uint32_t dbg_counter = 0;
+        // if (++dbg_counter % 6 == 0) {
+        //     /* Bin 67 ≈ 196 Hz (G3), Bin 28 ≈ 82 Hz (E2), Bin 112 ≈ 330 Hz (E4) */
+        //     printf("[NF] bin28: mag=%.0f nf=%.0f | bin67: mag=%.0f nf=%.0f | bin112: mag=%.0f nf=%.0f | peak=%.0f\r\n",
+        //            fft_mag[28], noise_floor[28],
+        //            fft_mag[67], noise_floor[67],
+        //            fft_mag[112], noise_floor[112],
+        //            temp_max_mag);
+        // }
+        
+        if (fft_print_enabled && active_string_count > 0) {
+            printf("[FFT] %d peak(s): ", active_string_count);
             for (uint8_t i = 0; i < active_string_count; i++) {
-                printf("%.2f Hz  ", active_frequencies[i]);
+                printf("%.2f Hz (%.0f)  ", (double)active_frequencies[i], (double)active_magnitudes[i]);
             }
             printf("\r\n");
         }

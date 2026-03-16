@@ -244,14 +244,7 @@ void App_CM7_Main(void) {
                      */
                     TuningCtrl_RunHop();
 
-                    /* Diagnostic: print FFT polyphonic results (only during playback) */
-                    if (SongSched_IsActive() && active_string_count > 0) {
-                        printf("[CM7] FFT %d string(s): ", active_string_count);
-                        for (uint8_t i = 0; i < active_string_count; i++) {
-                            printf("%.2f Hz  ", (double)active_frequencies[i]);
-                        }
-                        printf("\r\n");
-                    }
+                    /* FFT print is now toggled via 'fftprint' serial command */
                 }
 
                 /* Check CM4 health */
