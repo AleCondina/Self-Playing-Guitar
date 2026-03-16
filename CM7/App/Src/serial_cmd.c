@@ -26,6 +26,7 @@
 
 #include "serial_cmd.h"
 #include "app_cm7.h"
+#include "tuning_controller.h"
 #include "debug_uart.h"
 #include "inter_core_cm7.h"
 #include "shared_memory.h"
@@ -103,6 +104,7 @@ static void Cmd_SolStatus(char *args);
 static void Cmd_Demo(char *args);
 static void Cmd_Calibrate(char *args);
 static void Cmd_MapFrets(char *args);
+static void Cmd_PrintLut(char *args);
 static void Cmd_Smoke(char *args);
 static void Demo_Tick(void);
 
@@ -133,6 +135,7 @@ static const CmdEntry_t command_table[] = {
     { "demo",      Cmd_Demo,      "demo                    Run solenoid+motor demo" },
     { "calibrate", Cmd_Calibrate, "calibrate [str ...]      Sweep strings and fill tuning LUT (e.g. 'calibrate 2 3')" },
     { "mapfrets",  Cmd_MapFrets,  "mapfrets [str ...]       Measure fret step positions for LUT (e.g. 'mapfrets 0 1')" },
+    { "printlut",  Cmd_PrintLut,  "printlut                 Print current feed-forward LUT values" },
     { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water" },
     { "help",      Cmd_Help,      "help                    Show this help" },
     { "sol",       Cmd_Sol,       "sol <id> <str> <fret> [duty] [time] [cycles]  Trigger solenoid" },
@@ -765,6 +768,33 @@ static void Cmd_MapFrets(char *args)
     printf("  Starting LUT builder (mask 0x%02X)...\r\n", (unsigned)mask);
     printf("  Pluck each string when prompted. Watch [LUT] output.\r\n");
     App_RequestLutBuild(mask);
+}
+
+static void Cmd_PrintLut(char *args)
+{
+    (void)args;
+    static const char *names[NUM_STRINGS] = {"E2","A2","D3","G3","B3","E4"};
+
+    printf("\r\n===== Feed-Forward LUT (tuning_ff_steps_bp) =====\r\n");
+    printf("         Fret0   Fret1   Fret2   Fret3   Fret4   Fret5   Fret6\r\n");
+    for (uint8_t s = 0; s < NUM_STRINGS; s++) {
+        printf("  %s: ", names[s]);
+        for (uint8_t f = 0; f < TUNING_FF_NUM_POINTS; f++) {
+            printf("%7.1f ", (double)tuning_ff_steps_bp[s][f]);
+        }
+        printf("\r\n");
+    }
+
+    printf("\r\n===== Feed-Forward LUT (tuning_ff_freq_bp) =====\r\n");
+    printf("         Fret0   Fret1   Fret2   Fret3   Fret4   Fret5   Fret6\r\n");
+    for (uint8_t s = 0; s < NUM_STRINGS; s++) {
+        printf("  %s: ", names[s]);
+        for (uint8_t f = 0; f < TUNING_FF_NUM_POINTS; f++) {
+            printf("%7.2f ", (double)tuning_ff_freq_bp[s][f]);
+        }
+        printf("\r\n");
+    }
+    printf("==================================================\r\n");
 }
 
 static void Cmd_Smoke(char *args)
