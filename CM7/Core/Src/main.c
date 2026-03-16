@@ -31,6 +31,7 @@
 #include "stm32h7xx_hal_flash_ex.h"
 #include "stm32h7xx_hal_hsem.h"
 #include "stm32h7xx_hal_tim.h"
+#include <cstdint>
 #include <string.h>
 /* USER CODE END Includes */
 
@@ -431,7 +432,7 @@ static void MX_TIM6_Init(void)
   htim6.Instance = TIM6;
   htim6.Init.Prescaler = 0;
   htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = ((TIM_CLOCK_MHZ * 1000000) / AUDIO_SAMPLE_RATE_HZ ) - 1;  // set to Fs = 6000 Hz, 
+  htim6.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * 1000000) / AUDIO_SAMPLE_RATE_HZ ) - 0.5f);  // set to Fs = 6000 Hz,
   htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
   if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
   {
