@@ -4,16 +4,16 @@
  * @brief   Solenoid control driver for guitar string vibration
  * @note    Provides PWM-based frequency control for 6 solenoids (all strings)
  *
- *          Hardware (6 independent timers for independent frequencies):
- *          - Solenoid 0: TIM1 CH1  (PE9)  → String E2 (82-123 Hz)
+ *          Hardware (6 solenoid slots, 3 D2-domain timers currently assigned):
+ *          - Solenoid 0: (none)            → String E2 (TIM1 reassigned to CM7 ADC)
  *          - Solenoid 1: TIM3 CH2  (PB5)  → String A2 (110-165 Hz)
  *          - Solenoid 2: TIM2 CH1  (PA5)  → String D3 (147-220 Hz)
  *          - Solenoid 3: TIM4 CH1  (PB6)  → String G3 (196-294 Hz)
- *          - Solenoid 4: TIM16 CH1 (PB8)  → String B3 (247-370 Hz)
- *          - Solenoid 5: TIM17 CH1 (PB9)  → String E4 (330-494 Hz)
+ *          - Solenoid 4: (none)            → String B3 (TIM16 removed, D1 domain)
+ *          - Solenoid 5: (none)            → String E4 (TIM17 removed, D1 domain)
  *
  *          Each solenoid is driven via N-channel MOSFET (logic-level, 3.3V)
- *          Timer clock: 200 MHz (timer kernel), Prescaler: 99 (÷100) → 2.0 MHz count freq
+ *          Timer clock: 198 MHz (CM4 kernel), Prescaler: 89 (÷90) → 2.2 MHz count freq
  ******************************************************************************
  */
 

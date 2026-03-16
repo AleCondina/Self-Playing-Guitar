@@ -26,6 +26,7 @@
 #include "inter_core_cm7.h"
 #include "debug_uart.h"
 #include "app_cm7.h"
+#include "stm32h755xx.h"
 #include "stm32h7xx_hal.h"
 #include "stm32h7xx_hal_adc.h"
 #include "stm32h7xx_hal_flash_ex.h"
@@ -67,7 +68,7 @@ COM_InitTypeDef BspCOMInit;
 ADC_HandleTypeDef hadc3;
 DMA_HandleTypeDef hdma_adc3;
 
-TIM_HandleTypeDef htim6;
+TIM_HandleTypeDef htim1;
 
 /* USER CODE BEGIN PV */
 
@@ -78,7 +79,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_BDMA_Init(void);
 static void MX_ADC3_Init(void);
-static void MX_TIM6_Init(void);
+static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
 static void ConfigureSupplyForSmps(void);
 
@@ -168,7 +169,7 @@ Error_Handler();
   MX_GPIO_Init();
   MX_BDMA_Init();
   MX_ADC3_Init();
-  MX_TIM6_Init();
+  MX_TIM1_Init();
   /* USER CODE BEGIN 2 */
 
   /* Release HW semaphore after initializing GPIO and TIM*/
@@ -304,7 +305,7 @@ static void MX_ADC3_Init(void)
   hadc3.Init.ContinuousConvMode = DISABLE;
   hadc3.Init.NbrOfConversion = 1;
   hadc3.Init.DiscontinuousConvMode = DISABLE;
-  hadc3.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T6_TRGO;
+  hadc3.Init.ExternalTrigConv = ADC_EXTERNALTRIG_T1_TRGO;
   hadc3.Init.ExternalTrigConvEdge = ADC_EXTERNALTRIGCONVEDGE_RISING;
   hadc3.Init.ConversionDataManagement = ADC_CONVERSIONDATA_DMA_CIRCULAR;
   hadc3.Init.Overrun = ADC_OVR_DATA_PRESERVED;
@@ -336,41 +337,27 @@ static void MX_ADC3_Init(void)
 }
 
 /**
-  * @brief TIM6 Initialization Function
-  * @param None
+  * @brief TIM1 Initialization Function (ADC sample clock trigger)
   * @retval None
   */
-static void MX_TIM6_Init(void)
+static void MX_TIM1_Init(void)
 {
-
-  /* USER CODE BEGIN TIM6_Init 0 */
-
-  /* USER CODE END TIM6_Init 0 */
-
   TIM_MasterConfigTypeDef sMasterConfig = {0};
-
-  /* USER CODE BEGIN TIM6_Init 1 */
-
-  /* USER CODE END TIM6_Init 1 */
-  htim6.Instance = TIM6;
-  htim6.Init.Prescaler = 0;
-  htim6.Init.CounterMode = TIM_COUNTERMODE_UP;
-  htim6.Init.Period = ((TIM_CLOCK_MHZ * 1000000) / AUDIO_SAMPLE_RATE_HZ ) - 1;  // set to Fs = 6000 Hz, 
-  htim6.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-  if (HAL_TIM_Base_Init(&htim6) != HAL_OK)
+  htim1.Instance = TIM1;
+  htim1.Init.Prescaler = 0;
+  htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
+  htim1.Init.Period = ((TIM_CLOCK_MHZ * 1000000) / AUDIO_SAMPLE_RATE_HZ ) - 1;  // set to Fs = 6000 Hz, 
+  htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
+  if (HAL_TIM_Base_Init(&htim1) != HAL_OK)
   {
     Error_Handler();
   }
   sMasterConfig.MasterOutputTrigger = TIM_TRGO_UPDATE;
   sMasterConfig.MasterSlaveMode = TIM_MASTERSLAVEMODE_DISABLE;
-  if (HAL_TIMEx_MasterConfigSynchronization(&htim6, &sMasterConfig) != HAL_OK)
+  if (HAL_TIMEx_MasterConfigSynchronization(&htim1, &sMasterConfig) != HAL_OK)
   {
     Error_Handler();
   }
-  /* USER CODE BEGIN TIM6_Init 2 */
-
-  /* USER CODE END TIM6_Init 2 */
-
 }
 
 /**

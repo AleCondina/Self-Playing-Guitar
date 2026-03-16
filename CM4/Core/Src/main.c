@@ -58,13 +58,10 @@
 
 /* USER CODE BEGIN PV */
 
-/* Timer handles for solenoid PWM control (6 independent timers) */
-TIM_HandleTypeDef htim1;   /* Solenoid 0: E2 string (PE9) */
+/* Timer handles for solenoid PWM control (3 timers in D2/CM4 domain) */
 TIM_HandleTypeDef htim2;   /* Solenoid 2: D3 string (PA5) */
 TIM_HandleTypeDef htim3;   /* Solenoid 1: A2 string (PB5) */
 TIM_HandleTypeDef htim4;   /* Solenoid 3: G3 string (PB6) */
-TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 string (PB8) */
-TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 string (PB9) */
 
 /* USER CODE END PV */
 
@@ -72,12 +69,9 @@ TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 string (PB9) */
 static void MX_BDMA_Init(void);
 /* USER CODE BEGIN PFP */
 
-static void MX_TIM1_Init(void);
 static void MX_TIM2_Init(void);
 static void MX_TIM3_Init(void);
 static void MX_TIM4_Init(void);
-static void MX_TIM16_Init(void);
-static void MX_TIM17_Init(void);
 
 /* USER CODE END PFP */
 
@@ -135,13 +129,10 @@ int main(void)
   MX_BDMA_Init();
   /* USER CODE BEGIN 2 */
 
-  /* Initialize timers for solenoid PWM control (6 independent timers) */
-  MX_TIM1_Init();   /* Solenoid 0: E2 */
+  /* Initialize timers for solenoid PWM control (3 D2-domain timers) */
   MX_TIM2_Init();   /* Solenoid 2: D3 */
   MX_TIM3_Init();   /* Solenoid 1: A2 */
   MX_TIM4_Init();   /* Solenoid 3: G3 */
-  MX_TIM16_Init();  /* Solenoid 4: B3 */
-  MX_TIM17_Init();  /* Solenoid 5: E4 */
 
   /* Call application main (never returns) */
   App_CM4_Main();
@@ -172,40 +163,6 @@ static void MX_BDMA_Init(void)
 /* USER CODE BEGIN 4 */
 
 /**
- * @brief TIM1 Initialization Function
- * @note  Solenoid 0: E2 string on PE9
- * @note  Uses TIM1 channel 1 for an independent PWM output
- */
-static void MX_TIM1_Init(void)
-{
-    TIM_OC_InitTypeDef sConfigOC = {0};
-
-    htim1.Instance = TIM1;
-    htim1.Init.Prescaler = 99;  /* 200 MHz / 100 = 2.0 MHz count frequency */
-    htim1.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim1.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / E2_HZ) - 0.5f);   /* Default: 82.41 Hz (E2 open string) */
-    htim1.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-    htim1.Init.RepetitionCounter = 0;
-    htim1.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-
-    if (HAL_TIM_PWM_Init(&htim1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    /* Configure PWM Channel 1: Solenoid 0 (E2 string) */
-    sConfigOC.OCMode = TIM_OCMODE_PWM1;
-    sConfigOC.Pulse = htim1.Init.Period / 2;  /* 50% duty cycle (Period / 2) */
-    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-
-    if (HAL_TIM_PWM_ConfigChannel(&htim1, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-}
-
-/**
  * @brief TIM2 Initialization Function
  * @note  Solenoid 2: D3 string on PA5
  * @note  Uses TIM2 channel 1 for an independent PWM output
@@ -215,9 +172,9 @@ static void MX_TIM2_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim2.Instance = TIM2;
-    htim2.Init.Prescaler = 99;  /* 200 MHz / 100 = 2.0 MHz count frequency */
+    htim2.Init.Prescaler = 89;  /* 198 MHz / 90 = 2.2 MHz count frequency */
     htim2.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim2.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / D3_HZ) - 0.5f);   /* Default: 146.83 Hz (D3 open string) */
+    htim2.Init.Period = (uint16_t)((TIM_PRESCALED_CLK_HZ / D3_HZ) - 0.5f);   /* Default: 146.83 Hz (D3 open string) */
     htim2.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim2.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 
@@ -248,9 +205,9 @@ static void MX_TIM3_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim3.Instance = TIM3;
-    htim3.Init.Prescaler = 99;  /* 200 MHz / 100 = 2.0 MHz count frequency */
+    htim3.Init.Prescaler = 89;  /* 198 MHz / 90 = 2.2 MHz count frequency */
     htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim3.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / A2_HZ) - 0.5f);   /* Default: 110.00 Hz (A2 open string) */
+    htim3.Init.Period = (uint16_t)((TIM_PRESCALED_CLK_HZ / A2_HZ) - 0.5f);   /* Default: 110.00 Hz (A2 open string) */
     htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 
@@ -281,9 +238,9 @@ static void MX_TIM4_Init(void)
     TIM_OC_InitTypeDef sConfigOC = {0};
 
     htim4.Instance = TIM4;
-    htim4.Init.Prescaler = 99;  /* 200 MHz / 100 = 2.0 MHz count frequency */
+    htim4.Init.Prescaler = 89;  /* 198 MHz / 90 = 2.2 MHz count frequency */
     htim4.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim4.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / G3_HZ) - 0.5f);   /* Default: 196.00 Hz (G3 open string) */
+    htim4.Init.Period = (uint16_t)((TIM_PRESCALED_CLK_HZ / G3_HZ) - 0.5f);   /* Default: 196.00 Hz (G3 open string) */
     htim4.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim4.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 
@@ -299,72 +256,6 @@ static void MX_TIM4_Init(void)
     sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
 
     if (HAL_TIM_PWM_ConfigChannel(&htim4, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-}
-
-/**
- * @brief TIM16 Initialization Function
- * @note  Solenoid 4: B3 string on PB8
- * @note  PWM frequency controlled by ARR, duty cycle by CCR
- */
-static void MX_TIM16_Init(void)
-{
-    TIM_OC_InitTypeDef sConfigOC = {0};
-
-    htim16.Instance = TIM16;
-    htim16.Init.Prescaler = 99;  /* 200 MHz / 100 = 2.0 MHz count frequency */
-    htim16.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim16.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / B3_HZ) - 0.5f);   /* Default: 246.94 Hz (B3 open string) */
-    htim16.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-    htim16.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-
-    if (HAL_TIM_PWM_Init(&htim16) != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    /* Configure PWM Channel 1: Solenoid 4 (B3 string) */
-    sConfigOC.OCMode = TIM_OCMODE_PWM1;
-    sConfigOC.Pulse = htim16.Init.Period / 2;  /* 50% duty cycle (Period / 2) */
-    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-
-    if (HAL_TIM_PWM_ConfigChannel(&htim16, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
-    {
-        Error_Handler();
-    }
-}
-
-/**
- * @brief TIM17 Initialization Function
- * @note  Solenoid 5: E4 string (High E) on PB9
- * @note  PWM frequency controlled by ARR, duty cycle by CCR
- */
-static void MX_TIM17_Init(void)
-{
-    TIM_OC_InitTypeDef sConfigOC = {0};
-
-    htim17.Instance = TIM17;
-    htim17.Init.Prescaler = 99;  /* 200 MHz / 100 = 2.0 MHz count frequency */
-    htim17.Init.CounterMode = TIM_COUNTERMODE_UP;
-    htim17.Init.Period = (uint16_t)(((TIM_CLOCK_MHZ * (10000)) / E4_HZ) - 0.5f);   /* Default: 329.63 Hz (E4 open string) */
-    htim17.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
-    htim17.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
-
-    if (HAL_TIM_PWM_Init(&htim17) != HAL_OK)
-    {
-        Error_Handler();
-    }
-
-    /* Configure PWM Channel 1: Solenoid 5 (E4 string - High E) */
-    sConfigOC.OCMode = TIM_OCMODE_PWM1;
-    sConfigOC.Pulse = htim17.Init.Period / 2;  /* 50% duty cycle (Period / 2) */
-    sConfigOC.OCPolarity = TIM_OCPOLARITY_HIGH;
-    sConfigOC.OCFastMode = TIM_OCFAST_DISABLE;
-
-    if (HAL_TIM_PWM_ConfigChannel(&htim17, &sConfigOC, TIM_CHANNEL_1) != HAL_OK)
     {
         Error_Handler();
     }

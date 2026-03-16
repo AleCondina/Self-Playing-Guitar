@@ -32,7 +32,7 @@
 #include <stdio.h>
 
 extern ADC_HandleTypeDef hadc3;
-extern TIM_HandleTypeDef htim6;
+extern TIM_HandleTypeDef htim1;
 
 /* Application state */
 typedef enum {
@@ -131,7 +131,7 @@ void App_CM7_Main(void) {
                     app_state = STATE_ERROR;
                 } else {
                     printf("[CM7] Audio acquisition started.\r\n");
-                    HAL_TIM_Base_Start(&htim6);
+                    HAL_TIM_Base_Start(&htim1);
                     app_state = STATE_IDLE;
                 }
             }
