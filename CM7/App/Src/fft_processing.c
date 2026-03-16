@@ -4,10 +4,14 @@
 #include <stdio.h>
 #include <math.h>
 
-#define TIM6_CALIBRATION_FACTOR 1.0f // At 240 MHz: TIM6 period = 39999 → Fs = 240MHz/40000 = exactly 6000 Hz, no correction needed
+#define TIM6_CALIBRATION_FACTOR 1.005245182f // At 240 MHz: TIM6 period = 39999 → Fs = 240MHz/40000 = exactly 6000 Hz, no correction needed
 
-#define SEARCH_START_BIN (60 / FFT_RESOLUTION) // around 60 Hz
-#define SEARCH_END_BIN   (440 / FFT_RESOLUTION) // around 440 Hz 
+/* FFT_RESOLUTION = 6000/2048 = 2 (integer division, actual 2.929 Hz/bin).
+ * E2 (82.41 Hz) is at bin ~28 — SEARCH_START_BIN must be < 28.
+ * Starting at 40 Hz → bin 13 gives safe margin below E2.
+ * Ending at 1200 Hz → bin 409 covers all 6 open strings + 2nd harmonics. */
+#define SEARCH_START_BIN (40   / FFT_RESOLUTION) // ~40 Hz  (below E2 at 82 Hz)
+#define SEARCH_END_BIN   (302 / FFT_RESOLUTION) // ~1200 Hz (2nd harmonic of E4)
 
 /* =======================
    Static buffers
@@ -64,17 +68,24 @@ void FFT_ProcessBlock(uint16_t* audio_buf)
     /* 4. Calculate Magnitudes from Complex Output */
     arm_cmplx_mag_f32(fft_output, fft_mag, FFT_SIZE / 2);
 
-    // //DEBUG: tune noise gate with guitar
-    // /* --- TEMPORARY NOISE GATE CALIBRATION --- */
-    // float temp_max_mag = 0.0f;
-    // for (uint32_t i = SEARCH_START_BIN; i < SEARCH_END_BIN; i++) {
-    //     if (fft_mag[i] > temp_max_mag) {
-    //         temp_max_mag = fft_mag[i];
-    //     }
-    // }
-    /* Print the absolute loudest thing the ADC hears right now */
-    // printf("[DSP Debug] Peak Magnitude: %.1f\r\n", temp_max_mag);
-    /* ---------------------------------------- */
+    //DEBUG: tune noise gate with guitar
+        /* --- TEMPORARY NOISE GATE CALIBRATION --- */
+        float temp_max_mag = 0.0f;
+        for (uint32_t i = SEARCH_START_BIN; i < SEARCH_END_BIN; i++) {
+            if (fft_mag[i] > temp_max_mag) {
+                temp_max_mag = fft_mag[i];
+            }
+        }
+        // Print the absolute loudest thing the ADC hears right now */
+        printf("[DSP Debug] Peak Magnitude: %.1f\r\n", temp_max_mag);
+        if (active_string_count > 0) {
+            printf("[CM7] Detected %d active string(s): ", active_string_count);
+            for (uint8_t i = 0; i < active_string_count; i++) {
+                printf("%.2f Hz  ", active_frequencies[i]);
+            }
+            printf("\r\n");
+        }
+    
 
 
 
