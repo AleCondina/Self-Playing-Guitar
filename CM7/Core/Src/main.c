@@ -32,7 +32,7 @@
 #include "stm32h7xx_hal_flash_ex.h"
 #include "stm32h7xx_hal_hsem.h"
 #include "stm32h7xx_hal_tim.h"
-#include <cstdint>
+#include <stdint.h>
 #include <string.h>
 /* USER CODE END Includes */
 
