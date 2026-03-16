@@ -10,13 +10,10 @@
 #include "application_config.h"
 #include "stm32h7xx_hal.h"
 
-/* External timer handles (defined in main.c) */
-extern TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 string (PB14) */
-extern TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 string (PA6) */
-extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 string (PA7) */
-extern TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 string (PE5) */
-extern TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 string (PF6) */
-extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 string (PF7) */
+/* External timer handles (defined in main.c) — D2-domain timers only */
+extern TIM_HandleTypeDef htim2;   /* Solenoid 2: D3 string (PA5) */
+extern TIM_HandleTypeDef htim3;   /* Solenoid 1: A2 string (PB5) */
+extern TIM_HandleTypeDef htim4;   /* Solenoid 3: G3 string (PB6) */
 
 /**
  * @brief Solenoid state structure for multi-solenoid management
@@ -42,8 +39,8 @@ static SolenoidState_t solenoid_states[SOLENOID_COUNT];
 
 /**
  * @brief Frequency lookup table: 6 strings × 8 frets → ARR values
- * @note  ARR = (640,000 / target_frequency) - 1
- * @note  Timer clock: 64 MHz, Prescaler: 99 (÷100) → 640 kHz count frequency
+ * @note  ARR = (2,200,000 / target_frequency) - 1
+ * @note  Timer clock: 198 MHz, Prescaler: 89 (÷90) → 2.20 MHz count frequency
  *
  * Musical Note Reference (Standard Guitar Tuning):
  * String | Open Note | Freq (Hz) | Fret 7 (Hz)
@@ -55,24 +52,25 @@ static SolenoidState_t solenoid_states[SOLENOID_COUNT];
  *   4    | B3        |  246.94   |   369.99
  *   5    | E4        |  329.63   |   493.88
  */
+
 static const uint16_t SOLENOID_FREQ_TABLE[6][8] = {
     /* String 0: E2 (82.41 Hz) - Low E */
-    {7764, 7329, 6918, 6530, 6163, 5816, 5488, 5179},  /* Frets 0-7 */
+    {26694, 25196, 23783, 22447, 21187, 19999, 18876, 17816},  /* Frets 0-7 */
 
     /* String 1: A2 (110.00 Hz) */
-    {5817, 5490, 5181, 4890, 4615, 4356, 4112, 3881},  /* Frets 0-7 */
+    {19999, 18876, 17816, 16816, 15873, 14982, 14141, 13347},  /* Frets 0-7 */
 
     /* String 2: D3 (146.83 Hz) */
-    {4358, 4113, 3882, 3664, 3459, 3265, 3082, 2910},  /* Frets 0-7 */
+    {14982, 14141, 13347, 12598, 11891, 11223, 10594, 9999},  /* Frets 0-7 */
 
     /* String 3: G3 (196.00 Hz) */
-    {3264, 3081, 2909, 2746, 2592, 2446, 2309, 2179},  /* Frets 0-7 */
+    {11223, 10594, 9999, 9438, 8907, 8407, 7936, 7491},  /* Frets 0-7 */
 
     /* String 4: B3 (246.94 Hz) */
-    {2591, 2445, 2308, 2179, 2056, 1941, 1832, 1729},  /* Frets 0-7 */
+    {8907, 8407, 7936, 7491, 7069, 6672, 6298, 5945},  /* Frets 0-7 */
 
     /* String 5: E4 (329.63 Hz) - High E */
-    {1941, 1832, 1729, 1632, 1540, 1454, 1372, 1295},  /* Frets 0-7 */
+    {6672, 6298, 5945, 5611, 5296, 4998, 4717, 4453},  /* Frets 0-7 */
 };
 
 /**
@@ -80,69 +78,60 @@ static const uint16_t SOLENOID_FREQ_TABLE[6][8] = {
  */
 int32_t Solenoid_Init(void)
 {
-    /* Verify all timer handles are initialized */
-    if (htim12.Instance != TIM12 || htim12.State == HAL_TIM_STATE_RESET) {
-        return -1;  /* TIM12 not initialized */
+    /* Verify available timer handles are initialized */
+    if (htim2.Instance != TIM2 || htim2.State == HAL_TIM_STATE_RESET) {
+        return -1;  /* TIM2 not initialized */
     }
-    if (htim13.Instance != TIM13 || htim13.State == HAL_TIM_STATE_RESET) {
-        return -1;  /* TIM13 not initialized */
+    if (htim3.Instance != TIM3 || htim3.State == HAL_TIM_STATE_RESET) {
+        return -1;  /* TIM3 not initialized */
     }
-    if (htim14.Instance != TIM14 || htim14.State == HAL_TIM_STATE_RESET) {
-        return -1;  /* TIM14 not initialized */
-    }
-    if (htim15.Instance != TIM15 || htim15.State == HAL_TIM_STATE_RESET) {
-        return -1;  /* TIM15 not initialized */
-    }
-    if (htim16.Instance != TIM16 || htim16.State == HAL_TIM_STATE_RESET) {
-        return -1;  /* TIM16 not initialized */
-    }
-    if (htim17.Instance != TIM17 || htim17.State == HAL_TIM_STATE_RESET) {
-        return -1;  /* TIM17 not initialized */
+    if (htim4.Instance != TIM4 || htim4.State == HAL_TIM_STATE_RESET) {
+        return -1;  /* TIM4 not initialized */
     }
 
-    /* Initialize solenoid 0: TIM12 CH1 (E2 string - Low E) on PB14 */
-    solenoid_states[SOLENOID_STRING_E2].htim = &htim12;
-    solenoid_states[SOLENOID_STRING_E2].channel = TIM_CHANNEL_1;
+    /* Solenoid 0: E2 — no timer assigned (TIM1 moved to CM7 ADC trigger) */
+    solenoid_states[SOLENOID_STRING_E2].htim = NULL;
+    solenoid_states[SOLENOID_STRING_E2].channel = 0;
     solenoid_states[SOLENOID_STRING_E2].current_string = 0;
     solenoid_states[SOLENOID_STRING_E2].current_fret = 0;
     solenoid_states[SOLENOID_STRING_E2].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_E2].is_active = 0;
 
-    /* Initialize solenoid 1: TIM14 CH1 (A2 string) on PA7 */
-    solenoid_states[SOLENOID_STRING_A2].htim = &htim14;
-    solenoid_states[SOLENOID_STRING_A2].channel = TIM_CHANNEL_1;
+    /* Initialize solenoid 1: TIM3 CH2 (A2 string) on PB5 */
+    solenoid_states[SOLENOID_STRING_A2].htim = &htim3;
+    solenoid_states[SOLENOID_STRING_A2].channel = TIM_CHANNEL_2;
     solenoid_states[SOLENOID_STRING_A2].current_string = 1;
     solenoid_states[SOLENOID_STRING_A2].current_fret = 0;
     solenoid_states[SOLENOID_STRING_A2].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_A2].is_active = 0;
 
-    /* Initialize solenoid 2: TIM13 CH1 (D3 string) on PA6 */
-    solenoid_states[SOLENOID_STRING_D3].htim = &htim13;
+    /* Initialize solenoid 2: TIM2 CH1 (D3 string) on PA5 */
+    solenoid_states[SOLENOID_STRING_D3].htim = &htim2;
     solenoid_states[SOLENOID_STRING_D3].channel = TIM_CHANNEL_1;
     solenoid_states[SOLENOID_STRING_D3].current_string = 2;
     solenoid_states[SOLENOID_STRING_D3].current_fret = 0;
     solenoid_states[SOLENOID_STRING_D3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_D3].is_active = 0;
 
-    /* Initialize solenoid 3: TIM15 CH1 (G3 string) on PE5 */
-    solenoid_states[SOLENOID_STRING_G3].htim = &htim15;
+    /* Initialize solenoid 3: TIM4 CH1 (G3 string) on PB6 */
+    solenoid_states[SOLENOID_STRING_G3].htim = &htim4;
     solenoid_states[SOLENOID_STRING_G3].channel = TIM_CHANNEL_1;
     solenoid_states[SOLENOID_STRING_G3].current_string = 3;
     solenoid_states[SOLENOID_STRING_G3].current_fret = 0;
     solenoid_states[SOLENOID_STRING_G3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_G3].is_active = 0;
 
-    /* Initialize solenoid 4: TIM16 CH1 (B3 string) on PF6 */
-    solenoid_states[SOLENOID_STRING_B3].htim = &htim16;
-    solenoid_states[SOLENOID_STRING_B3].channel = TIM_CHANNEL_1;
+    /* Solenoid 4: B3 — no timer assigned (TIM16 removed, D1 domain) */
+    solenoid_states[SOLENOID_STRING_B3].htim = NULL;
+    solenoid_states[SOLENOID_STRING_B3].channel = 0;
     solenoid_states[SOLENOID_STRING_B3].current_string = 4;
     solenoid_states[SOLENOID_STRING_B3].current_fret = 0;
     solenoid_states[SOLENOID_STRING_B3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_B3].is_active = 0;
 
-    /* Initialize solenoid 5: TIM17 CH1 (E4 string - High E) on PF7 */
-    solenoid_states[SOLENOID_STRING_E4].htim = &htim17;
-    solenoid_states[SOLENOID_STRING_E4].channel = TIM_CHANNEL_1;
+    /* Solenoid 5: E4 — no timer assigned (TIM17 removed, D1 domain) */
+    solenoid_states[SOLENOID_STRING_E4].htim = NULL;
+    solenoid_states[SOLENOID_STRING_E4].channel = 0;
     solenoid_states[SOLENOID_STRING_E4].current_string = 5;
     solenoid_states[SOLENOID_STRING_E4].current_fret = 0;
     solenoid_states[SOLENOID_STRING_E4].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
@@ -163,11 +152,18 @@ int32_t Solenoid_SetFrequency(uint8_t solenoid_id, uint8_t string, uint8_t fret)
 
     SolenoidState_t *state = &solenoid_states[solenoid_id];
 
+    /* Skip if no timer assigned (e.g. E2/B3/E4 without D2-domain timers) */
+    if (state->htim == NULL) {
+        state->current_string = string;
+        state->current_fret = fret;
+        return 0;
+    }
+
     /* Get new ARR value from lookup table */
     uint16_t new_arr = SOLENOID_FREQ_TABLE[string][fret];
 
     /* Calculate new CCR for current duty cycle */
-    uint16_t new_ccr = (new_arr * state->duty_cycle) / 100;
+    uint16_t new_ccr = ((new_arr + 1) * state->duty_cycle) / 100;
 
     /* Update ARR and CCR atomically with auto-reload preload enabled */
     /* Both values will update simultaneously on next timer overflow */
@@ -201,6 +197,11 @@ int32_t Solenoid_SetDutyCycle(uint8_t solenoid_id, uint8_t duty_percent)
     SolenoidState_t *state = &solenoid_states[solenoid_id];
     state->duty_cycle = duty_percent;
 
+    /* Skip if no timer assigned */
+    if (state->htim == NULL) {
+        return 0;
+    }
+
     /* Recalculate CCR based on current ARR */
     uint16_t current_arr = __HAL_TIM_GET_AUTORELOAD(state->htim);
     uint16_t new_ccr = (current_arr * duty_percent) / 100;
@@ -222,8 +223,8 @@ void Solenoid_Start(uint8_t solenoid_id)
 
     SolenoidState_t *state = &solenoid_states[solenoid_id];
 
-    /* Start PWM output if not already running */
-    if (!state->is_active) {
+    /* Start PWM output if not already running (skip if no timer assigned) */
+    if (!state->is_active && state->htim != NULL) {
         if (HAL_TIM_PWM_Start(state->htim, state->channel) == HAL_OK) {
             state->is_active = 1;
         }
@@ -241,8 +242,8 @@ void Solenoid_Stop(uint8_t solenoid_id)
 
     SolenoidState_t *state = &solenoid_states[solenoid_id];
 
-    /* Stop PWM output if currently running */
-    if (state->is_active) {
+    /* Stop PWM output if currently running (skip if no timer assigned) */
+    if (state->is_active && state->htim != NULL) {
         HAL_TIM_PWM_Stop(state->htim, state->channel);
         state->is_active = 0;
     }
@@ -285,11 +286,16 @@ uint32_t Solenoid_GetFrequency(uint8_t solenoid_id)
 
     SolenoidState_t *state = &solenoid_states[solenoid_id];
 
+    /* No timer assigned */
+    if (state->htim == NULL) {
+        return 0;
+    }
+
     /* Get current ARR value */
     uint16_t arr = __HAL_TIM_GET_AUTORELOAD(state->htim);
 
-    /* Calculate frequency: freq = 640,000 / (ARR + 1) */
-    uint32_t freq_hz = 640000UL / (arr + 1);
+    /* Calculate frequency: freq = TIM_PRESCALED_CLK_HZ / (ARR + 1) */
+    uint32_t freq_hz = TIM_PRESCALED_CLK_HZ / (arr + 1);
 
     return freq_hz;
 }
@@ -369,16 +375,16 @@ uint8_t Solenoid_UpdateAutoStop(void)
 
 /**
  * @brief Set solenoid drive frequency directly in Hz
- * @note  Timer count frequency = 640 kHz → ARR = (640000 / freq_hz) - 1
+ * @note  Timer count frequency = 2.20 MHz → ARR = (2,200,000 / freq_hz) - 1
  */
-int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, uint32_t freq_hz)
+int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, float freq_hz)
 {
     if (solenoid_id >= SOLENOID_COUNT || freq_hz == 0u) {
         return -1;
     }
 
     /* Guard against ARR overflow (uint16_t max = 65535).
-     * 640000 / 65535 ≈ 10 Hz minimum; 640000 / 1 = 640 kHz maximum.
+     * 2200000 / 65535 ≈ 34 Hz minimum; 2200000 / 1 = 2.2 MHz maximum.
      * For guitar strings 40–800 Hz is the expected range. */
     if (freq_hz < 40u || freq_hz > 800u) {
         return -1;
@@ -386,8 +392,13 @@ int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, uint32_t freq_hz)
 
     SolenoidState_t *state = &solenoid_states[solenoid_id];
 
-    uint16_t new_arr = (uint16_t)((640000UL / freq_hz) - 1UL);
-    uint16_t new_ccr = (uint16_t)((new_arr * state->duty_cycle) / 100u);
+    /* No timer assigned */
+    if (state->htim == NULL) {
+        return -1;
+    }
+
+    uint16_t new_arr = (uint16_t)((TIM_PRESCALED_CLK_HZ / freq_hz) - 0.5f);
+    uint16_t new_ccr = (uint16_t)(((new_arr + 1) * state->duty_cycle) / 100);
 
     __HAL_TIM_SET_AUTORELOAD(state->htim, new_arr);
     __HAL_TIM_SET_COMPARE(state->htim, state->channel, new_ccr);

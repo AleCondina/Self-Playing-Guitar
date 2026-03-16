@@ -139,7 +139,7 @@ void InterCore_SendMotorZero(uint8_t motor_id);
  * @param burst_cycles Auto-stop cycles for BURST mode (0 = N/A)
  */
 void InterCore_TriggerSolenoidHz(uint8_t  solenoid_id,
-                                  uint16_t freq_hz,
+                                  float freq_hz,
                                   uint8_t  duty_percent,
                                   uint8_t  mode,
                                   uint16_t time_ms,

@@ -27,7 +27,7 @@
 ### Dual-Core Architecture
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│ CM7 (Cortex-M7) @ 240 MHz                                   │
+│ CM7 (Cortex-M7) @ 400 MHz                                   │
 │ - Audio processing (FFT on pickup sensor - future)          │
 │ - Pitch detection and frequency analysis                    │
 │ - Command generation (string/fret → CM4)                    │
@@ -35,7 +35,7 @@
 └─────────────────────────────────────────────────────────────┘
                             ↓ Shared Memory (AXI SRAM)
 ┌─────────────────────────────────────────────────────────────┐
-│ CM4 (Cortex-M4) @ 240 MHz                                   │
+│ CM4 (Cortex-M4) @ 200 MHz                                   │
 │ - Real-time control loop @ 1 kHz (1ms period)               │
 │ - Motor control (stepper motor step generation)             │
 │ - **Solenoid PWM control** (implemented)                    │
@@ -59,10 +59,10 @@
 
 | Solenoid ID | Timer    | GPIO Pin | String | Open Note  | Frequency Range   |
 |-------------|----------|----------|--------|------------|-------------------|
-| 0           | TIM12_CH1| PB14     | E2     | 82.41 Hz   | 82 - 123 Hz       |
-| 1           | TIM14_CH1| PA7      | A2     | 110.00 Hz  | 110 - 165 Hz      |
-| 2           | TIM13_CH1| PA6      | D3     | 146.83 Hz  | 147 - 220 Hz      |
-| 3           | TIM15_CH1| PE5      | G3     | 196.00 Hz  | 196 - 294 Hz      |
+| 0           | TIM1_CH1 | PE9      | E2     | 82.41 Hz   | 82 - 123 Hz       |
+| 1           | TIM3_CH2 | PB5      | A2     | 110.00 Hz  | 110 - 165 Hz      |
+| 2           | TIM2_CH1 | PA5      | D3     | 146.83 Hz  | 147 - 220 Hz      |
+| 3           | TIM4_CH1 | PB6      | G3     | 196.00 Hz  | 196 - 294 Hz      |
 | 4           | TIM16_CH1| PB8      | B3     | 246.94 Hz  | 247 - 370 Hz      |
 | 5           | TIM17_CH1| PB9      | E4     | 329.63 Hz  | 330 - 494 Hz      |
 
@@ -72,17 +72,11 @@
 
 ### Timer Clock Configuration
 
-**CRITICAL BUG FIX (2026-01-20):**
-- **application_config.h** previously claimed `TIM_CLOCK_MHZ = 240`
-- **Actual measured timer clock: 64 MHz** (HSI-based, no PLL)
-- **Impact:** All ARR calculations must use 64 MHz, not 240 MHz
-- **Fixed in:** `Shared/Inc/application_config.h:45`
-
 **Timer PWM Setup:**
-- Clock source: APB1 @ 64 MHz
+- Clock source: timer kernel @ 200 MHz
 - Prescaler: PSC = 99 (÷100)
-- Effective count frequency: 640 kHz
-- Formula: `ARR = (640,000 / target_freq_hz) - 1`
+- Effective count frequency: 2.0 MHz
+- Formula: `ARR = (2,000,000 / target_freq_hz) - 1`
 - Duty cycle: `CCR = ARR × (duty_percent / 100)`
 
 ---
@@ -189,16 +183,16 @@ Pre-calculated ARR values for 6 strings × 8 frets = 48 frequencies:
 ### Phase 1: Timer Validation (Hardware)
 - [x] Enable HAL_TIM_MODULE, compile successfully
 - [x] Flash to board, verify no errors
-- [x] Oscilloscope on PB14: verify 82 Hz @ 50% duty ✅
+- [ ] Oscilloscope on PE9: verify 82 Hz @ 50% duty after TIM1 remap
 - [x] Identified GPIO configuration issue - fixed with direct register access
 - [x] Identified shared ARR issue with TIM12 CH1/CH2 - fixed by using separate timers
 
 ### Phase 2: Multi-Channel Validation (6 Independent Timers)
 - [ ] Measure all 6 PWM pins with oscilloscope:
-  - PB14 (TIM12): E2 @ 82 Hz
-  - PA7 (TIM14): A2 @ 110 Hz
-  - PA6 (TIM13): D3 @ 147 Hz
-  - PE5 (TIM15): G3 @ 196 Hz
+  - PE9 (TIM1): E2 @ 82 Hz
+  - PB5 (TIM3): A2 @ 110 Hz
+  - PA5 (TIM2): D3 @ 147 Hz
+  - PB6 (TIM4): G3 @ 196 Hz
   - PB8 (TIM16): B3 @ 247 Hz
   - PB9 (TIM17): E4 @ 330 Hz
 - [ ] Verify all 6 frequencies run simultaneously with independent values
@@ -242,14 +236,13 @@ Pre-calculated ARR values for 6 strings × 8 frets = 48 frequencies:
 - **Problem:** Solenoids 0 and 1 both used TIM12 (CH1 and CH2)
 - **Reality:** All channels on same timer share ARR register
 - **Impact:** Setting frequency for one solenoid overwrites the other
-- **Fix:** Moved solenoid 1 to TIM14 (separate timer, separate ARR)
+- **Fix:** Moved solenoid 1 to TIM3 (separate timer, separate ARR)
 
-### Issue 4: HAL GPIO Configuration Not Working
-- **Status:** WORKAROUND (2026-01-28)
-- **Problem:** `HAL_TIM_PWM_MspInit()` doesn't configure GPIO correctly
-- **Impact:** Timer runs but pin stays in input mode (no PWM output)
-- **Workaround:** Added direct GPIO register configuration in `app_cm4.c`
-- **TODO:** Investigate why HAL callback isn't working properly
+### Issue 4: GPIO Routing Drift Between Code Paths
+- **Status:** FIXED (2026-03-15)
+- **Problem:** `.ioc`, HAL MSP init, and `app_cm4.c` used different PWM pin maps
+- **Impact:** Some timer channels were routed to the wrong physical pins, and TIM13 was duplicated on two GPIOs
+- **Fix:** Standardized on the documented PA/PB pin map and removed direct GPIO rerouting from `app_cm4.c`
 
 ---
 
@@ -261,7 +254,7 @@ Pre-calculated ARR values for 6 strings × 8 frets = 48 frequencies:
 3. **Polyphonic Testing** - Test multiple solenoids playing simultaneously
 
 ### Short-Term (Next Sprint)
-- [x] ~~Expand to 6 solenoids (add TIM14/15/16/17)~~ ✅ COMPLETED
+- [x] ~~Expand to 6 solenoids (add TIM3/15/16/17 alongside TIM12/13)~~ ✅ COMPLETED
 - [ ] Implement pickup sensor ADC acquisition
 - [ ] Implement FFT on CM7 for frequency detection
 - [ ] Add closed-loop frequency correction
@@ -288,10 +281,10 @@ Pre-calculated ARR values for 6 strings × 8 frets = 48 frequencies:
 - **Acceptable Max:** < 500µs total loop time (leaves 500µs safety margin)
 
 ### Timer Resources Used (6 Independent Timers for Solenoids)
-- **TIM12:** Solenoid 0 - E2 string (PB14)
-- **TIM13:** Solenoid 2 - D3 string (PA6)
-- **TIM14:** Solenoid 1 - A2 string (PA7)
-- **TIM15:** Solenoid 3 - G3 string (PE5)
+- **TIM1:** Solenoid 0 - E2 string (PE9)
+- **TIM2:** Solenoid 2 - D3 string (PA5)
+- **TIM3:** Solenoid 1 - A2 string (PB5)
+- **TIM4:** Solenoid 3 - G3 string (PB6)
 - **TIM16:** Solenoid 4 - B3 string (PB8)
 - **TIM17:** Solenoid 5 - E4 string (PB9)
 - **Reserved for Future:**
@@ -420,15 +413,14 @@ if (invalid_input) {
 - **Lesson:** TIM12 CH1 and CH2 share the same ARR register
 - **Impact:** Setting frequency for solenoid 1 (TIM12_CH2) overwrites solenoid 0 (TIM12_CH1)
 - **Symptom:** Both solenoids output same frequency (last one set)
-- **Solution:** Use separate timers (TIM12, TIM14) for independent frequencies
+- **Solution:** Use separate timers (TIM1, TIM3) for independent frequencies
 - **Date Fixed:** 2026-01-28
 
-### 5. HAL GPIO Init May Not Work - Use Direct Register Access
-- **Lesson:** `HAL_TIM_PWM_MspInit()` callback may not configure GPIO correctly
-- **Impact:** Timer runs but no PWM signal on pin (pin stays in input mode)
-- **Symptom:** Oscilloscope shows nothing, but timer registers look correct
-- **Solution:** Add direct GPIO register configuration in app_cm4.c as backup
-- **Date Fixed:** 2026-01-28
+### 5. Keep Timer Pin Routing in One Place
+- **Lesson:** Duplicating timer pin routing in both HAL MSP and application code is fragile
+- **Impact:** A single timer channel can appear on multiple pins or on the wrong connector
+- **Solution:** Keep PWM pin routing only in CubeMX/HAL init and remove application-level GPIO remaps
+- **Date Fixed:** 2026-03-15
 
 ---
 
@@ -452,22 +444,22 @@ if (invalid_input) {
 ## 🔄 Change Log
 
 ### 2026-01-28: 6-Solenoid Independent PWM Implementation ✅ BUILD SUCCESSFUL
-- ✅ **Expanded to 6 independent timers** (TIM12, TIM13, TIM14, TIM15, TIM16, TIM17)
-- ✅ Fixed shared ARR bug: Moved solenoid 1 from TIM12_CH2 to TIM14_CH1
-- ✅ Added new GPIO pins: PA7, PE5, PB8, PB9
+- ✅ **Expanded to 6 independent timers** (TIM1, TIM2, TIM3, TIM4, TIM16, TIM17)
+- ✅ Fixed shared ARR bug: Moved solenoid 1 from TIM12_CH2 to TIM3_CH2
+- ✅ Added/updated active solenoid GPIO pins: PE9, PA5, PB5, PB6, PB8, PB9
 - ✅ Updated frequency table to cover all 6 strings × 8 frets = 48 frequencies
-- ✅ Verified PB14 PWM output working at correct frequency
-- ✅ Identified root cause: GPIO not configured in alternate function mode
-- ✅ Added direct GPIO register configuration as workaround
+- ✅ Remapped E2, D3, and G3 to TIM1, TIM2, and TIM4 respectively
+- ✅ Standardized GPIO routing to PE9, PB5, PA5, PB6, PB8, PB9
+- ✅ Removed direct GPIO register configuration workaround
 - ✅ **All 6 solenoids now have independent frequency control!**
 
 **New Pin Assignments:**
 | Solenoid | Timer | Pin | String | Frequency |
 |----------|-------|-----|--------|-----------|
-| 0 | TIM12 | PB14 | E2 | 82 Hz |
-| 1 | TIM14 | PA7 | A2 | 110 Hz |
-| 2 | TIM13 | PA6 | D3 | 147 Hz |
-| 3 | TIM15 | PE5 | G3 | 196 Hz |
+| 0 | TIM1 | PE9 | E2 | 82 Hz |
+| 1 | TIM3 | PB5 | A2 | 110 Hz |
+| 2 | TIM2 | PA5 | D3 | 147 Hz |
+| 3 | TIM4 | PB6 | G3 | 196 Hz |
 | 4 | TIM16 | PB8 | B3 | 247 Hz |
 | 5 | TIM17 | PB9 | E4 | 330 Hz |
 
@@ -492,7 +484,7 @@ if (invalid_input) {
 
 ### Next Update: After 6-Channel Hardware Testing
 - [ ] Test all 6 PWM outputs with oscilloscope
-- [ ] Document measurements for all pins (PB14, PA7, PA6, PE5, PB8, PB9)
+- [ ] Document measurements for all pins (PE9, PB5, PA5, PB6, PB8, PB9)
 - [ ] Test polyphonic operation (multiple strings simultaneously)
 - [ ] Connect solenoids and test mechanical string vibration
 - [ ] Add performance metrics (loop timing, jitter)

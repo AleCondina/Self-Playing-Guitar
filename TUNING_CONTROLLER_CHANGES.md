@@ -296,7 +296,7 @@ int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, uint32_t freq_hz)
 }
 ```
 
-The timer count frequency (640 kHz) is derived from the existing timer configuration: APB1 64 MHz, prescaler 99.
+The timer count frequency (2.4 MHz) is derived from the existing timer configuration: APB1 240 MHz, prescaler 99.
 
 ---
 

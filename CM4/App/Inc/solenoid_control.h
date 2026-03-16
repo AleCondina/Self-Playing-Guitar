@@ -4,16 +4,16 @@
  * @brief   Solenoid control driver for guitar string vibration
  * @note    Provides PWM-based frequency control for 6 solenoids (all strings)
  *
- *          Hardware (6 independent timers for independent frequencies):
- *          - Solenoid 0: TIM12 CH1 (PB14) → String E2 (82-123 Hz)
- *          - Solenoid 1: TIM14 CH1 (PA7)  → String A2 (110-165 Hz)
- *          - Solenoid 2: TIM13 CH1 (PA6)  → String D3 (147-220 Hz)
- *          - Solenoid 3: TIM15 CH1 (PE5)  → String G3 (196-294 Hz)
- *          - Solenoid 4: TIM16 CH1 (PF6)  → String B3 (247-370 Hz)
- *          - Solenoid 5: TIM17 CH1 (PF7)  → String E4 (330-494 Hz)
+ *          Hardware (6 solenoid slots, 3 D2-domain timers currently assigned):
+ *          - Solenoid 0: (none)            → String E2 (TIM1 reassigned to CM7 ADC)
+ *          - Solenoid 1: TIM3 CH2  (PB5)  → String A2 (110-165 Hz)
+ *          - Solenoid 2: TIM2 CH1  (PA5)  → String D3 (147-220 Hz)
+ *          - Solenoid 3: TIM4 CH1  (PB6)  → String G3 (196-294 Hz)
+ *          - Solenoid 4: (none)            → String B3 (TIM16 removed, D1 domain)
+ *          - Solenoid 5: (none)            → String E4 (TIM17 removed, D1 domain)
  *
  *          Each solenoid is driven via N-channel MOSFET (logic-level, 3.3V)
- *          Timer clock: 64 MHz (APB1), Prescaler: 99 (÷100) → 640 kHz count freq
+ *          Timer clock: 198 MHz (CM4 kernel), Prescaler: 89 (÷90) → 2.2 MHz count freq
  ******************************************************************************
  */
 
@@ -97,7 +97,7 @@ uint8_t Solenoid_GetActiveMask(void);
  * @brief Get current frequency for a solenoid (diagnostics)
  * @param solenoid_id Solenoid index (0-5)
  * @return Frequency in Hz, or 0 if invalid solenoid_id
- * @note  Calculated from current ARR value: freq = 640000 / (ARR + 1)
+ * @note  Calculated from current ARR value: freq = TIM_PRESCALED_CLK_HZ / (ARR + 1)
  */
 uint32_t Solenoid_GetFrequency(uint8_t solenoid_id);
 
@@ -128,10 +128,10 @@ uint8_t Solenoid_UpdateAutoStop(void);
  * @param solenoid_id Solenoid index (0-5)
  * @param freq_hz     Target frequency in Hz (must be > 0)
  * @return 0 on success, -1 if invalid parameters or frequency out of range
- * @note  Timer clock: 640 kHz, ARR = (640000 / freq_hz) - 1
+ * @note  Timer clock: 2.0 MHz, ARR = (2000000 / freq_hz) - 1
  * @note  Safe range: 40–800 Hz (ARR fits in uint16_t; stays within PWM timer)
  * @note  Does NOT start PWM – call Solenoid_Start() or Solenoid_StartTimed()
  */
-int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, uint32_t freq_hz);
+int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, float freq_hz);
 
 #endif /* SOLENOID_CONTROL_H */

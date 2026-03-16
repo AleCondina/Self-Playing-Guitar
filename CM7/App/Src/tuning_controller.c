@@ -49,7 +49,7 @@ extern SongScheduler_t g_sched;
  * Feed-forward LUT data
  *
  * Layout: [string_id][breakpoint_index]
- * tuning_ff_freq_bp – target frequency at each breakpoint (Hz)
+ * tuning_ff_freq_bp – target frequency at each breakpoint (Hz) TODO: Use macros in application_config
  * tuning_ff_steps_bp – absolute motor position at each breakpoint (microsteps)
  *
  * String order: 0=E2(82Hz), 1=A2(110Hz), 2=D3(147Hz),
@@ -59,33 +59,24 @@ extern SongScheduler_t g_sched;
  *       Current values assume ~10 microsteps per Hz as a rough linear first-guess.
  * ========================================================================= */
 float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
-    /* E2: 82.41 Hz open, ~123 Hz at fret 7 */
-    {  82.4f,  90.0f, 100.0f, 123.5f },
-    /* A2: 110.0 Hz open, ~165 Hz at fret 7 */
-    { 110.0f, 123.5f, 138.6f, 164.8f },
-    /* D3: 146.8 Hz open, ~220 Hz at fret 7 */
-    { 146.8f, 164.8f, 185.0f, 220.0f },
-    /* G3: 196.0 Hz open, ~294 Hz at fret 7 */
-    { 196.0f, 220.0f, 246.9f, 293.7f },
-    /* B3: 246.9 Hz open, ~370 Hz at fret 7 */
-    { 246.9f, 277.2f, 311.1f, 370.0f },
-    /* E4: 329.6 Hz open, ~494 Hz at fret 7 */
-    { 329.6f, 370.0f, 415.3f, 493.9f },
+    /* Equal temperament: f(n) = f_open * 2^(n/12) for frets 0-6 */
+    /* E2 frets 0-6 */ {  82.41f,  87.31f,  92.50f,  98.00f, 103.83f, 110.00f, 116.54f },
+    /* A2 frets 0-6 */ { 110.00f, 116.54f, 123.47f, 130.81f, 138.59f, 146.83f, 155.56f },
+    /* D3 frets 0-6 */ { 146.83f, 155.56f, 164.81f, 174.61f, 185.00f, 196.00f, 207.65f },
+    /* G3 frets 0-6 */ { 196.00f, 207.65f, 220.00f, 233.08f, 246.94f, 261.63f, 277.18f },
+    /* B3 frets 0-6 */ { 246.94f, 261.63f, 277.18f, 293.66f, 311.13f, 329.63f, 349.23f },
+    /* E4 frets 0-6 */ { 329.63f, 349.23f, 369.99f, 392.00f, 415.30f, 440.00f, 466.16f },
 };
 
 float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
-    /* E2 – TODO: calibrate. rough: 0 at open, ~400 steps at fret 7 */
-    {    0.0f,   80.0f,  185.0f,  400.0f },
-    /* A2 */
-    {    0.0f,   80.0f,  185.0f,  400.0f },
-    /* D3 */
-    {    0.0f,   80.0f,  185.0f,  400.0f },
-    /* G3 */
-    {    0.0f,   80.0f,  185.0f,  400.0f },
-    /* B3 */
-    {    0.0f,   80.0f,  185.0f,  400.0f },
-    /* E4 */
-    {    0.0f,   80.0f,  185.0f,  400.0f },
+    /* Placeholder: linear 0..600 microsteps across frets 0-6.
+     * Run the LUT builder ('mapfrets' command) to replace with measured values. */
+    /* E2 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
+    /* A2 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
+    /* D3 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
+    /* G3 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
+    /* B3 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
+    /* E4 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
 };
 
 /* =========================================================================
@@ -171,13 +162,13 @@ static void ApplyActuation(uint8_t string_id,
     if (lock_now && !lock_prev) {
         /* Rising edge: start solenoid at the exact target frequency.
          * Uses CMD_TRIGGER_SOLENOID_HZ → Solenoid_SetFrequencyHz() on CM4.
-         * This sets ARR = (640000 / freq_hz) - 1 directly instead of using
+         * This sets ARR = (2400000 / freq_hz) - 1 directly instead of using
          * the coarse string/fret lookup table. */
-        uint16_t freq_u16 = (target_freq >= 40.0f && target_freq <= 800.0f)
-                            ? (uint16_t)target_freq : 0u;
-        if (freq_u16 > 0u) {
+        float freq = (target_freq >= 40.0f && target_freq <= 800.0f)
+                            ? target_freq : 0.0f;       
+        if (freq > 1e-6) {
             InterCore_TriggerSolenoidHz(string_id,
-                                        freq_u16,
+                                        freq,
                                         SOLENOID_DEFAULT_DUTY_CYCLE,
                                         SOLENOID_MODE_INFINITE,
                                         0u,
