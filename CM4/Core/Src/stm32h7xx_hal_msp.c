@@ -113,6 +113,8 @@ void HAL_TIM_PWM_MspInit(TIM_HandleTypeDef* htim)
 
         /* Enable GPIOA clock for PWM output pin */
         __HAL_RCC_GPIOA_CLK_ENABLE();
+        /* Enable GPIOA clock for PWM output pin */
+        __HAL_RCC_GPIOA_CLK_ENABLE();
 
         /**
          * TIM2 GPIO Configuration:

@@ -25,9 +25,6 @@ extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 (PB9)  - TIM17_CH1  */
 /* Control loop timing */
 #define CONTROL_LOOP_PERIOD_MS  1   /* 1ms = 1kHz control loop */
 
-/* Motor test parameters (fallback defaults if shared memory not set) */
-#define STEPS_PER_REV               200     /* Standard stepper: 200 steps/rev (1.8° per step) */
-#define DEFAULT_STEPS_FOR_180_DEG   400     /* Default steps per move */
 /* Application state */
 static uint32_t loop_start_time = 0;
 static uint32_t loop_count = 0;
