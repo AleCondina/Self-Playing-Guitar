@@ -67,6 +67,14 @@ void App_CM4_Main(void)
     /* Zero position */
     Motor_ZeroPosition(3);
 
+    Motor_Enable(4);
+    Motor_ZeroPosition(4);
+
+    Motor_Enable(5);
+    Motor_ZeroPosition(5);
+
+
+
     /* Initialize solenoid control system */
     if (Solenoid_Init() != 0) {
         g_shared_memory.motor_errors |= ERROR_INVALID_COMMAND;

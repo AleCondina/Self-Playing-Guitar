@@ -1,4 +1,8 @@
 #include "song_scheduler_tuning.h"
+#include "inter_core_cm7.h"
+#include "note_lookup.h"
+#include "stm32h7xx_hal.h"
+#include "shared_memory.h"
 #include <stdio.h>
 
 void SongScheduler_Init(SongScheduler_t* s,
@@ -29,13 +33,20 @@ void SongScheduler_Update(SongScheduler_t* s, uint32_t now_ms)
         if (elapsed < e->start_time_ms)
             break;
 
-        printf("NOTE START: idx=%lu string=%u motor=%u freq=%d dur=%lu vel=%u\n",
-               s->index,
-               e->string_id,
-               e->motor_position,
-               (int)e->freq,
-               e->duration_ms,
-               e->velocity);    // Replace with InterCore_PlayNote_Tune(...)
+        int32_t pos = LookupMotorPosition(e->string_id, e->note);
+        InterCore_SendMotorGoto(e->string_id, pos);
+
+        HAL_Delay(20);
+
+        InterCore_TriggerSolenoids(1 << e->string_id, e->duration_ms);
+        printf("NOTE START: idx=%lu string=%u freq=%d pos=%ld dur=%lu vel=%u\n",
+       s->index,
+       e->string_id,
+       (int)e->freq,
+       (long)pos,
+       e->duration_ms,
+       e->velocity);
+
 
         for (int i = 0; i < MAX_ACTIVE_NOTES; i++)
         {
@@ -61,13 +72,15 @@ void SongScheduler_Update(SongScheduler_t* s, uint32_t now_ms)
             {
                 SongEvent_t* e = &s->active_notes[i].event;
 
-                printf("NOTE STOP: string=%u motor=%u freq=%d at %lu\n",
-                       e->string_id,
-                       e->motor_position,
-                       (int)e->freq,
-                       now_ms); // Replace with InterCore_StopNote(...)
+              g_shared_memory.solenoid_id = e->string_id;
+              g_shared_memory.motor_command_flags |= CMD_STOP_SOLENOID;
+              InterCore_NotifyCM4();
 
-                s->active_notes[i].active = 0;
+              printf("NOTE STOP: string=%u note=%u freq=%.2f at %lu\n",
+              e->string_id,
+              e->note,
+              e->freq,
+              now_ms);
             }
         }
     }

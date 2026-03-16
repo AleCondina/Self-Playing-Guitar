@@ -29,7 +29,7 @@
  */
 
 #include "tuning_controller.h"
-#include "song_scheduler.h"
+#include "song_scheduler_tuning.h"
 #include "fft_processing.h"
 #include "inter_core_cm7.h"
 #include "shared_memory.h"
@@ -41,6 +41,7 @@
 #include <stdio.h>
 #include <string.h>
 
+extern SongScheduler_t g_sched;
 /* Tuning tolerances - adjust these based on your physical guitar */
 #define TUNE_SEARCH_WINDOW_HZ 15.0f     /* Max allowed drift from target before ignoring */
 
@@ -280,6 +281,15 @@ void TuningCtrl_Update(uint8_t string_id,
     /* ------------------------------------------------------------------ */
     float e = target_freq_hz - use_freq;
 
+if (fabsf(e) < 0.5f)
+{
+    s->lock_state = 1u;
+    s->prev_cmd_steps_abs = s->cmd_steps_abs;
+    s->current_abs_steps = g_shared_memory.current_positions[string_id];
+    s->hop_count++;
+    return;
+}//Added deadband,Prevents motor hunting/oscillation
+
     /* ------------------------------------------------------------------ */
     /* 4. Lock-band hysteresis                                              */
     /* ------------------------------------------------------------------ */
@@ -439,10 +449,28 @@ static void GetFFTRadarLock(float target, float* out_measured, float* out_confid
 void TuningCtrl_RunHop(void)
 {
     /* Get current note from song scheduler */
-    if (!SongSched_IsActive()) return;
+    if (g_sched.count == 0)
+    return;
 
-    uint8_t  str    = SongSched_GetStringId();
-    float    target = SongSched_GetTargetFreq();
+    uint8_t found = 0;
+    uint8_t str = 0;
+    float target = 0.0f;
+
+    for (uint8_t i = 0; i < MAX_ACTIVE_NOTES; i++)
+{
+    if (g_sched.active_notes[i].active)
+    {
+        str = g_sched.active_notes[i].event.string_id;
+        target = g_sched.active_notes[i].event.freq;
+        found = 1;
+        break;
+    }
+}
+
+if (!found)
+    return;
+
+
 
     /* --- Primary String FFT Lock --- */
     float measured = 0.0f;
@@ -472,24 +500,25 @@ void TuningCtrl_RunHop(void)
     /* ------------------------------------------------------------------ */
     /* Second string (chord support)                                        */
     /* ------------------------------------------------------------------ */
-    if (SongSched_GetStringCount() >= 2u) {
-        uint8_t str2     = SongSched_GetStringId2();
-        float   target2  = SongSched_GetTargetFreq2();
 
-        /* --- Secondary String FFT Lock --- */
-        float measured2 = 0.0f;
-        float confidence2 = 0.0f;
-        GetFFTRadarLock(target2, &measured2, &confidence2);
+    // if (SongSched_GetStringCount() >= 2u) {
+    //     uint8_t str2     = SongSched_GetStringId2();
+    //     float   target2  = SongSched_GetTargetFreq2();
+
+    //     /* --- Secondary String FFT Lock --- */
+    //     float measured2 = 0.0f;
+    //     float confidence2 = 0.0f;
+    //     GetFFTRadarLock(target2, &measured2, &confidence2);
         
-        uint8_t prev_lock2 = s_state[str2].lock_state;
-        TuningCtrl_Update(str2, target2, measured2, confidence2);
-        uint8_t curr_lock2 = s_state[str2].lock_state;
+    //     uint8_t prev_lock2 = s_state[str2].lock_state;
+    //     TuningCtrl_Update(str2, target2, measured2, confidence2);
+    //     uint8_t curr_lock2 = s_state[str2].lock_state;
 
-        if (s_state[str2].cmd_steps_abs != s_state[str2].prev_cmd_steps_abs) {
-            InterCore_SendMotorGoto(str2, s_state[str2].cmd_steps_abs);
-        }
-        ApplyActuation(str2, target2, curr_lock2, prev_lock2);
-    }
+    //     if (s_state[str2].cmd_steps_abs != s_state[str2].prev_cmd_steps_abs) {
+    //         InterCore_SendMotorGoto(str2, s_state[str2].cmd_steps_abs);
+    //     }
+    //     ApplyActuation(str2, target2, curr_lock2, prev_lock2);
+    // }
 
     /* ------------------------------------------------------------------ */
     /* Debug CSV logging (decimated)                                        */

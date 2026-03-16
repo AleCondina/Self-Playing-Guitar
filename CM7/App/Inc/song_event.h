@@ -2,6 +2,7 @@
 #define SONG_EVENT_H
 
 #include <stdint.h>
+#include "note_lookup.h"
 
 typedef struct
 {
@@ -11,7 +12,7 @@ typedef struct
     float    freq;
 
     uint8_t  string_id;
-    uint16_t motor_position;
+    Note_t note;
 
     uint8_t  velocity;
 

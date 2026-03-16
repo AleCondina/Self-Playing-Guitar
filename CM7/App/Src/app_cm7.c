@@ -22,7 +22,7 @@
 #include "fft_processing.h"
 #include "tuning_controller.h"
 #include "calibration_controller.h"
-#include "song_scheduler.h"
+//#include "song_scheduler.h"
 #include "shared_memory.h"
 #include "stm32h755xx.h"
 #include "stm32h7xx_hal.h"
@@ -46,7 +46,7 @@ extern const uint32_t g_midi_len;
 
 static SongEvent_t g_events[256];
 static uint32_t g_event_count;
-static SongScheduler_t g_sched;
+SongScheduler_t g_sched;
 
 
 
@@ -109,7 +109,7 @@ void App_CM7_Main(void) {
 
         /* Set all configured motors to 1/16 microstepping (mode 4) */
         printf("[CM7] Setting motors to 1/16 microstepping...\r\n");
-        for (uint8_t i = 0u; i < 4u; i++) {
+        for (uint8_t i = 0u; i < 6u; i++) {
             InterCore_SendMotorMicrostep(i, 4u);
         }
         HAL_Delay(50);  /* Let CM4 apply the new mode */
@@ -129,7 +129,7 @@ void App_CM7_Main(void) {
 
         /* Register song scheduler note count (not started yet – use 'smoke' command) */
         printf("[CM7] Song scheduler ready (%lu notes loaded).\r\n",
-               (unsigned long)SongSched_GetNoteCount());
+       (unsigned long)g_event_count);
 
         /* Print CSV log header for offline analysis */
         printf("[TC] timestamp_ms,string_id,target_hz,measured_hz,error_hz,"
@@ -183,15 +183,14 @@ if (g_event_count > 0)
 
         for (uint32_t i = 0; i < g_event_count; i++)
         {
-printf("%lu: start=%lu dur=%lu end=%lu freq=%d string=%u motor=%u vel=%u\n",
-       i,
-       g_events[i].start_time_ms,
-       g_events[i].duration_ms,
-       g_events[i].start_time_ms + g_events[i].duration_ms,
-       (int)g_events[i].freq,
-       g_events[i].string_id,
-       g_events[i].motor_position,
-       g_events[i].velocity);
+            printf("%lu: start=%lu dur=%lu end=%lu freq=%.2f string=%u vel=%u\n",
+            i,
+            g_events[i].start_time_ms,
+            g_events[i].duration_ms,
+            g_events[i].start_time_ms + g_events[i].duration_ms,
+            g_events[i].freq,
+            g_events[i].string_id,
+            g_events[i].velocity);
         }
 
         SongScheduler_Init(&g_sched,g_events,g_event_count,HAL_GetTick());
@@ -259,12 +258,16 @@ printf("%lu: start=%lu dur=%lu end=%lu freq=%d string=%u motor=%u vel=%u\n",
                         break;
                     }
                     if (s_request_play) {
+                        printf("[CM7] Playback restarted.\r\n");
                         s_request_play = 0u;
-                        SongSched_Init();
+                        SongScheduler_Init(&g_sched, g_events, g_event_count, HAL_GetTick());
                     }
 
                     /* --- Song scheduler tick --- */
-                    SongSched_Tick(HAL_GetTick());
+
+                    //SongSched_Tick(HAL_GetTick());
+
+                    SongScheduler_Update(&g_sched, HAL_GetTick());
 
                     /* --- Tuning control hop ---
                      * Reads FFT results and song scheduler state,
@@ -274,7 +277,7 @@ printf("%lu: start=%lu dur=%lu end=%lu freq=%d string=%u motor=%u vel=%u\n",
                     TuningCtrl_RunHop();
 
                     /* Diagnostic: print FFT polyphonic results (only during playback) */
-                    if (SongSched_IsActive() && active_string_count > 0) {
+                    if (active_string_count > 0) {
                         printf("[CM7] FFT %d string(s): ", active_string_count);
                         for (uint8_t i = 0; i < active_string_count; i++) {
                             printf("%.2f Hz  ", (double)active_frequencies[i]);
@@ -307,15 +310,15 @@ printf("%lu: start=%lu dur=%lu end=%lu freq=%d string=%u motor=%u vel=%u\n",
         /* Print diagnostics every 5 seconds */
         if (HAL_GetTick() - last_debug_time >= 5000u) {
             last_debug_time = HAL_GetTick();
-            if (app_state == STATE_RUNNING && SongSched_IsActive()) {
+            if (app_state == STATE_RUNNING) {
                 printf("[CM7] Song note %lu/%lu | CM4 loop %lu Hz\r\n",
-                       (unsigned long)SongSched_GetNoteIndex(),
-                       (unsigned long)SongSched_GetNoteCount(),
+                       g_sched.index,
+                       g_event_count,
                        (unsigned long)g_shared_memory.cm4_loop_hz);
             }
         }
 
-         SongScheduler_Update(&g_sched, HAL_GetTick());
+        // SongScheduler_Update(&g_sched, HAL_GetTick());
     }
 }
 

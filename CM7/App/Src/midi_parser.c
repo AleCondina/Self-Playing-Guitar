@@ -8,6 +8,8 @@
 
 #define DEFAULT_TEMPO_US_PER_QN 500000
 
+uint16_t unused_motor;
+
 static uint32_t read_be32(const uint8_t* p)
 {
     return (p[0]<<24)|(p[1]<<16)|(p[2]<<8)|p[3];
@@ -75,7 +77,7 @@ int MIDI_Parse(const uint8_t* data,
 
     uint32_t track_end = index + track_len;
 
-    uint32_t tempo_us = DEFAULT_TEMPO_US_PER_QN;
+    uint32_t tempo_us = DEFAULT_TEMPO_US_PER_QN; //TODO: see what this is
     uint32_t current_time_ms = 0;
 
     typedef struct {
@@ -137,9 +139,8 @@ int MIDI_Parse(const uint8_t* data,
                     e->freq          = midi_to_freq(note);
                     e->velocity      = active[note].velocity;
 
-                    NoteMap_Resolve(note,
-                                    &e->string_id,
-                                    &e->motor_position);
+                 
+                    NoteMap_Resolve(note, &e->string_id, &unused_motor);
 
                     active[note].active = 0;
                 }
@@ -161,9 +162,8 @@ int MIDI_Parse(const uint8_t* data,
                 e->freq          = midi_to_freq(note);
                 e->velocity      = active[note].velocity;
 
-                NoteMap_Resolve(note,
-                                &e->string_id,
-                                &e->motor_position);
+                
+                NoteMap_Resolve(note, &e->string_id, &unused_motor);
 
                 active[note].active = 0;
             }

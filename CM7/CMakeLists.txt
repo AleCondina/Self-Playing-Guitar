@@ -75,6 +75,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/midi_data.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/midi_parser.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/note_mapping.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/note_lookup.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../Shared/Src/shared_memory.c
     # ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/goertzel_processing.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/tuning_controller.c

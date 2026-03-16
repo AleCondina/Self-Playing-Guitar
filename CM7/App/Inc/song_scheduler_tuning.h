@@ -8,7 +8,7 @@
 extern "C" {
 #endif
 
-#define MAX_ACTIVE_NOTES 5
+#define MAX_ACTIVE_NOTES 8
 
 typedef struct
 {
@@ -24,6 +24,7 @@ typedef struct
     uint32_t count;
     uint32_t index;
     uint32_t start_time_ms;
+    uint8_t finished;
 
     ActiveNote_t active_notes[MAX_ACTIVE_NOTES];
 
