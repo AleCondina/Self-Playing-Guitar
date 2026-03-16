@@ -74,7 +74,7 @@ static uint8_t motor_microstep_mode[NUM_MOTORS] = {0};
 static void Motor_DelayUs(uint32_t us)
 {
     uint32_t start = DWT->CYCCNT;
-    uint32_t cycles = us * (CM4_CLOCK_MHZ); /* 240 cycles per us at 240 MHz */
+    uint32_t cycles = us * (CM4_CLOCK_MHZ); /* cycles per us at the current CM4 clock */
     while ((DWT->CYCCNT - start) < cycles);
 }
 

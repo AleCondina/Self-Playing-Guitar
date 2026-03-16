@@ -13,22 +13,18 @@
 #include "shared_memory.h"
 #include "stm32h7xx_hal.h"
 #include "stm32h7xx_hal_hsem.h"
-#include "stm32h7xx_hal_rcc.h"
 
-/* External timer handles for debug access (6 independent timers) - All on ZIO connectors */
-extern TIM_HandleTypeDef htim12;  /* Solenoid 0: E2 (PB14) - ZIO CN12-28 */
-extern TIM_HandleTypeDef htim13;  /* Solenoid 2: D3 (PA6)  - TIM13_CH1  */
-extern TIM_HandleTypeDef htim14;  /* Solenoid 1: A2 (PF9)  - TIM14_CH1  */
-extern TIM_HandleTypeDef htim15;  /* Solenoid 3: G3 (PE5)  - ZIO CN10-8 */
-extern TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 (PF6)  - ZIO CN10-7 */
-extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 (PF7)  - ZIO CN9-26 */
+/* External timer handles for debug access (6 independent timers) */
+extern TIM_HandleTypeDef htim1;   /* Solenoid 0: E2 (PE9)  - TIM1_CH1   */
+extern TIM_HandleTypeDef htim2;   /* Solenoid 2: D3 (PA5)  - TIM2_CH1   */
+extern TIM_HandleTypeDef htim3;   /* Solenoid 1: A2 (PB5)  - TIM3_CH2   */
+extern TIM_HandleTypeDef htim4;   /* Solenoid 3: G3 (PB6)  - TIM4_CH1   */
+extern TIM_HandleTypeDef htim16;  /* Solenoid 4: B3 (PB8)  - TIM16_CH1  */
+extern TIM_HandleTypeDef htim17;  /* Solenoid 5: E4 (PB9)  - TIM17_CH1  */
 
 /* Control loop timing */
 #define CONTROL_LOOP_PERIOD_MS  1   /* 1ms = 1kHz control loop */
 
-/* Motor test parameters (fallback defaults if shared memory not set) */
-#define STEPS_PER_REV               200     /* Standard stepper: 200 steps/rev (1.8° per step) */
-#define DEFAULT_STEPS_FOR_180_DEG   400     /* Default steps per move */
 /* Application state */
 static uint32_t loop_start_time = 0;
 static uint32_t loop_count = 0;
@@ -77,6 +73,12 @@ void App_CM4_Main(void)
     /* Zero position */
     Motor_ZeroPosition(3);
 
+    /* Set all motors to 1/16 microstepping by default */
+    Motor_SetMicrostepMode(0, MOTOR_MICROSTEP_16);
+    Motor_SetMicrostepMode(1, MOTOR_MICROSTEP_16);
+    Motor_SetMicrostepMode(2, MOTOR_MICROSTEP_16);
+    Motor_SetMicrostepMode(3, MOTOR_MICROSTEP_16);
+
     /* Initialize solenoid control system */
     if (Solenoid_Init() != 0) {
         g_shared_memory.motor_errors |= ERROR_INVALID_COMMAND;
@@ -86,12 +88,12 @@ void App_CM4_Main(void)
     /* Each solenoid now has its own independent timer for independent frequency control */
 
     /* Set frequencies for all 6 strings (open position, fret 0) */
-    Solenoid_SetFrequency(0, 0, 0);  // Solenoid 0: E2 string (Low E), 82.41 Hz on PB14
-    Solenoid_SetFrequency(1, 1, 0);  // Solenoid 1: A2 string, 110.00 Hz on PF9
-    Solenoid_SetFrequency(2, 2, 0);  // Solenoid 2: D3 string, 146.83 Hz on PA6
-    Solenoid_SetFrequency(3, 3, 0);  // Solenoid 3: G3 string, 196.00 Hz on PE5
-    Solenoid_SetFrequency(4, 4, 0);  // Solenoid 4: B3 string, 246.94 Hz on PF6
-    Solenoid_SetFrequency(5, 5, 0);  // Solenoid 5: E4 string (High E), 329.63 Hz on PF7
+    Solenoid_SetFrequency(0, 0, 0);  // Solenoid 0: E2 string (Low E), 82.41 Hz on PE9
+    Solenoid_SetFrequency(1, 1, 0);  // Solenoid 1: A2 string, 110.00 Hz on PB5
+    Solenoid_SetFrequency(2, 2, 0);  // Solenoid 2: D3 string, 146.83 Hz on PA5
+    Solenoid_SetFrequency(3, 3, 0);  // Solenoid 3: G3 string, 196.00 Hz on PB6
+    Solenoid_SetFrequency(4, 4, 0);  // Solenoid 4: B3 string, 246.94 Hz on PB8
+    Solenoid_SetFrequency(5, 5, 0);  // Solenoid 5: E4 string (High E), 329.63 Hz on PB9
 
     /* Start all 6 solenoids */
     // Solenoid_Start(0);
@@ -101,108 +103,33 @@ void App_CM4_Main(void)
     // Solenoid_Start(4);
     // Solenoid_Start(5);
 
-    /* Direct GPIO configuration for all PWM pins */
-    /* Enable all required GPIO clocks */
-    __HAL_RCC_GPIOA_CLK_ENABLE();
-    __HAL_RCC_GPIOB_CLK_ENABLE();
-    __HAL_RCC_GPIOE_CLK_ENABLE();
-    __HAL_RCC_GPIOF_CLK_ENABLE();
-
-    /* Enable all timer clocks */
-    __HAL_RCC_TIM12_CLK_ENABLE();
-    __HAL_RCC_TIM13_CLK_ENABLE();
-    __HAL_RCC_TIM14_CLK_ENABLE();
-    __HAL_RCC_TIM15_CLK_ENABLE();
-    __HAL_RCC_TIM16_CLK_ENABLE();
-    __HAL_RCC_TIM17_CLK_ENABLE();
-
-    /* Configure PB14 as AF2 (TIM12_CH1) - Solenoid 0: E2 - ZIO CN12-28 */
-    GPIOB->MODER &= ~(0x3UL << (14 * 2));
-    GPIOB->MODER |= (0x2UL << (14 * 2));
-    GPIOB->AFR[1] &= ~(0xFUL << ((14-8) * 4));
-    GPIOB->AFR[1] |= (0x2UL << ((14-8) * 4));
-    GPIOB->OTYPER &= ~(1UL << 14);
-    GPIOB->OSPEEDR |= (0x3UL << (14 * 2));
-
-    /* Configure PF9 as AF9 (TIM14_CH1) - Solenoid 1: A2 */
-    GPIOF->MODER &= ~(0x3UL << (9 * 2));
-    GPIOF->MODER |=  (0x2UL << (9 * 2));      // Alternate function mode
-    GPIOF->AFR[1] &= ~(0xFUL << ((9-8) * 4));
-    GPIOF->AFR[1] |=  (0x9UL << ((9-8) * 4)); // AF9
-    GPIOF->OTYPER &= ~(1UL << 9);             // Push-pull
-    GPIOF->OSPEEDR |= (0x3UL << (9 * 2));     // Very high speed
-    
-    /* Configure PA6 as AF9 (TIM13_CH1) - Solenoid 2: D3 */
-    GPIOA->MODER &= ~(0x3UL << (6 * 2));
-    GPIOA->MODER |=  (0x2UL << (6 * 2));      // Alternate function mode
-    GPIOA->AFR[0] &= ~(0xFUL << (6 * 4));
-    GPIOA->AFR[0] |=  (0x9UL << (6 * 4));     // AF9
-    GPIOA->OTYPER &= ~(1UL << 6);             // Push-pull
-    GPIOA->OSPEEDR |= (0x3UL << (6 * 2));     // Very high speed
-    
-    /* Configure PE5 as AF4 (TIM15_CH1) - Solenoid 3: G3 - ZIO CN10-8 */
-    GPIOE->MODER &= ~(0x3UL << (5 * 2));
-    GPIOE->MODER |= (0x2UL << (5 * 2));
-    GPIOE->AFR[0] &= ~(0xFUL << (5 * 4));
-    GPIOE->AFR[0] |= (0x4UL << (5 * 4));
-    GPIOE->OTYPER &= ~(1UL << 5);
-    GPIOE->OSPEEDR |= (0x3UL << (5 * 2));
-
-    /* Configure PF6 as AF1 (TIM16_CH1) - Solenoid 4: B3 - ZIO CN10-7 */
-    GPIOF->MODER &= ~(0x3UL << (6 * 2));
-    GPIOF->MODER |= (0x2UL << (6 * 2));
-    GPIOF->AFR[0] &= ~(0xFUL << (6 * 4));
-    GPIOF->AFR[0] |= (0x1UL << (6 * 4));
-    GPIOF->OTYPER &= ~(1UL << 6);
-    GPIOF->OSPEEDR |= (0x3UL << (6 * 2));
-
-    /* Configure PF7 as AF1 (TIM17_CH1) - Solenoid 5: E4 - ZIO CN9-26 */
-    GPIOF->MODER &= ~(0x3UL << (7 * 2));
-    GPIOF->MODER |= (0x2UL << (7 * 2));
-    GPIOF->AFR[0] &= ~(0xFUL << (7 * 4));
-    GPIOF->AFR[0] |= (0x1UL << (7 * 4));
-    GPIOF->OTYPER &= ~(1UL << 7);
-    GPIOF->OSPEEDR |= (0x3UL << (7 * 2));
-
     /* DEBUG: Read back all configuration */
-    volatile uint32_t debug_arr = __HAL_TIM_GET_AUTORELOAD(&htim12);
-    volatile uint32_t debug_ccr = __HAL_TIM_GET_COMPARE(&htim12, TIM_CHANNEL_1);
+    volatile uint32_t debug_arr = __HAL_TIM_GET_AUTORELOAD(&htim1);
+    volatile uint32_t debug_ccr = __HAL_TIM_GET_COMPARE(&htim1, TIM_CHANNEL_1);
     volatile uint32_t debug_freq = Solenoid_GetFrequency(0);
     volatile uint8_t debug_active = Solenoid_GetActiveMask();
 
-    /* Read TIM12 control registers for verification */
-    volatile uint32_t debug_tim12_cr1 = TIM12->CR1;       // Expected: 0x0081 (CEN + ARPE)
-    volatile uint32_t debug_tim12_cnt = TIM12->CNT;       // Expected: counting (0 to 7764)
-    volatile uint32_t debug_tim12_psc = TIM12->PSC;       // Expected: 99
-    volatile uint32_t debug_tim12_arr = TIM12->ARR;       // Expected: 7764
-    volatile uint32_t debug_tim12_ccr1 = TIM12->CCR1;     // Expected: 3882
-    volatile uint32_t debug_tim12_ccmr1 = TIM12->CCMR1;   // Expected: 0x0068
-    volatile uint32_t debug_tim12_ccer = TIM12->CCER;     // Expected: 0x0001
-
-    /* GPIO configuration readback */
-    volatile uint32_t debug_gpiob_moder = GPIOB->MODER;   // Check PB14 is in AF mode (bit 28-29 = 10)
-    volatile uint32_t debug_gpiob_afrh = GPIOB->AFR[1];   // Check PB14 AF2 setting (bits 24-27 = 0010)
-    volatile uint32_t debug_gpiob_otyper = GPIOB->OTYPER; // Should be 0 for PB14 (push-pull)
-
-    /* RCC clock enable status */
-    volatile uint32_t debug_rcc_apb1lenr = RCC->APB1LENR; // Bit 6 should be set (TIM12EN)
+    /* Read TIM1 control registers for verification */
+    volatile uint32_t debug_tim1_cr1 = TIM1->CR1;
+    volatile uint32_t debug_tim1_cnt = TIM1->CNT;
+    volatile uint32_t debug_tim1_psc = TIM1->PSC;
+    volatile uint32_t debug_tim1_arr = TIM1->ARR;
+    volatile uint32_t debug_tim1_ccr1 = TIM1->CCR1;
+    volatile uint32_t debug_tim1_ccmr1 = TIM1->CCMR1;
+    volatile uint32_t debug_tim1_ccer = TIM1->CCER;
 
     /* Prevent compiler optimization */
     (void)debug_arr;
     (void)debug_ccr;
     (void)debug_freq;
     (void)debug_active;
-    (void)debug_tim12_cr1;
-    (void)debug_tim12_cnt;
-    (void)debug_tim12_psc;
-    (void)debug_tim12_arr;
-    (void)debug_tim12_ccr1;
-    (void)debug_tim12_ccmr1;
-    (void)debug_tim12_ccer;
-    (void)debug_gpiob_moder;
-    (void)debug_gpiob_afrh;
-    (void)debug_gpiob_otyper;
-    (void)debug_rcc_apb1lenr;
+    (void)debug_tim1_cr1;
+    (void)debug_tim1_cnt;
+    (void)debug_tim1_psc;
+    (void)debug_tim1_arr;
+    (void)debug_tim1_ccr1;
+    (void)debug_tim1_ccmr1;
+    (void)debug_tim1_ccer;
 
     /* Signal ready to CM7 */
     g_shared_memory.motor_status_flags = MOTOR_STATUS_READY;
