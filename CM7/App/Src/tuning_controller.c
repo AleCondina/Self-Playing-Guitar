@@ -58,24 +58,23 @@
  *       Current values assume ~10 microsteps per Hz as a rough linear first-guess.
  * ========================================================================= */
 float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
-    /* Equal temperament: f(n) = f_open * 2^(n/12) for frets 0-6 */
-    /* E2 frets 0-6 */ {  82.41f,  87.31f,  92.50f,  98.00f, 103.83f, 110.00f, 116.54f },
-    /* A2 frets 0-6 */ { 110.00f, 116.54f, 123.47f, 130.81f, 138.59f, 146.83f, 155.56f },
-    /* D3 frets 0-6 */ { 146.83f, 155.56f, 164.81f, 174.61f, 185.00f, 196.00f, 207.65f },
-    /* G3 frets 0-6 */ { 196.00f, 207.65f, 220.00f, 233.08f, 246.94f, 261.63f, 277.18f },
+    /* Measured frequencies from LUT RUN 1 */
+    /* E2 frets 0-6 */ {  82.41f,  82.69f,  89.97f,  96.05f, 100.07f, 106.37f, 112.82f },
+    /* A2 frets 0-6 */ { 110.35f, 112.65f, 120.05f, 127.02f, 134.33f, 143.71f, 155.56f },
+    /* D3 frets 0-6 */ { 146.83f, 153.98f, 200.85f, 171.15f, 178.71f, 200.86f, 208.44f },
+    /* G3 frets 0-6 */ { 196.00f, 205.70f, 218.73f, 233.08f, 246.13f, 261.81f, 275.53f },
     /* B3 frets 0-6 */ { 246.94f, 261.63f, 277.18f, 293.66f, 311.13f, 329.63f, 349.23f },
     /* E4 frets 0-6 */ { 329.63f, 349.23f, 369.99f, 392.00f, 415.30f, 440.00f, 466.16f },
 };
 
 float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
-    /* Placeholder: linear 0..600 microsteps across frets 0-6.
-     * Run the LUT builder ('mapfrets' command) to replace with measured values. */
-    /* E2 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
-    /* A2 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
-    /* D3 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
-    /* G3 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
-    /* B3 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
-    /* E4 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
+    /* Measured microsteps from LUT RUN 1 */
+    /* E2 */ {   0.0f, 267.0f, 1080.0f, 1623.0f, 2029.0f, 2706.0f, 3385.0f },
+    /* A2 */ {   0.0f, 403.0f, 1083.0f, 1899.0f, 2709.0f, 3798.0f, 4887.0f },
+    /* D3 */ {   0.0f, 950.0f, 1766.0f, 2719.0f, 3535.0f, 3941.0f, 7073.0f },
+    /* G3 */ {   0.0f, 950.0f, 1766.0f, 2450.0f, 3401.0f, 4493.0f, 5447.0f },
+    /* B3 */ {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    /* E4 */ {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
 };
 
 /* =========================================================================
@@ -87,6 +86,10 @@ static TuningStringState_t s_state[NUM_STRINGS];
 /* Decimation counter for debug printing (print every N hops) */
 #define DEBUG_DECIM_HOPS    5u
 static uint32_t s_debug_counter = 0u;
+
+/* Bitmask of motors currently enabled by the tuning controller.
+ * Used to detect transitions and avoid redundant enable commands. */
+static uint8_t s_motor_enable_mask = 0u;
 
 /* =========================================================================
  * Private helpers
@@ -169,8 +172,8 @@ static void ApplyActuation(uint8_t string_id,
             InterCore_TriggerSolenoidHz(string_id,
                                         freq,
                                         SOLENOID_DEFAULT_DUTY_CYCLE,
-                                        SOLENOID_MODE_INFINITE,
-                                        0u,
+                                        SOLENOID_MODE_TIMED,
+                                        250u,
                                         0u);
         }
 
@@ -205,6 +208,7 @@ void TuningCtrl_Init(void)
         s->last_valid_freq_hz  =  0.0f;
     }
     s_debug_counter = 0u;
+    s_motor_enable_mask = 0u;
 }
 
 /* -------------------------------------------------------------------------
@@ -433,10 +437,27 @@ static void GetFFTRadarLock(float target, float* out_measured, float* out_confid
 void TuningCtrl_RunHop(void)
 {
     /* Get current note from song scheduler */
-    if (!SongSched_IsActive()) return;
+    if (!SongSched_IsActive()) {
+        /* Song stopped: disable all motors the tuning controller enabled */
+        if (s_motor_enable_mask != 0u) {
+            InterCore_SendMotorEnableMask(0u);
+            s_motor_enable_mask = 0u;
+        }
+        return;
+    }
 
     uint8_t  str    = SongSched_GetStringId();
     float    target = SongSched_GetTargetFreq();
+
+    /* --- Motor power management: enable only active string motors --- */
+    uint8_t needed_mask = (1u << str);
+    if (SongSched_GetStringCount() >= 2u) {
+        needed_mask |= (1u << SongSched_GetStringId2());
+    }
+    if (needed_mask != s_motor_enable_mask) {
+        InterCore_SendMotorEnableMask(needed_mask);
+        s_motor_enable_mask = needed_mask;
+    }
 
     /* --- Primary String FFT Lock --- */
     float measured = 0.0f;
@@ -568,4 +589,5 @@ void TuningCtrl_ResetAll(void)
     for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
         TuningCtrl_ResetString(i);
     }
+    s_motor_enable_mask = 0u;
 }
