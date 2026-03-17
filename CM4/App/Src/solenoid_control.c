@@ -156,7 +156,7 @@ int32_t Solenoid_SetFrequency(uint8_t solenoid_id, uint8_t string, uint8_t fret)
     if (state->htim == NULL) {
         state->current_string = string;
         state->current_fret = fret;
-        return 0;
+        return -1;
     }
 
     /* Get new ARR value from lookup table */
@@ -199,7 +199,7 @@ int32_t Solenoid_SetDutyCycle(uint8_t solenoid_id, uint8_t duty_percent)
 
     /* Skip if no timer assigned */
     if (state->htim == NULL) {
-        return 0;
+        return -1;
     }
 
     /* Recalculate CCR based on current ARR */
@@ -288,7 +288,7 @@ uint32_t Solenoid_GetFrequency(uint8_t solenoid_id)
 
     /* No timer assigned */
     if (state->htim == NULL) {
-        return 0;
+        return -1;
     }
 
     /* Get current ARR value */

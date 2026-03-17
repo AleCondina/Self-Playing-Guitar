@@ -198,6 +198,9 @@ void SerialCmd_Init(void)
 
 uint8_t SerialCmd_Process(void)
 {
+    /* Flush any pending echo characters from ISR */
+    Debug_UART_FlushEcho();
+
     /* Tick demo state machine every call (runs even when no command pending) */
     Demo_Tick();
 
@@ -631,6 +634,12 @@ static void Cmd_Sol(char *args)
     }
     if (burst < 0 || burst > 1000) {
         printf("Invalid burst cycles (0-1000)\r\n");
+        return;
+    }
+
+    /* Warn if solenoid has no timer assigned (E2=0, B3=4, E4=5) */
+    if (id == 0 || id == 4 || id == 5) {
+        printf("  Warning: Solenoid %d has no timer assigned (no PWM output)\r\n", (int)id);
         return;
     }
 

@@ -57,4 +57,9 @@ uint8_t Debug_UART_IsLineReady(void);
  */
 uint16_t Debug_UART_GetLine(char *buffer, uint16_t max_len);
 
+/**
+ * @brief Drain echo buffer (call frequently from main loop)
+ */
+void Debug_UART_FlushEcho(void);
+
 #endif /* DEBUG_UART_H */

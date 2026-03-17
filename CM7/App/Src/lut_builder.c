@@ -60,7 +60,7 @@
 #define LUT_FREQ_NEAR_HZ       2.0f
 
 /** Frequency tolerance to record a fret position (Hz). */
-#define LUT_FREQ_LOCK_HZ       1.0f
+#define LUT_FREQ_LOCK_HZ       5.0f
 
 /** Signal detection — reject peaks below this fraction of open frequency. */
 #define LUT_OPEN_FREQ_MIN_RATIO 0.80f
