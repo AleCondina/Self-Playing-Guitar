@@ -1,6 +1,6 @@
 # Phase 4 Context
 
-Last verified against the codebase: 2026-03-17
+Last verified against the codebase: 2026-03-15
 
 ## Fast Mental Model
 
@@ -24,7 +24,9 @@ Last verified against the codebase: 2026-03-17
 | Steppers | 6 logical motor IDs exist | Only motors `0-3` have GPIO assignments in `motor_control.c` |
 | Solenoids | 6 logical solenoid IDs exist | Only solenoids `1-3` have live PWM timers; `0`, `4`, `5` have `htim == NULL` |
 | Pitch sensing | Live ADC capture with FFT peak detection | Trigger timer is `TIM1`, not `TIM6` |
-| Tuning control | Live FF + PI controller on CM7 | Uses 7-point LUTs, still placeholder until measured |
+| Tuning control | Live FF + PI controller on CM7 with automatic motor power management | Uses 7-point LUTs, still placeholder until measured |
+| Motor safeguard | `Motor_Update()` skips disabled motors — no stepping, no position drift | Software position freezes while disabled; may not match physical position on re-enable |
+| Motor power mgmt | Tuning controller auto-enables motors for active strings, disables when idle | Uses `CMD_MOTOR_ENABLE_MASK` bitmask via `InterCore_SendMotorEnableMask()` |
 | Playback | Hardcoded 12-note "Smoke on the Water" riff | No looping; only two-string D3/G3 chord data exists |
 | Calibration | Active automatic sweep state machine | Real hardware support is incomplete for all 6 strings |
 | LUT builder | Active fret-mapping state machine | Only supports configured motors `0-3` |
@@ -84,6 +86,7 @@ If this file conflicts with older docs, trust the code below.
   - serial command parsing
   - song scheduling
   - tuning control
+  - motor power management (auto enable/disable based on active strings)
   - calibration state machine
   - LUT builder state machine
 - CM4 owns:
@@ -197,10 +200,18 @@ Current behavior:
 - Starts exact-Hz solenoid drive only on a rising lock edge.
 - Stops the solenoid on a falling lock edge.
 
+Motor power management:
+
+- The tuning controller tracks which motors are needed via `s_motor_enable_mask`.
+- At each hop, it builds a bitmask from the song scheduler's active strings and sends `InterCore_SendMotorEnableMask()` when the mask changes.
+- When the song ends (`!SongSched_IsActive()`), all motors are disabled.
+- This minimizes current draw — only motors for strings in the current note are powered.
+
 Important current limitation:
 
 - There is no explicit "attack" or "pluck at note start" path in the tuning/playback loop.
 - The tuning controller only enables solenoid excitation after a string is already considered locked.
+- When a motor is re-enabled after being disabled, physical position may have drifted (no holding torque). The PI loop corrects via FFT feedback, but the first 2-5 hops may show larger pitch error.
 
 ### Automatic calibration
 
@@ -288,6 +299,7 @@ Why this is true:
 - Step pulses are generated in software, not by timer PWM.
 - Pulse width uses the DWT cycle counter with a `3 us` HIGH time.
 - `Motor_Update()` runs at `1 kHz`.
+- `Motor_Update()` skips disabled motors entirely: no STEP pin toggling, no position counter advancement, no speed accumulation. This prevents software/hardware position drift when the DRV8825 EN pin is HIGH.
 - Position mode is a simple proportional target-speed rule with braking-distance logic.
 - Speed ramps are acceleration-limited.
 
@@ -307,6 +319,13 @@ The exact-Hz path is real and active:
 - shared memory sets `CMD_TRIGGER_SOLENOID_HZ`
 - CM4 handles that command in `app_cm4.c`
 - CM4 calls `Solenoid_SetFrequencyHz()`
+
+The batch motor enable/disable path is real and active:
+
+- CM7 uses `InterCore_SendMotorEnableMask(uint8_t mask)`
+- shared memory sets `CMD_MOTOR_ENABLE_MASK` (bit 14) with `motor_cmd_enable_mask` bitmask
+- CM4 loops through all 6 motors, enabling if the bit is set, disabling if clear
+- The tuning controller uses this to atomically manage motor power for chord transitions
 
 ## Operator Workflows And Commands
 
@@ -329,25 +348,25 @@ The exact-Hz path is real and active:
 
 - `start` only unlocks manual movement commands in the CM7 CLI. It does not enable motors.
 - `sol` intentionally warns and returns for solenoids `0`, `4`, and `5` because those have no timer assigned.
-- `mapfrets` enables the requested motors. `smoke` and `calibrate` do not.
-- `smoke` only targets D3/G3, which matches the currently live playback-friendly channels, but it still depends on motor enable state and the tuning-controller lock-before-actuation behavior.
+- `mapfrets` enables the requested motors. `calibrate` does not.
+- `smoke` only targets D3/G3, which matches the currently live playback-friendly channels. The tuning controller now auto-enables the needed motors during playback and disables them when the song ends.
 - `demo` still targets solenoid `0`, which has no live PWM timer in the current runtime.
 
 ## Current Verified Gotchas
 
 These are real current behaviors or mismatches that future sessions should keep in mind.
 
-### 1. Startup and normal playback do not enable motors
+### 1. ~~Startup and normal playback do not enable motors~~ (RESOLVED)
 
-- Motors start disabled.
-- `smoke`, normal tuning, and `calibrate` do not enable them.
-- Only explicit `enable` commands or `mapfrets` currently enable motors in normal operator workflows.
+- Motors still start disabled.
+- The tuning controller now auto-enables motors for active strings during song playback via `InterCore_SendMotorEnableMask()` and disables them when the song ends.
+- `calibrate` still does not enable motors. `mapfrets` and explicit `enable` commands still work as before.
 
-### 2. Motor stepping ignores the enabled flag
+### 2. ~~Motor stepping ignores the enabled flag~~ (RESOLVED)
 
-- `Motor_Update()` still toggles STEP pins and advances software positions even if the driver is disabled.
-- This means software can believe a move happened while the real motor did not.
-- Combined with the startup behavior above, this is a major source of bench confusion.
+- `Motor_Update()` now skips disabled motors entirely: no STEP pin toggling, no position counter advancement, no speed/accumulator state.
+- Software position freezes while disabled and resumes from the frozen value on re-enable.
+- Caveat: physical position may drift while disabled (no holding torque). The PI loop corrects on re-enable via FFT feedback.
 
 ### 3. `calibrate all` is not aligned with current hardware
 
@@ -437,7 +456,9 @@ The current repo is best understood as:
 - a real CM7 audio/FFT sensing loop
 - a real CM7 tuning controller
 - a real LUT-builder and calibration framework
-- a partially commissioned hardware path with several stale comments and a few important behavioral traps
+- motor safeguard preventing disabled motors from stepping or drifting position
+- automatic motor power management driven by the tuning controller and song scheduler
+- a partially commissioned hardware path with several stale comments and a few remaining behavioral notes
 
 If a future session needs bench-realistic assumptions, use this stricter model:
 

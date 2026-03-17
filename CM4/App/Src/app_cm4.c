@@ -265,6 +265,19 @@ void App_CM4_Main(void)
                 InterCore_AckCommand(CMD_MOTOR_ENABLE);
             }
 
+            /* Process batch motor enable/disable (bitmask) */
+            if (commands & CMD_MOTOR_ENABLE_MASK) {
+                uint8_t mask = g_shared_memory.motor_cmd_enable_mask;
+                for (uint8_t i = 0; i < NUM_MOTORS; i++) {
+                    if (mask & (1u << i)) {
+                        Motor_Enable(i);
+                    } else {
+                        Motor_Disable(i);
+                    }
+                }
+                InterCore_AckCommand(CMD_MOTOR_ENABLE_MASK);
+            }
+
             /* Process position zero */
             if (commands & CMD_MOTOR_ZERO) {
                 uint8_t mid = g_shared_memory.motor_cmd_id;

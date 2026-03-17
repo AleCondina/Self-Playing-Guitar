@@ -258,6 +258,17 @@ void InterCore_SendMotorEnable(uint8_t motor_id, uint8_t enable)
 }
 
 /**
+ * @brief Batch enable/disable motors via bitmask (atomic, handles chords)
+ */
+void InterCore_SendMotorEnableMask(uint8_t enable_mask)
+{
+    g_shared_memory.motor_cmd_enable_mask = enable_mask & 0x3Fu;
+    g_shared_memory.motor_command_flags  |= CMD_MOTOR_ENABLE_MASK;
+    __DSB();
+    InterCore_NotifyCM4();
+}
+
+/**
  * @brief Send zero position command to CM4
  */
 void InterCore_SendMotorZero(uint8_t motor_id)

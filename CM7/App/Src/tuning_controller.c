@@ -88,6 +88,10 @@ static TuningStringState_t s_state[NUM_STRINGS];
 #define DEBUG_DECIM_HOPS    5u
 static uint32_t s_debug_counter = 0u;
 
+/* Bitmask of motors currently enabled by the tuning controller.
+ * Used to detect transitions and avoid redundant enable commands. */
+static uint8_t s_motor_enable_mask = 0u;
+
 /* =========================================================================
  * Private helpers
  * ========================================================================= */
@@ -205,6 +209,7 @@ void TuningCtrl_Init(void)
         s->last_valid_freq_hz  =  0.0f;
     }
     s_debug_counter = 0u;
+    s_motor_enable_mask = 0u;
 }
 
 /* -------------------------------------------------------------------------
@@ -433,10 +438,27 @@ static void GetFFTRadarLock(float target, float* out_measured, float* out_confid
 void TuningCtrl_RunHop(void)
 {
     /* Get current note from song scheduler */
-    if (!SongSched_IsActive()) return;
+    if (!SongSched_IsActive()) {
+        /* Song stopped: disable all motors the tuning controller enabled */
+        if (s_motor_enable_mask != 0u) {
+            InterCore_SendMotorEnableMask(0u);
+            s_motor_enable_mask = 0u;
+        }
+        return;
+    }
 
     uint8_t  str    = SongSched_GetStringId();
     float    target = SongSched_GetTargetFreq();
+
+    /* --- Motor power management: enable only active string motors --- */
+    uint8_t needed_mask = (1u << str);
+    if (SongSched_GetStringCount() >= 2u) {
+        needed_mask |= (1u << SongSched_GetStringId2());
+    }
+    if (needed_mask != s_motor_enable_mask) {
+        InterCore_SendMotorEnableMask(needed_mask);
+        s_motor_enable_mask = needed_mask;
+    }
 
     /* --- Primary String FFT Lock --- */
     float measured = 0.0f;
@@ -568,4 +590,5 @@ void TuningCtrl_ResetAll(void)
     for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
         TuningCtrl_ResetString(i);
     }
+    s_motor_enable_mask = 0u;
 }
