@@ -29,6 +29,7 @@
  */
 
 #include "tuning_controller.h"
+#include "calibration_controller.h"
 #include "song_scheduler.h"
 #include "fft_processing.h"
 #include "inter_core_cm7.h"
@@ -126,25 +127,15 @@ static inline float Lerpf(float x0, float y0, float x1, float y1, float x)
  */
 static float FF_Interpolate(uint8_t str, float freq)
 {
-    const float *fbp = tuning_ff_freq_bp[str];
-    const float *sbp = tuning_ff_steps_bp[str];
-    const uint8_t n  = TUNING_FF_NUM_POINTS;
-
-    /* Below first breakpoint: clip */
-    if (freq <= fbp[0]) return sbp[0];
-
-    /* Above last breakpoint: clip */
-    if (freq >= fbp[n - 1u]) return sbp[n - 1u];
-
-    /* Find surrounding interval and interpolate */
-    for (uint8_t i = 0u; i < (n - 1u); i++) {
-        if (freq >= fbp[i] && freq <= fbp[i + 1u]) {
-            return Lerpf(fbp[i], sbp[i], fbp[i + 1u], sbp[i + 1u], freq);
-        }
-    }
-
-    /* Should not reach here, but be safe */
-    return sbp[n - 1u];
+    /* Evaluate the calibrated quadratic: steps = a + b·f + c·f²
+     * cal_poly_coeff is seeded at boot from the base LUT (Cal_FitFromBaseLUT)
+     * and updated after each calibration run (Cal_FitPolynomial). */
+    float a     = cal_poly_coeff[str][0];
+    float b     = cal_poly_coeff[str][1];
+    float c     = cal_poly_coeff[str][2];
+    float steps = a + b * freq + c * freq * freq;
+    if (steps < 0.0f) steps = 0.0f;
+    return steps;
 }
 
 /**

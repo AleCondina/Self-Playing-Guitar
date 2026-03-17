@@ -34,6 +34,7 @@ float active_frequencies[NUM_STRINGS];
 float active_magnitudes[MAX_HARMONICS];
 uint8_t active_string_count;
 uint8_t fft_print_enabled = 0;
+uint8_t fft_sensing_enabled = 1;  /* cleared by calibration controller during solenoid burst */
 
 
 
@@ -51,8 +52,15 @@ void FFT_Init(void) {
 /* =======================
    FFT processing
    ======================= */
-void FFT_ProcessBlock(uint16_t* audio_buf) 
+void FFT_ProcessBlock(uint16_t* audio_buf)
 {
+    /* Gate: calibration controller clears this during solenoid bursts to
+     * prevent solenoid magnetic-field crosstalk from poisoning the output. */
+    if (!fft_sensing_enabled) {
+        active_string_count = 0;
+        return;
+    }
+
     /* 1. Calculate the dynamic DC Offset (Average) of this specific block */
     uint32_t sum = 0;
     for (uint16_t i = 0; i < FFT_SIZE; i++) {

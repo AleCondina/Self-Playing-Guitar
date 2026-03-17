@@ -103,6 +103,14 @@ void App_CM7_Main(void) {
         printf("[CM7] Initializing FFT engine...\r\n");
         FFT_Init();
 
+        /* Restore calibration LUT + polynomial from backup SRAM (VBAT-backed) */
+        if (Cal_LoadFromSRAM()) {
+            printf("[CM7] Calibration restored from backup SRAM.\r\n");
+        } else {
+            Cal_FitFromBaseLUT();
+            printf("[CM7] No SRAM calibration — polynomial seeded from base LUT.\r\n");
+        }
+
         /* Initialize tuning controller (depends on home being established) */
         printf("[CM7] Initializing tuning controller...\r\n");
         TuningCtrl_Init();

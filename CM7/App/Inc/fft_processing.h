@@ -16,6 +16,16 @@ extern float active_magnitudes[];
 extern uint8_t active_string_count;
 extern uint8_t fft_print_enabled;
 
+/**
+ * @brief FFT output gating flag.
+ *
+ * When cleared to 0 by the calibration controller (during a solenoid burst),
+ * FFT_ProcessBlock() zeroes active_string_count and returns early so that
+ * solenoid magnetic-field crosstalk cannot corrupt active_frequencies[].
+ * Restored to 1 after the burst settle wait completes.
+ */
+extern uint8_t fft_sensing_enabled;
+
 void FFT_Init(void);
 
 /**
