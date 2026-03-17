@@ -1,149 +1,255 @@
 # Phase 4 Context
 
-Last updated: 2026-03-16
+Last verified against the codebase: 2026-03-15
 
-## Scope And Source Of Truth
+## Fast Mental Model
 
-This document describes the current `Self-Playing-Guitar` codebase as it exists in this repository today.
+- The project is a dual-core STM32H755ZI system: CM7 does sensing/control, CM4 does actuator execution.
+- The codebase still models 6 logical guitar strings everywhere.
+- Stepper support is only commissioned in code for motors `0-3` (`E2`, `A2`, `D3`, `G3`).
+- Solenoid support is only timer-backed for logical solenoids `1-3` (`A2`, `D3`, `G3`).
+- Pitch sensing is live now: `ADC3 + BDMA + TIM1 TRGO + 2048-point FFT`.
+- The active tuning path is FFT-based. Goertzel code still exists on disk but is not part of the runtime build.
+- The active commissioning tools are:
+  - `calibrate`: automatic sweep, RAM-only LUT update, not aligned with all current hardware
+  - `mapfrets`: manual-pluck LUT builder, restricted to configured motors `0-3`
+- Feed-forward LUTs are runtime RAM data only. Nothing persists across reset.
 
-- Source of truth: current project code in `CM7/App`, `CM4/App`, `Shared`, the generated startup/build files that directly affect runtime, and the current top-level build files.
-- Older markdown docs such as `PROJECT_CONTEXT.md`, `TUNING_CONTROLLER_CHANGES.md`, and parts of `MOTOR_CONTROL_API.md` are useful historical references, but they do not fully match the current implementation.
-- Vendor libraries under `Drivers/` and other generated support code are not treated as the behavioral source of truth unless they directly define pinmux, clocks, or boot flow used by the project.
-- Physical bench population is only partially discoverable from source. This file separates "current firmware support" from "confirmed current commissioned channels" and from "target future system".
+## What Is Actually Implemented
 
-If this file conflicts with an older doc, prefer the code and this file.
-
-## Current Setup At A Glance
-
-| Area | Current codebase state | Target / future direction |
+| Area | Current implementation | Important caveat |
 | --- | --- | --- |
-| Board | STM32H755ZI Nucleo dual-core split across CM7 + CM4 | Same board for bring-up, then likely custom PCB later |
-| Strings | 6 logical strings everywhere in shared IDs and tuning logic | Same |
-| Steppers | 6 logical motor IDs exist, but only motors `0-3` have GPIO pin assignments and are enabled at startup | Full 6 stepper channels |
-| Solenoids | Firmware initializes and controls 6 PWM solenoid channels | Full physical 6-solenoid rollout on hardware |
-| Pitch sensing | Live ADC3 + BDMA + FFT pipeline on CM7 | Continue tuning and validate on real instrument |
-| Tuning control | Closed-loop FF + PI controller on CM7 using FFT results | Replace placeholder LUTs with measured data, finish full-string commissioning |
-| Song playback | Hardcoded "Smoke on the Water" intro using D3 + G3 power chords | More songs and better scheduler / song loading |
-| Calibration | Runtime LUT sweep exists and writes RAM-resident FF tables | Persist measured LUTs and calibrate all strings |
+| Board | STM32H755ZI Nucleo, CM7 + CM4 split | Same board is the active target in this repo |
+| Strings | 6 logical strings across shared IDs, tuning, scheduler, calibration, UART commands | Logical 6-string model is ahead of commissioned hardware |
+| Steppers | 6 logical motor IDs exist | Only motors `0-3` have GPIO assignments in `motor_control.c` |
+| Solenoids | 6 logical solenoid IDs exist | Only solenoids `1-3` have live PWM timers; `0`, `4`, `5` have `htim == NULL` |
+| Pitch sensing | Live ADC capture with FFT peak detection | Trigger timer is `TIM1`, not `TIM6` |
+| Tuning control | Live FF + PI controller on CM7 with automatic motor power management | Uses 7-point LUTs, still placeholder until measured |
+| Motor safeguard | `Motor_Update()` skips disabled motors — no stepping, no position drift | Software position freezes while disabled; may not match physical position on re-enable |
+| Motor power mgmt | Tuning controller auto-enables motors for active strings, disables when idle | Uses `CMD_MOTOR_ENABLE_MASK` bitmask via `InterCore_SendMotorEnableMask()` |
+| Playback | Hardcoded 12-note "Smoke on the Water" riff | No looping; only two-string D3/G3 chord data exists |
+| Calibration | Active automatic sweep state machine | Real hardware support is incomplete for all 6 strings |
+| LUT builder | Active fret-mapping state machine | Only supports configured motors `0-3` |
+| Persistence | None | LUT changes are lost on reset |
 
-## Current System Summary
+## Source Of Truth
 
-The current firmware is a dual-core split:
-
-- CM7 handles audio capture orchestration, FFT processing, serial command parsing, song scheduling, closed-loop tuning control, and calibration control.
-- CM4 handles the 1 kHz real-time actuator loop, software-generated step pulses for the DRV8825 drivers, PWM solenoid drive, command execution, and status publication back to CM7.
-- CM7 and CM4 communicate through AXI SRAM shared memory plus hardware semaphores.
-
-Important current reality:
-
-- The codebase is already beyond the older "future FFT" stage. ADC3, DMA, TIM6 triggering, FFT, and the tuning control hop are active now.
-- The codebase is not yet a fully commissioned 6-stepper hardware system. Motors `4` and `5` still have no GPIO assignment in `motor_control.c`.
-- The solenoid firmware path is more complete than the stepper hardware path. Six PWM solenoid channels are initialized in firmware, but some comments and config macros still describe an older 3-solenoid stage.
-
-## Repository Map
-
-### Top-level areas
-
-- `CM7/`
-  CM7 application logic, DSP, scheduler, calibration, serial console, and ADC runtime.
-- `CM4/`
-  CM4 actuator runtime: motor control, solenoid control, and command execution.
-- `Shared/`
-  Shared memory definition, global config macros, command/status flags.
-- `Common/`
-  Dual-core STM32 startup support.
-- `README.md`
-  Current build and flashing notes.
-- `PROJECT_CONTEXT.md`
-  Older context snapshot; not fully current anymore.
-
-### Most important authored files
+If this file conflicts with older docs, trust the code below.
 
 - `CM7/App/Src/app_cm7.c`
-  Top-level CM7 state machine.
+  Top-level CM7 state machine and runtime flow.
+- `CM7/Core/Src/main.c`
+  CM7 clocks, ADC3, BDMA, TIM1 trigger, UART COM init, boot flow.
 - `CM7/App/Src/audio_input.c`
-  ADC3 DMA audio buffering with 50 percent overlap.
+  DMA audio buffering and 50 percent overlap assembly.
 - `CM7/App/Src/fft_processing.c`
-  FFT-based peak detection and polyphonic frequency list generation.
+  Active pitch-detection frontend.
 - `CM7/App/Src/tuning_controller.c`
-  Closed-loop string tuning logic.
-- `CM7/App/Src/calibration_controller.c`
-  LUT sweep and runtime feed-forward breakpoint updates.
+  Active closed-loop tuning logic and exact-Hz solenoid coordination.
 - `CM7/App/Src/song_scheduler.c`
-  Hardcoded song playback schedule.
+  Hardcoded song data and playback scheduler.
+- `CM7/App/Src/calibration_controller.c`
+  Automatic sweep-based LUT calibration.
+- `CM7/App/Src/lut_builder.c`
+  Manual-pluck fret-mapping tool.
 - `CM7/App/Src/serial_cmd.c`
-  UART command parser and operator interface.
+  Operator console and workflow commands.
 - `CM4/App/Src/app_cm4.c`
-  CM4 main loop and command execution.
+  CM4 1 kHz loop and command execution.
 - `CM4/App/Src/motor_control.c`
-  Stepper GPIO mapping and motion update loop.
+  Stepper mapping and software pulse generation.
 - `CM4/App/Src/solenoid_control.c`
-  Multi-timer PWM solenoid driver.
+  Actual live PWM-backed solenoid implementation.
 - `Shared/Inc/shared_memory.h`
   Inter-core contract.
 - `Shared/Inc/application_config.h`
-  Global constants and several current config mismatches.
+  Shared constants, including several stale comments/macros that do not match runtime reality.
 
-## Hardware And Timing
+## Where To Look First
 
-### Clocks
+- Audio and pitch path: `CM7/Core/Src/main.c`, `CM7/App/Src/audio_input.c`, `CM7/App/Src/fft_processing.c`
+- Tuning behavior: `CM7/App/Src/tuning_controller.c`
+- Playback behavior: `CM7/App/Src/song_scheduler.c`, `CM7/App/Src/app_cm7.c`
+- Calibration and commissioning: `CM7/App/Src/calibration_controller.c`, `CM7/App/Src/lut_builder.c`
+- Manual commands and workflows: `CM7/App/Src/serial_cmd.c`
+- Stepper hardware/runtime: `CM4/App/Src/motor_control.c`
+- Solenoid hardware/runtime: `CM4/App/Src/solenoid_control.c`, `CM4/Core/Src/main.c`
+- Shared-memory fields and command flags: `Shared/Inc/shared_memory.h`, `CM7/App/Src/inter_core_cm7.c`, `CM4/App/Src/app_cm4.c`
 
-Current code-level clock assumptions:
+## Runtime Architecture
 
-- CM7 system clock: `480 MHz`
-- CM4 clock: `240 MHz`
-- Solenoid timer peripheral clock: `240 MHz`
-- Solenoid timer prescaled clock: `2.4 MHz` via prescaler `99`
-- CM4 control loop target: `1 kHz`
-- Audio sample rate target: `6000 Hz`
-- FFT size: `2048`
-- Effective audio processing hop: `1024 / 6000 = 0.1707 s`, about `170 ms`
+### Core split
 
-### Shared memory location
+- CM7 owns:
+  - audio capture orchestration
+  - FFT processing
+  - serial command parsing
+  - song scheduling
+  - tuning control
+  - motor power management (auto enable/disable based on active strings)
+  - calibration state machine
+  - LUT builder state machine
+- CM4 owns:
+  - 1 kHz actuator loop
+  - software-generated DRV8825 step pulses
+  - PWM solenoid drive
+  - timed/burst auto-stop logic
+  - actuator status publication back to CM7
 
-- Shared memory is placed in AXI SRAM and marked non-cacheable from CM7.
-- CM7 configures MPU attributes for the shared region.
-- CM4 accesses the same region directly and uses HSEM notification for command/status signaling.
+### Shared-memory link
 
-## Dual-Core Startup And Runtime Flow
+- `g_shared_memory` lives in AXI SRAM and is shared by both cores.
+- CM7 marks the shared region non-cacheable in `InterCore_ConfigMPU()`.
+- HSEM is used for boot synchronization and core-to-core notifications.
+- CM4 still polls command flags every `1 ms` in its control loop, so command handling does not depend purely on interrupts.
 
-### Boot sequence
+### Boot and startup flow
 
-1. CM7 performs the normal HAL and clock startup, configures shared memory access, and releases the CM4 boot barrier.
-2. CM4 waits on the HSEM boot semaphore until CM7 releases it.
-3. CM4 initializes the motor subsystem and enables / zeroes motors `0-3`.
-4. CM4 initializes the solenoid subsystem, preloads string frequencies for all 6 solenoid channels, configures PWM output pins, then sets `MOTOR_STATUS_READY`.
-5. CM7 waits for `MOTOR_STATUS_READY`.
-6. CM7 sends a home command. In current code, "home" means "move configured motors to software position 0", not physical limit-switch homing.
-7. CM7 sets motors `0-3` to `1/16` microstepping.
-8. CM7 starts UART RX, FFT, tuning controller, ADC calibration, ADC DMA audio capture, and TIM6.
-9. CM7 enters `STATE_RUNNING` after a short `STATE_IDLE` handoff.
+1. CM7 boots first, zeroes shared memory, configures clocks, configures shared-memory MPU attributes, and releases CM4 from the boot barrier.
+2. CM4 wakes, initializes inter-core support and PWM timers, then `App_CM4_Main()` waits on the secondary boot semaphore before continuing.
+3. CM4 calls `Motor_Init()`, sets motors `0-3` to `1/16` microstepping, initializes the solenoid subsystem, attempts to preload default logical open-string frequencies, and reports `MOTOR_STATUS_READY`.
+4. CM7 waits for `MOTOR_STATUS_READY`, sends `CMD_HOME_MOTORS`, sets motors `0-3` to `1/16` microstepping again, initializes UART RX, FFT, tuning control, and audio capture, then starts `TIM1`.
+5. CM7 transitions through `STATE_IDLE` into `STATE_RUNNING`.
 
-### Current CM7 states
+### Important startup reality
+
+- CM4 startup does not enable motors.
+- `Motor_Init()` resets software position state to `0`, but that is not sensor-backed homing.
+- `CMD_HOME_MOTORS` means "move configured motors to software position 0", not "find a physical reference switch".
+
+### Active CM7 states
 
 `app_cm7.c` currently uses:
 
 - `STATE_INIT`
 - `STATE_IDLE`
 - `STATE_CALIBRATING`
+- `STATE_LUT_BUILDING`
 - `STATE_RUNNING`
 - `STATE_ERROR`
 
-There is no separate LUT-builder state in the active CM7 state machine.
+## Audio And Pitch Path
 
-### Current CM4 loop
+- ADC instance: `ADC3`
+- Analog input: `PC2_C / ADC3_INP0`
+- DMA: `BDMA_Channel0`
+- Trigger timer: `TIM1` update TRGO
+- Sample rate target: `6000 Hz`
+- FFT size: `2048`
+- DMA hop size: `1024` samples
+- Effective control hop: `1024 / 6000 = 0.1707 s`, about `5.86 Hz`
 
-CM4 runs a fixed `1 ms` loop that:
+### Buffering behavior
 
-1. Reads pending command flags from shared memory.
-2. Executes emergency stop, motor commands, and solenoid commands.
-3. Updates timed/burst solenoid auto-stop state.
-4. Calls `Motor_Update()` for all configured motors.
-5. Publishes current motor state, loop timing, and heartbeat back to shared memory.
+- DMA writes into a circular `audio_buffer`.
+- Half-complete and complete callbacks mark which half was just filled.
+- `Audio_GetBuffer()` shifts the previous half-window left and appends the newest half-buffer.
+- The FFT always sees a full `2048`-sample window with `50 percent` overlap.
 
-## Current Hardware Mapping
+### FFT behavior
 
-### Logical string order used across the project
+The active measurement path is `fft_processing.c`.
+
+- Removes DC per block.
+- Applies a Hanning window.
+- Runs CMSIS real FFT.
+- Computes magnitudes.
+- Searches a bin range that works out to about `58.6 Hz` to `442 Hz` because `FFT_RESOLUTION` is integer-truncated in macros.
+- Uses local-maximum detection, a "fat peak" rejection heuristic, parabolic interpolation, and harmonic rejection.
+- Sorts candidates by magnitude and keeps the top `NUM_STRINGS`.
+
+### Current FFT outputs
+
+- `active_frequencies[NUM_STRINGS]`
+- `active_magnitudes[MAX_HARMONICS]`
+- `active_string_count`
+
+`fftprint` toggles live UART printing of the accepted peaks.
+
+### Goertzel status
+
+- `goertzel_processing.c/.h` still exist in the repo.
+- `CM7/CMakeLists.txt` does not compile `goertzel_processing.c`.
+- `app_cm7.c` never calls Goertzel functions.
+- Any doc or comment that still describes Goertzel as the active runtime path is stale.
+
+## Playback, Tuning, And Commissioning
+
+### Song scheduler
+
+`song_scheduler.c` contains one hardcoded song:
+
+- "Smoke on the Water" intro
+- 12 note events
+- all notes are D3 + G3 two-string power chords
+- no loop/repeat logic
+
+### Tuning controller
+
+`tuning_controller.c` is live and FFT-driven.
+
+Current behavior:
+
+- Uses 7-point per-string feed-forward LUTs:
+  - `tuning_ff_freq_bp[6][7]`
+  - `tuning_ff_steps_bp[6][7]`
+- Finds the closest accepted FFT peak to the target frequency.
+- Applies per-string FF lookup plus discrete PI trim.
+- Uses post-note delay, lock-band hysteresis, minimum-move threshold, slew limit, and default mechanical bounds of `-50` to `2000` steps.
+- Sends absolute motor targets through `InterCore_SendMotorGoto()`.
+- Starts exact-Hz solenoid drive only on a rising lock edge.
+- Stops the solenoid on a falling lock edge.
+
+Motor power management:
+
+- The tuning controller tracks which motors are needed via `s_motor_enable_mask`.
+- At each hop, it builds a bitmask from the song scheduler's active strings and sends `InterCore_SendMotorEnableMask()` when the mask changes.
+- When the song ends (`!SongSched_IsActive()`), all motors are disabled.
+- This minimizes current draw — only motors for strings in the current note are powered.
+
+Important current limitation:
+
+- There is no explicit "attack" or "pluck at note start" path in the tuning/playback loop.
+- The tuning controller only enables solenoid excitation after a string is already considered locked.
+- When a motor is re-enabled after being disabled, physical position may have drifted (no holding torque). The PI loop corrects via FFT feedback, but the first 2-5 hops may show larger pitch error.
+
+### Automatic calibration
+
+`calibration_controller.c` is active and compiled.
+
+Current behavior:
+
+- Triggered by `calibrate`.
+- Uses FFT results, not Goertzel.
+- Sweeps in `20` microstep increments.
+- Stops at `1200` steps max or once fret-7 range is reached.
+- Updates `tuning_ff_*` arrays in RAM only.
+
+What it assumes:
+
+- The target motor can physically move.
+- The target solenoid can be driven continuously at exact Hz.
+
+That assumption is only valid today for part of the system.
+
+### LUT builder
+
+`lut_builder.c` is also active and compiled.
+
+Current behavior:
+
+- Triggered by `mapfrets`.
+- Manual-pluck workflow.
+- Measures frets `0-6`.
+- Restricts the requested string mask to `0x0F`, so only strings `0-3` are allowed.
+- Enables the requested motors before starting.
+- Writes measured fret data into the same runtime LUT arrays.
+
+This is the commissioning tool that best matches the currently wired stepper hardware.
+
+## Hardware Mapping
+
+### Logical string order
 
 The code consistently uses:
 
@@ -154,383 +260,154 @@ The code consistently uses:
 - `4 = B3`
 - `5 = E4`
 
-The tuning controller, song scheduler, calibration controller, motor IDs, and solenoid IDs all assume this logical order.
+### Stepper motors
 
-### Current commissioned stepper channels
-
-The code defines 6 logical motors, but only 4 are currently configured in `motor_control.c`.
-
-| Motor ID | Logical string | STEP | DIR | M0 | M1 | M2 | EN | Status |
+| Motor ID | Logical string | STEP | DIR | M0 | M1 | M2 | EN | Code status |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 0 | E2 | `PE10` | `PE11` | `PE12` | `PE13` | `PE14` | `PD11` | Configured |
 | 1 | A2 | `PD12` | `PD13` | `PE2` | `PE4` | `PE7` | `PC9` | Configured |
 | 2 | D3 | `PA8` | `PC7` | `PC6` | `PC8` | `PA3` | `PC0` | Configured |
 | 3 | G3 | `PC3` | `PB1` | `PF10` | `PG12` | `PG14` | `PG6` | Configured |
-| 4 | B3 | Not assigned | Not assigned | Not assigned | Not assigned | Not assigned | Not assigned | Future |
-| 5 | E4 | Not assigned | Not assigned | Not assigned | Not assigned | Not assigned | Not assigned | Future |
+| 4 | B3 | Not assigned | Not assigned | Not assigned | Not assigned | Not assigned | Not assigned | Unconfigured |
+| 5 | E4 | Not assigned | Not assigned | Not assigned | Not assigned | Not assigned | Not assigned | Unconfigured |
 
-Notes:
+### Solenoids
 
-- Only motors `0-3` are enabled and zeroed in `App_CM4_Main()`.
-- Only motors `0-3` are set to `1/16` microstepping in `App_CM7_Main()`.
-- `NUM_MOTORS` is still `6`, so many APIs accept `0-5` even though only `0-3` are commissioned.
+Logical solenoid IDs still run from `0` to `5`, but only three are timer-backed in the current CM4 runtime.
 
-### Current solenoid PWM channels in firmware
+| Solenoid ID | Logical string | Timer / channel | Pin | Runtime status |
+| --- | --- | --- | --- | --- |
+| 0 | E2 | None | None | No PWM timer assigned |
+| 1 | A2 | `TIM3_CH2` | `PB5` | Live |
+| 2 | D3 | `TIM2_CH1` | `PA5` | Live |
+| 3 | G3 | `TIM4_CH1` | `PB6` | Live |
+| 4 | B3 | None | None | No PWM timer assigned |
+| 5 | E4 | None | None | No PWM timer assigned |
 
-The active firmware path initializes 6 solenoid channels:
+Why this is true:
 
-| Solenoid ID | Logical string | Timer / channel | Current code pin |
-| --- | --- | --- | --- |
-| 0 | E2 | `TIM12_CH1` | `PB14` |
-| 1 | A2 | `TIM14_CH1` | `PF9` |
-| 2 | D3 | `TIM13_CH1` | `PF8` |
-| 3 | G3 | `TIM15_CH1` | `PE5` |
-| 4 | B3 | `TIM16_CH1` | `PF6` |
-| 5 | E4 | `TIM17_CH1` | `PF7` |
+- `TIM1` was moved to CM7 and is used as the ADC trigger timer.
+- `TIM16` and `TIM17` still appear in `CM4/Core/Src/stm32h7xx_hal_msp.c`, but CM4 `main.c` only initializes `TIM2`, `TIM3`, and `TIM4`.
+- `solenoid_control.c` sets `htim = NULL` for logical solenoids `0`, `4`, and `5`.
 
-Important note:
-
-- Several comments in `solenoid_control.h`, `solenoid_control.c`, and `app_cm4.c` still mention the older `PA7` / `PA6` mapping for solenoids `1` and `2`.
-- The active pinmux code in `CM4/Core/Src/stm32h7xx_hal_msp.c` and the direct GPIO configuration in `app_cm4.c` both route those channels to `PF9` and `PF8`.
-
-### Audio input hardware path
-
-Current CM7 audio path:
-
-- ADC instance: `ADC3`
-- Analog input: `PC2_C` / `ADC3_INP0`
-- DMA: `BDMA_Channel0`
-- Trigger timer: `TIM6` TRGO
-- Sampling style: circular DMA into a `2048` sample buffer
-- Processing window: `2048` samples with `50 percent` overlap
-
-## Shared Memory And Inter-Core Contract
-
-### Core mechanism
-
-The shared contract is defined in `Shared/Inc/shared_memory.h`.
-
-Major groups:
-
-- CM7 to CM4 command flags
-- CM7 to CM4 motor command payload
-- CM7 to CM4 solenoid command payload
-- CM4 to CM7 motor status and diagnostics
-- Heartbeats and message counters for health monitoring
-
-### Current command patterns actually used
-
-Common live paths:
-
-- `CMD_HOME_MOTORS`
-- `CMD_SET_MICROSTEP`
-- `CMD_MOTOR_MOVE_ABS`
-- `CMD_MOTOR_MOVE_REL`
-- `CMD_SET_MOTOR_ACCEL`
-- `CMD_SET_MOTOR_MAXSPEED`
-- `CMD_MOTOR_ENABLE`
-- `CMD_MOTOR_ZERO`
-- `CMD_STOP_SOLENOID`
-- `CMD_TRIGGER_SOLENOID`
-- `CMD_TRIGGER_SOLENOID_HZ`
-- `CMD_EMERGENCY_STOP`
-
-### Current diagnostics published by CM4
-
-CM4 writes:
-
-- motor positions
-- motor speeds
-- target speeds
-- max speed limits
-- max acceleration limits
-- enabled state
-- microstep mode
-- moving flags
-- aggregate status flags
-- heartbeat
-- loop rate
-- loop overruns
-- max observed loop time
-
-## CM7 Subsystem Details
-
-### Serial console and debug UART
-
-The operator console is on the CM7 side:
-
-- UART: board COM port via BSP COM init
-- Current baud: `115200`
-- `printf()` is redirected to UART
-- RX is interrupt-driven and line-buffered
-- Command processing is non-blocking inside the CM7 main loop
-
-Main command groups currently implemented:
-
-- motor control: `start`, `speed`, `accel`, `maxspeed`, `move`, `goto`, `microstep`, `enable`, `disable`, `zero`, `home`, `stop`, `status`
-- preset management: `save`, `delete`, `presets`
-- solenoid control: `sol`, `solstop`, `solstatus`
-- system workflows: `demo`, `calibrate`, `smoke`, `help`
-
-Behavior note:
-
-- Manual movement commands require `start`.
-- Playback and calibration are request-driven from serial commands and are acted on during the next audio hop.
-
-### Audio buffering
-
-`audio_input.c` currently implements real acquisition, despite older placeholder comments.
-
-Behavior:
-
-- DMA writes into a circular `audio_buffer`.
-- Half-transfer and transfer-complete callbacks flag new data.
-- `Audio_GetBuffer()` shifts the previous `1024` samples left and appends the newest half-buffer.
-- The returned processing block is a full `2048` sample window with `50 percent` overlap.
-
-### FFT processing
-
-`fft_processing.c` is the active pitch-detection frontend.
-
-Current algorithm:
-
-1. Compute block mean and remove DC.
-2. Apply a Hanning window.
-3. Run CMSIS real FFT.
-4. Compute magnitudes.
-5. Search roughly `60 Hz` to `440 Hz`.
-6. Apply local-maximum detection.
-7. Reject "fat" peaks that look smeared by neighboring resonances.
-8. Apply parabolic interpolation for sub-bin frequency estimation.
-9. Reject harmonics against previously accepted active peaks.
-10. Publish accepted peaks into `active_frequencies[]`, `active_magnitudes[]`, and `active_string_count`.
-
-Current role of the FFT:
-
-- It is the active measurement source used by the tuning controller.
-- It is also used during calibration to measure the string frequency after each step increment.
-- It is printed as a diagnostic during playback.
-
-### Song scheduler
-
-The current scheduler is hardcoded in `song_scheduler.c`.
-
-Current song:
-
-- "Smoke on the Water" intro
-- implemented as a sequence of D3 + G3 two-string power chords
-- finite note list, no automatic looping
-
-Current scheduler data model:
-
-- one note entry can contain either one string or a two-string chord
-- each note stores target frequency and duration in milliseconds
-
-### Tuning controller
-
-The tuning controller is active and FFT-driven.
-
-Current control structure:
-
-1. Read current target note(s) from the song scheduler.
-2. Find the closest FFT-detected peak to the target frequency.
-3. Use a per-string feed-forward LUT to estimate absolute motor steps.
-4. Apply a discrete PI trim after a hold delay following note changes.
-5. Apply lock-band hysteresis.
-6. Apply a minimum-move threshold to reduce backlash dither.
-7. Apply a slew limit before sending a new absolute motor target to CM4.
-8. Stop or start solenoid drive based on lock-state transitions.
-
-Current tuning assumptions:
-
-- home position `0` means open string
-- positive steps tighten the string and raise pitch
-- FF LUTs are arrays of `4` breakpoints per string
-- default mechanical bounds are `-50` to `2000` microsteps
-
-Important current limitation:
-
-- The FF LUTs in `tuning_controller.c` are still just startup values until calibration is run.
-- Calibration writes them in RAM only; there is no persistence to flash or file.
-
-### Calibration controller
-
-Calibration is active and integrated into the CM7 state machine.
-
-Current flow:
-
-1. Serial `calibrate` command requests calibration for selected strings.
-2. On the next audio hop, CM7 enters `STATE_CALIBRATING`.
-3. For each selected string, CM7 moves the target motor to `0`.
-4. CM7 starts exact-Hz solenoid drive for that string.
-5. CM7 waits a configurable number of audio hops for settling.
-6. CM7 records FFT-measured frequency versus step position.
-7. CM7 advances the motor in `20` microstep increments.
-8. When enough sweep data is collected, CM7 writes downsampled breakpoints into `tuning_ff_freq_bp[][]` and `tuning_ff_steps_bp[][]`.
-9. CM7 returns to `STATE_RUNNING` when done or on error.
-
-Current calibration characteristics:
-
-- max sweep: `1200` steps
-- buffer size: `60` samples per string
-- settle time: `4` audio hops between measurements
-- minimum data to build a LUT: `TUNING_FF_NUM_POINTS`
-
-## CM4 Subsystem Details
+## CM4 Actuation Behavior
 
 ### Motor control
 
 `motor_control.c` is the live stepper implementation.
 
-Current behavior:
-
-- Each configured motor has hardcoded GPIO pins for STEP, DIR, EN, M0, M1, M2.
-- STEP pulses are generated in software, not by timer PWM.
-- Pulse timing uses the DWT cycle counter for a `3 us` HIGH pulse.
-- The update loop runs at `1 kHz`.
-- Velocity control ramps current speed toward target speed with acceleration limiting.
-- Position control uses a proportional target-speed rule with a braking-distance check to avoid overshoot.
-
-Current homing semantics:
-
-- `Motor_Home()` does not reference a limit switch.
-- It simply commands every configured motor to move back to position `0`.
+- Step pulses are generated in software, not by timer PWM.
+- Pulse width uses the DWT cycle counter with a `3 us` HIGH time.
+- `Motor_Update()` runs at `1 kHz`.
+- `Motor_Update()` skips disabled motors entirely: no STEP pin toggling, no position counter advancement, no speed accumulation. This prevents software/hardware position drift when the DRV8825 EN pin is HIGH.
+- Position mode is a simple proportional target-speed rule with braking-distance logic.
+- Speed ramps are acceleration-limited.
 
 ### Solenoid control
 
-`solenoid_control.c` is the live PWM driver for string excitation.
+`solenoid_control.c` supports:
 
-Current capabilities:
+- string/fret lookup-table frequency setting
+- direct exact-Hz frequency setting
+- duty-cycle adjustment
+- infinite, timed, and burst activation modes
+- 1 ms auto-stop updates
 
-- 6 independent timer-backed PWM channels
-- string/fret lookup table for open string through fret `7`
-- direct duty-cycle adjustment
-- explicit start / stop
-- timed auto-stop mode
-- burst-cycle auto-stop mode
-- direct exact-Hz frequency setting for tuning / calibration use
+The exact-Hz path is real and active:
 
-Current frequency model:
-
-- lookup table ARR values are based on `ARR = (2400000 / f) - 1`
-- the table covers all 6 strings for frets `0-7`
-
-### Exact-Hz solenoid path
-
-The codebase has a dedicated "drive at exact target frequency" path:
-
-- CM7 calls `InterCore_TriggerSolenoidHz()`
-- shared memory stores `solenoid_id`, `solenoid_freq_hz`, duty, mode, time, burst count
-- CM4 handles `CMD_TRIGGER_SOLENOID_HZ`
+- CM7 uses `InterCore_TriggerSolenoidHz()`
+- shared memory sets `CMD_TRIGGER_SOLENOID_HZ`
+- CM4 handles that command in `app_cm4.c`
 - CM4 calls `Solenoid_SetFrequencyHz()`
 
-This path is intended for:
+The batch motor enable/disable path is real and active:
 
-- keeping a string ringing while tuning is locked
-- keeping a string ringing during calibration sweeps
+- CM7 uses `InterCore_SendMotorEnableMask(uint8_t mask)`
+- shared memory sets `CMD_MOTOR_ENABLE_MASK` (bit 14) with `motor_cmd_enable_mask` bitmask
+- CM4 loops through all 6 motors, enabling if the bit is set, disabling if clear
+- The tuning controller uses this to atomically manage motor power for chord transitions
 
-## Current Operational Workflows
+## Operator Workflows And Commands
 
-### Power-up workflow
+### UART console
 
-On a normal power-up:
+- Runs on CM7 over board COM1 / `USART3`
+- `115200` baud
+- `printf()` is redirected to UART
+- RX is interrupt-driven and line-buffered
 
-1. CM4 initializes first-level actuator control and reports ready.
-2. CM7 waits for ready, sends home-to-zero, sets microstepping, and starts the console and audio path.
-3. The system reaches `STATE_RUNNING`.
-4. The operator can then use serial commands.
+### Main command groups
 
-### Manual actuator workflow
+- Motor control: `start`, `speed`, `accel`, `maxspeed`, `move`, `goto`, `microstep`, `enable`, `disable`, `zero`, `home`, `stop`, `status`
+- Solenoid control: `sol`, `solstop`, `solstatus`
+- Commissioning: `calibrate`, `mapfrets`, `printlut`, `fftprint`
+- Playback/demo: `smoke`, `demo`
+- Presets/help: `save`, `delete`, `presets`, `help`
 
-- Use `start` before manual movement commands.
-- Use motor commands for direct testing of configured stepper channels.
-- Use `sol` and `solstop` for direct solenoid checks.
+### Workflow caveats that matter
 
-### Playback workflow
+- `start` only unlocks manual movement commands in the CM7 CLI. It does not enable motors.
+- `sol` intentionally warns and returns for solenoids `0`, `4`, and `5` because those have no timer assigned.
+- `mapfrets` enables the requested motors. `calibrate` does not.
+- `smoke` only targets D3/G3, which matches the currently live playback-friendly channels. The tuning controller now auto-enables the needed motors during playback and disables them when the song ends.
+- `demo` still targets solenoid `0`, which has no live PWM timer in the current runtime.
 
-- Use `smoke`.
-- CM7 starts the song scheduler on the next audio hop.
-- Each audio hop advances the scheduler and runs the tuning controller.
-- CM7 sends absolute motor positions to CM4 and coordinates solenoid drive according to lock state.
+## Current Verified Gotchas
 
-### Calibration workflow
+These are real current behaviors or mismatches that future sessions should keep in mind.
 
-- Use `calibrate` with no arguments for all strings or with string IDs for selected strings.
-- Calibration pauses normal playback/tuning control and temporarily owns the audio hop.
-- Calibration updates RAM feed-forward tables only.
+### 1. ~~Startup and normal playback do not enable motors~~ (RESOLVED)
 
-## Build And Flashing
+- Motors still start disabled.
+- The tuning controller now auto-enables motors for active strings during song playback via `InterCore_SendMotorEnableMask()` and disables them when the song ends.
+- `calibrate` still does not enable motors. `mapfrets` and explicit `enable` commands still work as before.
 
-Current build system:
+### 2. ~~Motor stepping ignores the enabled flag~~ (RESOLVED)
 
-- Root build uses CMake with Ninja.
-- There are separate CM7 and CM4 targets.
-- The root README still contains the active high-level build and flash flow.
+- `Motor_Update()` now skips disabled motors entirely: no STEP pin toggling, no position counter advancement, no speed/accumulator state.
+- Software position freezes while disabled and resumes from the frozen value on re-enable.
+- Caveat: physical position may drift while disabled (no holding torque). The PI loop corrects on re-enable via FFT feedback.
 
-Current build notes from repo:
+### 3. `calibrate all` is not aligned with current hardware
 
-- build from a top-level `build/` directory with `cmake .. -G "Ninja"`
-- then run `cmake --build . -j8`
+- The calibration path assumes both a working motor and a timer-backed exact-Hz solenoid.
+- That is not true for `E2`, `B3`, or `E4`.
+- Motors `4` and `5` are not configured.
+- Solenoids `0`, `4`, and `5` have no live timer.
 
-Current flash addresses in README:
+### 4. `demo` is stale relative to current solenoid mapping
 
-- CM7 image address: `0x08000000`
-- CM4 image address: `0x08100000`
+- The demo uses solenoid `0` for E2.
+- Solenoid `0` has no timer assigned.
+- So the demo sequence no longer matches live hardware support.
 
-## Current Code / Documentation Mismatches
+### 5. Replay state in the song scheduler is not fully reset-safe
 
-These are important because they explain why older context documents drifted.
+- `SongSched_Tick()` uses a function-local static `first_tick`.
+- `SongSched_Init()` does not reset that flag.
+- The first play is clean; subsequent restarts are not fully reset-safe.
 
-### 1. Solenoid count macro is stale
+### 6. Several comments and headers are now stale
 
-`application_config.h` still says:
+- `audio_input.h` still says audio acquisition is a placeholder.
+- `tuning_controller.h` still describes a Goertzel-based runtime.
+- `inter_core_cm7.h` still says homing uses limit switches.
+- `motor_control.h` still calls homing a future placeholder even though software zero-return is implemented.
+- `app_cm4.c` still talks about all 6 solenoids having independent timers.
+- `fft_processing.c` still names its correction factor `TIM6_CALIBRATION_FACTOR` even though the live trigger is `TIM1`.
 
-- `NUM_SOLENOIDS 3`
+### 7. Shared config macros are partially stale
 
-But the active solenoid driver, timer init, and CM4 runtime clearly operate on 6 logical solenoids.
+- `NUM_SOLENOIDS` is still `3` in `application_config.h`.
+- `CM7_AUDIO_PROCESS_FREQ_HZ` is still `100`, but the real hop rate is about `5.86 Hz`.
+- Shared-memory comments still describe the solenoid path as "currently 3, expandable to 6" even though the runtime now has 6 logical IDs and only 3 timer-backed channels.
 
-### 2. Some solenoid pin comments are stale
-
-Several comments still describe:
-
-- solenoid `1` on `PA7`
-- solenoid `2` on `PA6`
-
-The active pinmux and direct GPIO configuration use:
-
-- solenoid `1` on `PF9`
-- solenoid `2` on `PF8`
-
-### 3. Audio headers still describe audio as future / placeholder
-
-`audio_input.h` still has placeholder wording even though ADC3 + DMA audio capture is live.
-
-### 4. Goertzel documentation is stale relative to the current build
-
-The codebase still contains `goertzel_processing.c/.h`, and some tuning docs/comments still describe a Goertzel-based measurement path.
-
-Current reality:
-
-- the active runtime path uses FFT outputs
-- `CM7/CMakeLists.txt` does not currently compile `goertzel_processing.c`
-- `app_cm7.c` does not use Goertzel in the current control hop
-
-### 5. Processing-frequency macro does not match real hop timing
-
-`CM7_AUDIO_PROCESS_FREQ_HZ` is still `100`, but the actual processing hop is tied to `1024` new samples at `6 kHz`, which is about `5.86 Hz`.
-
-### 6. TIM6 calibration comment is stale
-
-`fft_processing.c` still carries a comment that explains `TIM6_CALIBRATION_FACTOR` in terms of an older `64 MHz` clock story. That comment no longer matches the current clock configuration.
-
-### 7. Legacy solenoid trigger fields are stale
-
-`InterCore_TriggerSolenoids()` still writes:
+### 8. Legacy solenoid fields still exist in shared memory
 
 - `solenoid_triggers`
 - `solenoid_duration_ms`
 
-But the current CM4 `CMD_TRIGGER_SOLENOID` handler actually reads:
+The active CM4 handler actually uses:
 
 - `solenoid_id`
 - `solenoid_string`
@@ -539,137 +416,53 @@ But the current CM4 `CMD_TRIGGER_SOLENOID` handler actually reads:
 - `solenoid_mode`
 - `solenoid_activation_time_ms`
 - `solenoid_burst_cycles`
+- `solenoid_freq_hz` for exact-Hz mode
 
-So the older "bitmask trigger" fields remain in shared memory, but they are not the fields used by the current CM4 trigger implementation.
+## Build And Flash
 
-## Current Known Risks And Probable Bugs
+Current build setup in the repo:
 
-These are not design goals. They are current behaviors or mismatches visible in the code.
+- Top-level build uses CMake with Ninja.
+- `CMakePresets.json` defines `Debug` and `Release`.
+- `CM7/CMakeLists.txt` and `CM4/CMakeLists.txt` build the two cores separately under the shared top-level build.
 
-### 1. Exact-Hz solenoid actuation is currently gated by an impossible threshold
+Current flash addresses from `README.md`:
 
-The exact-Hz trigger path checks `freq > 1e6` in places where normal note frequencies are expected.
+- CM7: `0x08000000`
+- CM4: `0x08100000`
 
-That means the intended "drive the solenoid at the target note frequency" path will not activate for real guitar frequencies unless this condition is fixed.
+## Older Docs To Treat As History, Not Truth
 
-### 2. FFT peak list can overrun `active_frequencies[]`
-
-Current arrays:
-
-- `active_frequencies[NUM_STRINGS]` -> size `6`
-- `active_magnitudes[MAX_HARMONICS]` -> size `8`
-
-Current store guard:
-
-- `if (active_string_count < MAX_HARMONICS)`
-
-That means accepted peaks `6` and `7` would overflow `active_frequencies[]`.
-
-### 3. Song restart logic is not fully reset-safe
-
-`SongSched_Tick()` uses a function-local static `first_tick` flag that is not reset by `SongSched_Init()`.
-
-The first playback works, but replay / restart behavior after the first run is not fully clean in the current implementation.
-
-### 4. "Home" is software zero-return, not hardware homing
-
-The system uses position `0` as home, but there is no limit-switch or sensor-backed homing in the current motor implementation.
-
-### 5. Solenoid pinmux is configured in two places
-
-The solenoid PWM pin routing exists both in:
-
-- `CM4/Core/Src/stm32h7xx_hal_msp.c`
-- direct register writes in `CM4/App/Src/app_cm4.c`
-
-This works as a bring-up technique, but it is duplicated configuration that can drift.
-
-## Current Files That Are Most Out Of Date
-
-As of this Phase 4 snapshot, the following should be treated carefully:
+These files are still useful for background, but they do not fully match the current implementation:
 
 - `PROJECT_CONTEXT.md`
 - `TUNING_CONTROLLER_CHANGES.md`
 - `MOTOR_CONTROL_API.md`
-- `audio_input.h`
-- `solenoid_control.h`
-- parts of `solenoid_control.c`
-- parts of `app_cm4.c`
+- parts of `audio_input.h`
+- parts of `tuning_controller.h`
 - parts of `inter_core_cm7.h`
-
-They still contain useful history, but they should not override the active implementation.
-
-## Recommended Mental Model For This Project Right Now
-
-The cleanest way to think about the current system is:
-
-- a 6-string logical architecture
-- a 4-stepper currently commissioned hardware/control path
-- a 6-channel solenoid firmware path
-- a live CM7 FFT-based sensing loop
-- a live CM7 closed-loop tuning controller
-- a live CM7 runtime calibration path that updates feed-forward tables in RAM
-- a CM4 real-time executor that turns shared-memory commands into step pulses and solenoid PWM
-
-That mental model is more accurate than either:
-
-- "everything is still future"
-- or "all 6 strings are fully commissioned already"
-
-## Future Implementations And Obvious Next Steps
-
-These are the most natural next engineering steps implied by the current code.
-
-### Full actuator commissioning
-
-- add GPIO assignments and bring-up for motors `4` and `5`
-- enable and validate motors `4` and `5` in CM4 startup
-- include motors `4` and `5` in CM7 microstepping initialization
-- mechanically validate B3 and E4 tuning travel
-
-### Solenoid rollout cleanup
-
-- confirm the actual physical installed solenoid count on the bench
-- make the docs and config macros match the real 6-channel firmware path
-- remove stale `PA6` / `PA7` references
-- consolidate the pinmux setup into one authoritative place
-
-### Tuning-controller maturity
-
-- fix the exact-Hz trigger path
-- replace placeholder FF LUTs with measured calibration data for all commissioned strings
-- persist calibrated LUTs instead of keeping them only in RAM
-- re-tune PI gains on real hardware
-
-### Sensing and scheduler cleanup
-
-- decide whether Goertzel is dead code or a future alternate estimator
-- fix replay / restart state in the scheduler
-- generalize the song scheduler beyond the hardcoded Smoke on the Water demo
-
-### Homing and hardware safety
-
-- implement true physical homing if limit switches or another reference sensor are added
-- add explicit mechanical soft limits per string instead of shared defaults
+- parts of `motor_control.h`
+- parts of `app_cm4.c`
+- parts of `solenoid_control.c`
+- parts of `solenoid_control.h`
 
 ## Bottom Line
 
-Phase 4 is a partially commissioned but already integrated closed-loop guitar controller.
+The current repo is best understood as:
 
-What is real today:
+- a live 6-string logical architecture
+- 4 configured stepper channels
+- 3 live timer-backed solenoid channels
+- a real CM7 audio/FFT sensing loop
+- a real CM7 tuning controller
+- a real LUT-builder and calibration framework
+- motor safeguard preventing disabled motors from stepping or drifting position
+- automatic motor power management driven by the tuning controller and song scheduler
+- a partially commissioned hardware path with several stale comments and a few remaining behavioral notes
 
-- dual-core CM7 / CM4 architecture
-- shared-memory command channel
-- live audio capture
-- live FFT-based pitch detection
-- live motor control for 4 configured steppers
-- live 6-channel solenoid PWM driver
-- live tuning-controller framework
-- live calibration workflow
+If a future session needs bench-realistic assumptions, use this stricter model:
 
-What is still transitional:
-
-- full 6-stepper hardware support
-- exact physical bench solenoid rollout
-- persistent calibrated LUTs
-- cleanup of stale comments, stale config constants, and older docs
+- Motors that exist in code and are wired enough to target: `0-3`
+- Solenoids that exist in code and can actually generate PWM: `1-3`
+- Playback path that best matches current commissioned strings: the D3/G3 `smoke` workflow
+- Commissioning path that best matches current hardware: `mapfrets` on strings `0-3`

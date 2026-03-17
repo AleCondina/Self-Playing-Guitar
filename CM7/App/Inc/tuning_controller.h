@@ -107,15 +107,6 @@ extern "C" {
 #define TUNING_KI   1.5f
 
 /**
- * @brief Goertzel magnitude threshold for measurement trust.
- *
- * Below this value the PI integrator is frozen and the last valid frequency
- * estimate is held.  Units match Goertzel_GetMagnitude() output.
- * TUNE FOR HARDWARE (run with no string, observe magnitude noise floor).
- */
-#define TUNING_SNR_THRESHOLD    500.0f
-
-/**
  * @brief Number of hops with a large unresolved error before a stall is flagged.
  *
  * Stall = large commanded displacement but frequency barely moves.

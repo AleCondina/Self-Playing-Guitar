@@ -175,9 +175,9 @@ static void FindBestPeak(float *out_freq, float *out_mag)
         float f = active_frequencies[i];
         float m = active_magnitudes[i];
 
-        /* Reject out-of-range or below noise floor */
+        /* Reject out-of-range (SNR already vetted by FFT_ProcessBlock) */
         if (f < min_f || f > max_f) continue;
-        if (m < NOISE_GATE_THRESHOLD) continue;
+        (void)m;  /* magnitude no longer gate-checked here */
 
         float err = fabsf(f - target);
         if (err < best_err) {
