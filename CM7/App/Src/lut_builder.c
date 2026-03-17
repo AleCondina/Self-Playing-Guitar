@@ -78,7 +78,7 @@
 #define LUT_HOME_SETTLE_HOPS    6u     /* ~1.0 s */
 
 /** Far target position — motor sweeps toward this (microsteps). */
-#define LUT_MAX_STEPS           3500
+#define LUT_MAX_STEPS           8000
 
 /** Hops to wait after stopping motor at a fret before resuming. */
 #define LUT_LOCK_SETTLE_HOPS    2u     /* ~340 ms */
