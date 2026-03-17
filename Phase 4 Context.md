@@ -519,9 +519,9 @@ Current reality:
 
 `CM7_AUDIO_PROCESS_FREQ_HZ` is still `100`, but the actual processing hop is tied to `1024` new samples at `6 kHz`, which is about `5.86 Hz`.
 
-### 6. TIM6 calibration comment is stale
+### 6. Timers calibration
 
-`fft_processing.c` still carries a comment that explains `TIM6_CALIBRATION_FACTOR` in terms of an older `64 MHz` clock story. That comment no longer matches the current clock configuration.
+`application_config.h` has a comment that explains `TIMER_CALIBRATION_FACTOR` use for adjusting timer values to the mcu's timer drift.
 
 ### 7. Legacy solenoid trigger fields are stale
 

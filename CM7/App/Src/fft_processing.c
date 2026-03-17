@@ -5,7 +5,6 @@
 #include <stdio.h>
 #include <math.h>
 
-#define TIM6_CALIBRATION_FACTOR 1.005245182f // At 240 MHz: TIM6 period = 39999 → Fs = 240MHz/40000 = exactly 6000 Hz, no correction needed
 
 /* FFT_RESOLUTION = 6000/2048 = 2 (integer division, actual 2.929 Hz/bin).
  * E2 (82.41 Hz) is at bin ~28 — SEARCH_START_BIN must be < 28.
@@ -154,7 +153,7 @@ void FFT_ProcessBlock(uint16_t* audio_buf)
                 /* --- 2. PARABOLIC INTERPOLATION --- */
                 float p = 0.5f * (alpha - gamma) / (alpha - 2.0f * beta + gamma);
                 float true_peak_idx = (float)i + p;
-                float exact_freq = true_peak_idx * ((float)AUDIO_SAMPLE_RATE_HZ / FFT_SIZE) * TIM6_CALIBRATION_FACTOR;
+                float exact_freq = true_peak_idx * ((float)AUDIO_SAMPLE_RATE_HZ / FFT_SIZE) * TIMER_CALIBRATION_FACTOR;
 
                 /* --- 3. HARMONIC REJECTION (against already-accepted candidates) --- */
                 uint8_t is_harmonic = 0;

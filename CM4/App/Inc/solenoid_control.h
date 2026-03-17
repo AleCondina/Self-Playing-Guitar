@@ -99,7 +99,7 @@ uint8_t Solenoid_GetActiveMask(void);
  * @return Frequency in Hz, or 0 if invalid solenoid_id
  * @note  Calculated from current ARR value: freq = TIM_PRESCALED_CLK_HZ / (ARR + 1)
  */
-uint32_t Solenoid_GetFrequency(uint8_t solenoid_id);
+float Solenoid_GetFrequency(uint8_t solenoid_id);
 
 /**
  * @brief Start solenoid with auto-stop timing
