@@ -172,8 +172,8 @@ static void ApplyActuation(uint8_t string_id,
             InterCore_TriggerSolenoidHz(string_id,
                                         freq,
                                         SOLENOID_DEFAULT_DUTY_CYCLE,
-                                        SOLENOID_MODE_INFINITE,
-                                        0u,
+                                        SOLENOID_MODE_TIMED,
+                                        250u,
                                         0u);
         }
 
