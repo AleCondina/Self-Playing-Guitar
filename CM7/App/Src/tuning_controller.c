@@ -253,9 +253,12 @@ void TuningCtrl_Update(uint8_t string_id,
     }
 
     /* ------------------------------------------------------------------ */
-    /* 2. SNR / confidence gate                                             */
+    /* 2. Measurement gate                                                  */
+    /* Peaks in active_frequencies[] are already SNR-vetted by              */
+    /* FFT_ProcessBlock's adaptive per-bin noise floor.  We only need to    */
+    /* check that GetFFTRadarLock returned a valid measurement (non-zero).  */
     /* ------------------------------------------------------------------ */
-    uint8_t measurement_trusted = (confidence >= TUNING_SNR_THRESHOLD);
+    uint8_t measurement_trusted = (measured_freq_hz > 0.0f);
 
     float use_freq;
     if (measurement_trusted) {
@@ -408,16 +411,16 @@ static void GetFFTRadarLock(float target, float* out_measured, float* out_confid
         }
     }
 
-    /* 2. Validate the lock */
+    /* 2. Validate the lock — peaks in active_frequencies[] are already
+     *    SNR-vetted by FFT_ProcessBlock's adaptive noise floor, so we only
+     *    need to check that we found something within the search window. */
     if (active_string_count > 0 && min_error <= TUNE_SEARCH_WINDOW_HZ) {
-        if (best_mag > NOISE_GATE_THRESHOLD) {
-            *out_measured = best_measured;
-            *out_confidence = best_mag;
-            return; /* Successful lock */
-        }
+        *out_measured = best_measured;
+        *out_confidence = best_mag;
+        return; /* Successful lock */
     }
 
-    /* Target is missing, out of bounds, or too quiet */
+    /* Target is missing or out of search window */
     *out_measured = 0.0f;
     *out_confidence = 0.0f;
 }

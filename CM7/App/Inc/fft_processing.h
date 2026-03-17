@@ -10,10 +10,6 @@
 #define NOISE_FLOOR_SNR         20.0f    /* Peak must be this many times above the local noise floor */
 #define NOISE_FLOOR_MIN         5000.0f /* Absolute minimum noise floor (ambient peaks ~10k, this gives 2x margin) */
 
-/* Legacy absolute threshold for downstream controllers (tuning_controller, lut_builder).
- * Safe to keep low — the adaptive noise floor in FFT_ProcessBlock already filters noise,
- * so active_magnitudes[] entries that reach these controllers are real signals. */
-#define NOISE_GATE_THRESHOLD    50000.0f
 
 extern float active_frequencies[];
 extern float active_magnitudes[];
