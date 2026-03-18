@@ -20,5 +20,6 @@ void App_CM7_Main(void);
 void App_RequestCalibration(uint8_t string_mask);
 void App_RequestPlay(void);
 void App_RequestLutBuild(uint8_t string_mask);
+void App_RequestTune(uint8_t string_mask);
 
 #endif /* APP_CM7_H */

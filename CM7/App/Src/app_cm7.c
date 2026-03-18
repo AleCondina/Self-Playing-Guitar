@@ -41,6 +41,7 @@ typedef enum {
     STATE_IDLE,
     STATE_CALIBRATING,
     STATE_LUT_BUILDING,
+    STATE_TUNING,
     STATE_RUNNING,
     STATE_ERROR
 } AppState_t;
@@ -53,6 +54,8 @@ static volatile uint8_t s_request_calibrate_mask = 0x3Fu;
 static volatile uint8_t s_request_play            = 0u;
 static volatile uint8_t s_request_lutbuild       = 0u;
 static volatile uint8_t s_request_lutbuild_mask  = 0x3Fu;
+static volatile uint8_t s_request_tune           = 0u;
+static volatile uint8_t s_request_tune_mask      = 0x0Fu;
 
 /**
  * @brief CM7 application main function
@@ -109,6 +112,11 @@ void App_CM7_Main(void) {
         } else {
             Cal_FitFromBaseLUT();
             printf("[CM7] No SRAM calibration — polynomial seeded from base LUT.\r\n");
+        }
+
+        /* Restore tune offsets from backup SRAM */
+        if (Cal_TuneLoadFromSRAM()) {
+            printf("[CM7] Tune offsets restored from backup SRAM.\r\n");
         }
 
         /* Initialize tuning controller (depends on home being established) */
@@ -209,6 +217,23 @@ void App_CM7_Main(void) {
                 }
                 break;
 
+            case STATE_TUNING:
+                SerialCmd_Process();
+
+                if (Audio_HasNewSamples()) {
+                    uint16_t *audio_buf = Audio_GetBuffer();
+                    FFT_ProcessBlock(audio_buf);
+                    Audio_MarkProcessed();
+                    Cal_TuneHop();
+                }
+
+                if (Cal_TuneGetStatus() == CAL_STATUS_DONE ||
+                    Cal_TuneGetStatus() == CAL_STATUS_ERROR) {
+                    app_state = STATE_RUNNING;
+                    printf("\r\n[CMD] Tuning finished. Ready.\r\n> ");
+                }
+                break;
+
             case STATE_RUNNING:
                 /* Process serial commands */
                 SerialCmd_Process();
@@ -241,6 +266,14 @@ void App_CM7_Main(void) {
                         s_request_lutbuild = 0u;
                         LutBuilder_Start(mask);
                         app_state = STATE_LUT_BUILDING;
+                        Audio_MarkProcessed();
+                        break;
+                    }
+                    if (s_request_tune) {
+                        uint8_t mask = s_request_tune_mask;
+                        s_request_tune = 0u;
+                        Cal_TuneStart(mask);
+                        app_state = STATE_TUNING;
                         Audio_MarkProcessed();
                         break;
                     }
@@ -317,5 +350,13 @@ void App_RequestLutBuild(uint8_t string_mask)
     if (app_state != STATE_LUT_BUILDING) {
         s_request_lutbuild_mask = string_mask;
         s_request_lutbuild      = 1u;
+    }
+}
+
+void App_RequestTune(uint8_t string_mask)
+{
+    if (app_state != STATE_TUNING) {
+        s_request_tune_mask = string_mask;
+        s_request_tune      = 1u;
     }
 }

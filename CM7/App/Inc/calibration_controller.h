@@ -141,6 +141,61 @@ void Cal_Hop(void);
  */
 CalStatus_t Cal_GetStatus(void);
 
+/* =========================================================================
+ * Tune API — open-string pitch correction (bidirectional motor adjustment)
+ *
+ * Usage:
+ *   Cal_TuneStart(mask) → route each audio hop through Cal_TuneHop()
+ *   Poll Cal_TuneGetStatus() for completion.
+ *   After tuning, Cal_TuneGetOffset(str) returns the motor offset (steps)
+ *   that the tuning controller should add to its feedforward output.
+ *
+ * The motor moves forward (positive steps) if the string is flat, or
+ * backward (negative steps) if the string is sharp, to bring the open
+ * string to standard tuning. The commissioned tune workflow currently
+ * supports strings 0-3; string 0 may still require manual re-plucks
+ * because it has no dedicated re-excite solenoid.
+ * ========================================================================= */
+
+/**
+ * @brief Start tuning for a bitmask of strings.
+ * @param string_mask  Bit N = 1 → tune string N (currently 0=E2 … 3=G3).
+ */
+void Cal_TuneStart(uint8_t string_mask);
+
+/**
+ * @brief Advance the tune state machine by one audio hop.
+ *
+ * Call every time Audio_HasNewSamples() fires, AFTER FFT_ProcessBlock().
+ * Do NOT call TuningCtrl_RunHop() while tuning is running.
+ */
+void Cal_TuneHop(void);
+
+/**
+ * @brief Return current tune status.
+ */
+CalStatus_t Cal_TuneGetStatus(void);
+
+/**
+ * @brief Return the tune offset (steps) for the given string.
+ *
+ * Add this to the feedforward output in FF_Interpolate() so that all
+ * subsequent motor commands compensate for the string being flat or sharp.
+ * Returns 0 if no tuning has been performed for this string.
+ */
+int32_t Cal_TuneGetOffset(uint8_t str);
+
+/**
+ * @brief Clear all tune offsets in RAM.
+ */
+void Cal_TuneClearOffsets(void);
+
+/**
+ * @brief Initialize tune offsets for the current boot.
+ * @return Always 0; backup-SRAM persistence is disabled for tune offsets.
+ */
+uint8_t Cal_TuneLoadFromSRAM(void);
+
 #ifdef __cplusplus
 }
 #endif

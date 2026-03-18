@@ -135,6 +135,11 @@ static float FF_Interpolate(uint8_t str, float freq)
     float c     = cal_poly_coeff[str][2];
     float steps = a + b * freq + c * freq * freq;
     if (steps < 0.0f) steps = 0.0f;
+
+    /* Apply tune offset — compensates for string being flat or sharp
+     * relative to standard tuning.  Set by the 'tune' command. */
+    steps += (float)Cal_TuneGetOffset(str);
+
     return steps;
 }
 
