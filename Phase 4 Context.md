@@ -1,6 +1,6 @@
 # Phase 4 Context
 
-Last verified against the codebase: 2026-03-15
+Last verified against the codebase: 2026-03-17
 
 ## Fast Mental Model
 
@@ -24,7 +24,7 @@ Last verified against the codebase: 2026-03-15
 | Steppers | 6 logical motor IDs exist | Only motors `0-3` have GPIO assignments in `motor_control.c` |
 | Solenoids | 6 logical solenoid IDs exist | Only solenoids `1-3` have live PWM timers; `0`, `4`, `5` have `htim == NULL` |
 | Pitch sensing | Live ADC capture with FFT peak detection | Trigger timer is `TIM1`, not `TIM6` |
-| Tuning control | Live FF + PI controller on CM7 with automatic motor power management | Uses 7-point LUTs, still placeholder until measured |
+| Tuning control | Live FF + PI controller on CM7 with automatic motor power management, 1/16 microstep safeguard, and cents-based lock bands | Uses 7-point LUTs; all gains/limits calibrated for 1/16 microstepping; controller halts if motors are not in 1/16 mode |
 | Motor safeguard | `Motor_Update()` skips disabled motors — no stepping, no position drift | Software position freezes while disabled; may not match physical position on re-enable |
 | Motor power mgmt | Tuning controller auto-enables motors for active strings, disables when idle | Uses `CMD_MOTOR_ENABLE_MASK` bitmask via `InterCore_SendMotorEnableMask()` |
 | Playback | Hardcoded 12-note "Smoke on the Water" riff | No looping; only two-string D3/G3 chord data exists |
@@ -190,15 +190,23 @@ The active measurement path is `fft_processing.c`.
 
 Current behavior:
 
+- All positions, gains, and limits are in **1/16 microstep** units.
 - Uses 7-point per-string feed-forward LUTs:
   - `tuning_ff_freq_bp[6][7]`
   - `tuning_ff_steps_bp[6][7]`
 - Finds the closest accepted FFT peak to the target frequency.
 - Applies per-string FF lookup plus discrete PI trim.
-- Uses post-note delay, lock-band hysteresis, minimum-move threshold, slew limit, and default mechanical bounds of `-50` to `2000` steps.
+- Uses post-note delay, **cents-based lock-band hysteresis** (±10 cents in, ±20 cents out — computed at runtime relative to target frequency), minimum-move threshold (`16` microsteps), slew limit (`65000` microsteps/s), and default mechanical bounds of `-800` to `8000` microsteps.
+- PI gains: `Kp = 48.0` microsteps/Hz, `Ki = 24.0` microsteps/Hz/s, trim clamp ±`6400` microsteps.
 - Sends absolute motor targets through `InterCore_SendMotorGoto()`.
 - Starts exact-Hz solenoid drive only on a rising lock edge.
 - Stops the solenoid on a falling lock edge.
+
+Microstep safeguard:
+
+- At the top of every `TuningCtrl_RunHop()`, the controller reads `g_shared_memory.motor_microstep_status[0..3]` and verifies all configured motors are in mode `4` (1/16 step).
+- If any motor is not in 1/16 mode, the controller prints a `*** HALT ***` warning over UART, disables all motors via `InterCore_SendMotorEnableMask(0)`, and returns immediately without issuing any motor commands.
+- This safeguard exists because all controller limits and gains are calibrated for 1/16 microstepping. Running with a different mode would produce incorrect position commands that can damage the mechanical system.
 
 Motor power management:
 
@@ -454,9 +462,10 @@ The current repo is best understood as:
 - 4 configured stepper channels
 - 3 live timer-backed solenoid channels
 - a real CM7 audio/FFT sensing loop
-- a real CM7 tuning controller
+- a real CM7 tuning controller with cents-based lock bands and 1/16 microstep safeguard
 - a real LUT-builder and calibration framework
 - motor safeguard preventing disabled motors from stepping or drifting position
+- microstep safeguard preventing the tuning controller from running if motors are not in 1/16 mode
 - automatic motor power management driven by the tuning controller and song scheduler
 - a partially commissioned hardware path with several stale comments and a few remaining behavioral notes
 

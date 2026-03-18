@@ -5,7 +5,7 @@
  *
  * Architecture
  * ------------
- * Runs entirely on CM7 at the Goertzel/FFT hop rate (≈ 170 ms per hop at
+ * Runs entirely on CM7 at the FFT hop rate (≈ 170 ms per hop at
  * 6 kHz / 2048-point half-buffer).  For each active string the controller:
  *
  *  1. Looks up an absolute motor-step target from a per-string feed-forward
@@ -63,32 +63,35 @@ extern "C" {
  */
 #define TUNING_DELAY_FRAMES     3u
 
-/** Enter lock when |freq_error| ≤ this value (Hz).  TUNE FOR HARDWARE. */
-#define TUNING_LOCK_BAND_IN_HZ  1.0f
-
 /**
- * @brief Exit lock when |freq_error| ≥ this value (Hz).
- * Must be > TUNING_LOCK_BAND_IN_HZ to provide hysteresis.
- * TUNE FOR HARDWARE.
+ * @brief Lock-band thresholds expressed in cents (pitch-relative).
+ *
+ * Using cents instead of fixed Hz ensures uniform musical accuracy across
+ * all strings.  The Hz threshold is computed at runtime:
+ *   band_hz = target_freq * (2^(cents/1200) - 1)
+ *
+ * 10 cents ≈ 0.58% of target  →  0.48 Hz at E2 (82 Hz), 1.91 Hz at E4 (330 Hz)
+ * 20 cents ≈ 1.16% of target  →  0.95 Hz at E2,          3.83 Hz at E4
  */
-#define TUNING_LOCK_BAND_OUT_HZ 2.5f
+#define TUNING_LOCK_BAND_IN_CENTS   10.0f   /**< Enter lock when error ≤ ±10 cents */
+#define TUNING_LOCK_BAND_OUT_CENTS  20.0f   /**< Exit  lock when error ≥ ±20 cents */
 
 /**
  * @brief Minimum change in trim_steps to apply (defeats backlash dither).
  * If |new_trim - old_trim| < this, the trim is not updated this hop.
  * Units: microsteps.  TUNE FOR HARDWARE.
  */
-#define TUNING_MIN_MOVE_STEPS   2.0f
+#define TUNING_MIN_MOVE_STEPS   16.0f
 
 /** PI trim output clamp (±microsteps).  TUNE FOR HARDWARE. */
-#define TUNING_OUT_LIMIT_STEPS  400.0f
+#define TUNING_OUT_LIMIT_STEPS  6400.0f
 
 /**
  * @brief Slew limit on cmd_steps_abs per hop (microsteps/s).
  * Per-hop delta limit = TUNING_MAX_STEP_RATE_SPS * TUNING_SAMPLE_TIME_S.
  * Must not exceed the motor's physical step rate.  TUNE FOR HARDWARE.
  */
-#define TUNING_MAX_STEP_RATE_SPS    5000.0f
+#define TUNING_MAX_STEP_RATE_SPS    65000.0f
 
 /**
  * @brief Proportional gain (microsteps per Hz of frequency error).
@@ -96,7 +99,7 @@ extern "C" {
  * Rough estimate: if the relationship is ~10 steps/Hz, start with 3-5 and
  * increase until oscillation, then halve.  TUNE FOR HARDWARE.
  */
-#define TUNING_KP   3.0f
+#define TUNING_KP   48.0f
 
 /**
  * @brief Integral gain (microsteps per Hz per second).
@@ -104,7 +107,7 @@ extern "C" {
  * Discrete integral:  integral += TUNING_KI * e * TUNING_SAMPLE_TIME_S
  * Start at 1/3 of Kp / Ti where Ti ≈ 2-5 s.  TUNE FOR HARDWARE.
  */
-#define TUNING_KI   1.5f
+#define TUNING_KI   24.0f
 
 /**
  * @brief Number of hops with a large unresolved error before a stall is flagged.
@@ -121,6 +124,17 @@ extern "C" {
  */
 #define TUNING_STALL_MIN_FREQ_DELTA_HZ  0.3f
 
+/**
+ * @brief Required microstep mode for safe operation.
+ *
+ * All controller limits and gains are calibrated for 1/16 microstepping.
+ * Running with a different mode will produce incorrect position commands
+ * that can damage the mechanical system.  The controller checks this at
+ * every hop and halts with a warning if any configured motor is not in
+ * this mode.  Value matches MotorMicrostepMode_t on CM4.
+ */
+#define TUNING_REQUIRED_MICROSTEP_MODE  4u  /* 1/16 step */
+
 /** Number of LUT breakpoints per string in the feed-forward tables. */
 #define TUNING_FF_NUM_POINTS    7u
 
@@ -131,8 +145,8 @@ extern "C" {
  * Negative steps allowed as a small margin below home.
  * TODO: measure per-string physical travel and replace these defaults.
  */
-#define TUNING_STEPS_MAX_DEFAULT    2000
-#define TUNING_STEPS_MIN_DEFAULT   -50
+#define TUNING_STEPS_MAX_DEFAULT    8000
+#define TUNING_STEPS_MIN_DEFAULT   -800
 
 /* =========================================================================
  * Feed-forward LUT tables
@@ -148,8 +162,9 @@ extern float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS];
  * ========================================================================= */
 
 /** Fault flags stored in TuningStringState_t.fault_flags */
-#define TUNING_FAULT_STALL      (1u << 0)  /**< Motor stall suspected   */
-#define TUNING_FAULT_SATURATED  (1u << 1)  /**< PI integral saturated   */
+#define TUNING_FAULT_STALL      (1u << 0)  /**< Motor stall suspected      */
+#define TUNING_FAULT_SATURATED  (1u << 1)  /**< PI integral saturated      */
+#define TUNING_FAULT_MICROSTEP  (1u << 2)  /**< Wrong microstep mode — HALT */
 
 /**
  * @brief Complete run-time state for one guitar string.
