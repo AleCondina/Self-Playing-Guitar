@@ -6,9 +6,14 @@
 #include "application_config.h"
 
 /* Adaptive noise floor parameters (used by FFT_ProcessBlock) */
-#define NOISE_FLOOR_ALPHA       0.05f   /* EMA smoothing: higher = faster adaptation (0.01–0.1) */
-#define NOISE_FLOOR_SNR         20.0f    /* Peak must be this many times above the local noise floor */
-#define NOISE_FLOOR_MIN         5000.0f /* Absolute minimum noise floor (ambient peaks ~10k, this gives 2x margin) */
+#define NOISE_FLOOR_ALPHA       0.05f    /* EMA smoothing: higher = faster adaptation (0.01–0.1) */
+#define NOISE_FLOOR_SNR         8.0f     /* Peak must be this many × above local noise floor
+                                          * (was 20 — too aggressive for higher strings whose
+                                          *  magnitudes are inherently weaker than low E2)    */
+#define NOISE_FLOOR_MIN         5000.0f  /* Absolute minimum noise floor (ambient peaks ~10k, this gives 2x margin) */
+#define NOISE_FLOOR_MAX         20000.0f /* Cap: prevents ratcheting during sustained playing */
+#define NOISE_FLOOR_GUARD       6.0f     /* Only update noise floor when bin < guard × current floor */
+#define NOISE_FLOOR_DECAY       0.997f   /* Per-frame decay toward MIN (~2 s half-life at 5.86 Hz hop) */
 
 
 extern float active_frequencies[];

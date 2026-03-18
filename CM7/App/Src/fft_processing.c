@@ -101,14 +101,23 @@ void FFT_ProcessBlock(uint16_t* audio_buf)
     } else {
         for (uint32_t i = SEARCH_START_BIN; i < SEARCH_END_BIN; i++) {
             /* Only update noise floor from bins that are NOT currently peaking.
-             * A bin is "quiet" if it's below 2x the current noise estimate. */
-            if (fft_mag[i] < noise_floor[i] * 2.0f) {
+             * A bin is "quiet" if it's below GUARD × the current noise estimate.
+             * (Was 2×, raised to 6× to prevent signal dips from ratcheting up
+             *  the floor during sustained solenoid-driven playing.) */
+            if (fft_mag[i] < noise_floor[i] * NOISE_FLOOR_GUARD) {
                 noise_floor[i] = NOISE_FLOOR_ALPHA * fft_mag[i]
                                + (1.0f - NOISE_FLOOR_ALPHA) * noise_floor[i];
             }
-            /* Clamp to minimum */
+
+            /* Constant decay toward MIN — prevents permanent ratcheting.
+             * At 0.997/frame and ~5.86 Hz hop rate, half-life ≈ 40 s. */
+            noise_floor[i] *= NOISE_FLOOR_DECAY;
+
+            /* Clamp to [MIN, MAX] */
             if (noise_floor[i] < NOISE_FLOOR_MIN) {
                 noise_floor[i] = NOISE_FLOOR_MIN;
+            } else if (noise_floor[i] > NOISE_FLOOR_MAX) {
+                noise_floor[i] = NOISE_FLOOR_MAX;
             }
         }
     }
