@@ -47,6 +47,7 @@
 #define CM4_CLOCK_MHZ           198     /* CM4 clock */
 #define TIM_CLOCK_MHZ           CM4_CLOCK_MHZ      /* Timer peripheral clock (fixed to cm4 speed 240 Hz) */
 #define TIM_PRESCALED_CLK_HZ    2200000  /*Timer clk prescaled by /(1+89) */
+#define TIMER_CALIBRATION_FACTOR   1.005245182f  /* Corrects timer clock drift (~0.52% fast) */
  
 /* ===== Error Codes (bit field) ===== */
 #define ERROR_MOTOR_STALL       (1U << 0)   /* Motor stall detected */

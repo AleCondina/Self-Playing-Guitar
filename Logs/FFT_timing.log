@@ -1,0 +1,503 @@
+[CM7] Initialization complete, starting application...
+
+
+=========================================
+  STM32H755ZI Guitar Controller - CM7   
+  Firmware v0.1.0                    
+=========================================
+
+[CM7] Waiting for CM4 to initialize...
+[CM7] CM4 ready! Homing motors...
+[CM7] Home position established (all positions zeroed).
+[CM7] Setting motors to 1/16 microstepping...
+[CM7] Microstep mode set.
+
+[CMD] Motors homed. Type 'start' to begin, 'help' for commands.
+> 
+Type 'help' for commands.
+> [CM7] Initializing FFT engine...
+[CM7] Initializing tuning controller...
+[CM7] Song scheduler ready (12 notes loaded).
+[TC] timestamp_ms,string_id,target_hz,measured_hz,error_hz,ff_steps,trim_steps,cmd_steps,cur_steps,lock,pi_en,delay_ctr,confidence,faults
+[CM7] Initializing audio input...
+[CM7] Audio input initialized and calibrated.
+[CM7] Audio buffer address: 0x38000000
+[CM7] Audio acquisition started.
+[CM7] System ready. Type 'calibrate' or 'smoke'.
+[CM7] hop_interval=170999 us | proc=1940 us | proc_max=2189 us
+[CM7] hop_interval=171000 us | proc=1940 us | proc_max=1941 us
+[CM7] hop_interval=170999 us | proc=1948 us | proc_max=1948 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=168999 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1949 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=168999 us | proc=1949 us | proc_max=1950 us
+[CM7] hop_interval=168999 us | proc=1949 us | proc_max=1950 us
+[CM7] hop_interval=170999 us | proc=1949 us | proc_max=1950 us
+[CM7] hop_interval=170999 us | proc=1949 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=170999 us | proc=1950 us | proc_max=1950 us
+fftprint
+
+  FFT live print: ON
+> [FFT] 1 peak(s): 59.83 Hz (130822)  
+[CM7] hop_interval=172000 us | proc=5491 us | proc_max=5491 us
+[FFT] 1 peak(s): 59.87 Hz (128203)  
+[FFT] 1 peak(s): 59.88 Hz (129587)  
+[FFT] 1 peak(s): 59.87 Hz (130775)  
+[FFT] 1 peak(s): 59.85 Hz (132815)  
+[FFT] 1 peak(s): 59.87 Hz (130035)  
+[FFT] 1 peak(s): 59.88 Hz (131520)  
+[FFT] 1 peak(s): 59.88 Hz (131740)  
+[FFT] 1 peak(s): 59.86 Hz (129633)  
+[FFT] 1 peak(s): 59.85 Hz (126762)  
+[FFT] 1 peak(s): 59.81 Hz (131264)  
+[FFT] 1 peak(s): 59.89 Hz (130378)  
+[FFT] 1 peak(s): 59.81 Hz (131409)  
+[FFT] 1 peak(s): 59.85 Hz (131081)  
+[FFT] 1 peak(s): 59.88 Hz (130395)  
+[FFT] 1 peak(s): 59.83 Hz (132411)  
+[FFT] 1 peak(s): 59.88 Hz (130154)  
+[FFT] 1 peak(s): 59.81 Hz (130950)  
+[FFT] 1 peak(s): 59.85 Hz (132888)  
+[FFT] 1 peak(s): 59.87 Hz (130473)  
+[FFT] 1 peak(s): 59.83 Hz (128613)  
+[FFT] 1 peak(s): 59.82 Hz (131224)  
+[FFT] 1 peak(s): 59.88 Hz (129909)  
+[FFT] 1 peak(s): 59.86 Hz (128697)  
+[FFT] 1 peak(s): 59.84 Hz (128192)  
+[FFT] 1 peak(s): 59.88 Hz (128106)  
+[FFT] 1 peak(s): 59.84 Hz (129278)  
+[FFT] 1 peak(s): 59.87 Hz (128335)  
+[FFT] 1 peak(s): 59.87 Hz (128674)  
+[FFT] 1 peak(s): 59.85 Hz (131346)  
+[CM7] hop_interval=171000 us | proc=5293 us | proc_max=5321 us
+[FFT] 1 peak(s): 59.85 Hz (132123)  
+[FFT] 1 peak(s): 59.87 Hz (129706)  
+[FFT] 1 peak(s): 59.84 Hz (129141)  
+[FFT] 1 peak(s): 59.88 Hz (129858)  
+[FFT] 1 peak(s): 59.87 Hz (129079)  
+[FFT] 1 peak(s): 59.81 Hz (130405)  
+[FFT] 1 peak(s): 59.84 Hz (132840)  
+[FFT] 1 peak(s): 59.87 Hz (128633)  
+[FFT] 1 peak(s): 59.86 Hz (132248)  
+[FFT] 1 peak(s): 59.86 Hz (130211)  
+[FFT] 1 peak(s): 59.85 Hz (130175)  
+[FFT] 1 peak(s): 59.88 Hz (130601)  
+[FFT] 1 peak(s): 59.85 Hz (129820)  
+[FFT] 1 peak(s): 59.90 Hz (129911)  
+[FFT] 1 peak(s): 59.84 Hz (130686)  
+[FFT] 1 peak(s): 59.85 Hz (130044)  
+[FFT] 1 peak(s): 59.87 Hz (131389)  
+[FFT] 1 peak(s): 59.89 Hz (130406)  
+[FFT] 1 peak(s): 59.80 Hz (132040)  
+[FFT] 1 peak(s): 59.85 Hz (132572)  
+[FFT] 1 peak(s): 59.85 Hz (130208)  
+[FFT] 1 peak(s): 59.88 Hz (130735)  
+[FFT] 1 peak(s): 59.83 Hz (131330)  
+[FFT] 1 peak(s): 59.87 Hz (129760)  
+[FFT] 1 peak(s): 59.88 Hz (130317)  
+[FFT] 1 peak(s): 59.85 Hz (128732)  
+[FFT] 1 peak(s): 59.82 Hz (133654)  
+[FFT] 1 peak(s): 59.89 Hz (133007)  
+[FFT] 1 peak(s): 59.88 Hz (131916)  
+[CM7] hop_interval=171000 us | proc=5293 us | proc_max=5294 us
+[FFT] 1 peak(s): 59.88 Hz (128750)  
+[FFT] 1 peak(s): 59.81 Hz (131559)  
+[FFT] 1 peak(s): 59.76 Hz (131888)  
+[FFT] 1 peak(s): 59.87 Hz (131621)  
+[FFT] 1 peak(s): 59.87 Hz (129163)  
+[FFT] 1 peak(s): 59.87 Hz (129803)  
+[FFT] 1 peak(s): 59.84 Hz (131022)  
+[FFT] 1 peak(s): 59.82 Hz (132225)  
+[FFT] 1 peak(s): 59.83 Hz (131376)  
+[FFT] 1 peak(s): 59.90 Hz (130685)  
+[FFT] 1 peak(s): 59.82 Hz (130261)  
+[FFT] 1 peak(s): 59.87 Hz (129548)  
+[FFT] 1 peak(s): 59.84 Hz (129082)  
+[FFT] 1 peak(s): 59.84 Hz (130343)  
+[FFT] 1 peak(s): 59.85 Hz (129386)  
+[FFT] 1 peak(s): 59.83 Hz (132416)  
+[FFT] 1 peak(s): 59.85 Hz (130262)  
+[FFT] 1 peak(s): 59.84 Hz (131526)  
+[FFT] 1 peak(s): 59.87 Hz (130094)  
+[FFT] 1 peak(s): 59.84 Hz (131330)  
+[FFT] 1 peak(s): 59.83 Hz (129803)  
+[FFT] 1 peak(s): 59.85 Hz (133009)  
+[FFT] 1 peak(s): 59.84 Hz (130791)  
+[FFT] 1 peak(s): 59.82 Hz (132139)  
+[FFT] 1 peak(s): 59.85 Hz (127805)  
+[FFT] 1 peak(s): 59.84 Hz (129664)  
+[FFT] 1 peak(s): 59.83 Hz (130044)  
+[FFT] 1 peak(s): 59.82 Hz (131440)  
+[FFT] 1 peak(s): 59.83 Hz (131153)  
+[CM7] hop_interval=171000 us | proc=5293 us | proc_max=5294 us
+[FFT] 1 peak(s): 59.83 Hz (130559)  
+[FFT] 1 peak(s): 59.90 Hz (129712)  
+[FFT] 1 peak(s): 59.79 Hz (130573)  
+[FFT] 1 peak(s): 59.89 Hz (129782)  
+[FFT] 1 peak(s): 59.85 Hz (129258)  
+[FFT] 1 peak(s): 59.87 Hz (129922)  
+[FFT] 1 peak(s): 59.83 Hz (129542)  
+[FFT] 1 peak(s): 59.87 Hz (129765)  
+[FFT] 1 peak(s): 59.85 Hz (131674)  
+[FFT] 1 peak(s): 59.86 Hz (128420)  
+[FFT] 1 peak(s): 59.86 Hz (131514)  
+[FFT] 1 peak(s): 59.81 Hz (130419)  
+[FFT] 1 peak(s): 59.88 Hz (129771)  
+[FFT] 1 peak(s): 59.84 Hz (131049)  
+[FFT] 1 peak(s): 59.88 Hz (130586)  
+[FFT] 1 peak(s): 59.76 Hz (131323)  
+[FFT] 1 peak(s): 59.85 Hz (131872)  
+[FFT] 1 peak(s): 59.83 Hz (131932)  
+[FFT] 1 peak(s): 59.88 Hz (131767)  
+[FFT] 1 peak(s): 59.86 Hz (130119)  
+[FFT] 1 peak(s): 59.81 Hz (131442)  
+[FFT] 1 peak(s): 59.83 Hz (130770)  
+[FFT] 1 peak(s): 59.84 Hz (130276)  
+[FFT] 1 peak(s): 59.89 Hz (129805)  
+[FFT] 1 peak(s): 59.85 Hz (130342)  
+[FFT] 1 peak(s): 59.83 Hz (132469)  
+[FFT] 1 peak(s): 59.81 Hz (129640)  
+[FFT] 1 peak(s): 59.83 Hz (131324)  
+[FFT] 1 peak(s): 59.83 Hz (131474)  
+[FFT] 1 peak(s): 59.84 Hz (131002)  
+[CM7] hop_interval=171000 us | proc=5293 us | proc_max=5294 us
+[FFT] 1 peak(s): 59.83 Hz (130215)  
+[FFT] 1 peak(s): 59.86 Hz (134229)  
+[FFT] 1 peak(s): 59.79 Hz (130771)  
+[FFT] 1 peak(s): 59.86 Hz (130939)  
+[FFT] 1 peak(s): 59.91 Hz (129822)  
+[FFT] 1 peak(s): 59.76 Hz (129535)  
+[FFT] 1 peak(s): 59.89 Hz (132618)  
+[FFT] 1 peak(s): 59.80 Hz (131034)  
+[FFT] 1 peak(s): 59.85 Hz (131614)  
+[FFT] 1 peak(s): 59.86 Hz (129990)  
+[FFT] 1 peak(s): 59.87 Hz (130310)  
+[FFT] 1 peak(s): 59.86 Hz (129499)  
+[FFT] 1 peak(s): 59.84 Hz (130509)  
+[FFT] 1 peak(s): 59.86 Hz (130338)  
+[FFT] 1 peak(s): 59.83 Hz (130286)  
+[FFT] 1 peak(s): 59.84 Hz (131889)  
+[FFT] 1 peak(s): 59.83 Hz (130579)  
+[FFT] 1 peak(s): 59.83 Hz (129161)  
+[FFT] 1 peak(s): 59.84 Hz (129650)  
+[FFT] 1 peak(s): 59.85 Hz (131490)  
+[FFT] 1 peak(s): 59.81 Hz (133335)  
+[FFT] 1 peak(s): 59.84 Hz (132421)  
+[FFT] 1 peak(s): 59.84 Hz (131226)  
+[FFT] 1 peak(s): 59.80 Hz (132792)  
+[FFT] 1 peak(s): 59.87 Hz (133406)  
+[FFT] 1 peak(s): 59.87 Hz (133737)  
+[FFT] 1 peak(s): 59.79 Hz (135338)  
+[FFT] 1 peak(s): 59.81 Hz (134602)  
+[FFT] 1 peak(s): 59.83 Hz (134865)  
+[CM7] hop_interval=171000 us | proc=5294 us | proc_max=5294 us
+[FFT] 1 peak(s): 59.84 Hz (132227)  
+[FFT] 1 peak(s): 59.84 Hz (134826)  
+[FFT] 1 peak(s): 59.85 Hz (137185)  
+[FFT] 1 peak(s): 59.83 Hz (132955)  
+[FFT] 1 peak(s): 59.82 Hz (133261)  
+[FFT] 1 peak(s): 59.83 Hz (134009)  
+[FFT] 1 peak(s): 59.86 Hz (134034)  
+[FFT] 1 peak(s): 59.83 Hz (132425)  
+[FFT] 1 peak(s): 59.85 Hz (129353)  
+[FFT] 1 peak(s): 59.81 Hz (132387)  
+[FFT] 1 peak(s): 59.84 Hz (132164)  
+[FFT] 1 peak(s): 59.82 Hz (134834)  
+[FFT] 1 peak(s): 59.83 Hz (133448)  
+[FFT] 1 peak(s): 59.80 Hz (133522)  
+[FFT] 1 peak(s): 59.87 Hz (132395)  
+[FFT] 1 peak(s): 59.78 Hz (135074)  
+[FFT] 1 peak(s): 59.86 Hz (134695)  
+[FFT] 1 peak(s): 59.85 Hz (133435)  
+[FFT] 1 peak(s): 59.86 Hz (134178)  
+[FFT] 1 peak(s): 59.86 Hz (132551)  
+[FFT] 1 peak(s): 59.81 Hz (134455)  
+[FFT] 1 peak(s): 59.85 Hz (132113)  
+[FFT] 1 peak(s): 59.86 Hz (134223)  
+[FFT] 1 peak(s): 59.86 Hz (135420)  
+[FFT] 1 peak(s): 59.87 Hz (134677)  
+[FFT] 1 peak(s): 59.84 Hz (134947)  
+[FFT] 1 peak(s): 59.86 Hz (132679)  
+[FFT] 1 peak(s): 59.86 Hz (132823)  
+[FFT] 1 peak(s): 59.81 Hz (132976)  
+[CM7] hop_interval=168999 us | proc=5293 us | proc_max=5294 us
+[FFT] 1 peak(s): 59.84 Hz (132438)  
+[FFT] 1 peak(s): 59.80 Hz (136954)  
+[FFT] 1 peak(s): 59.87 Hz (133012)  
+[FFT] 1 peak(s): 59.82 Hz (133036)  
+[FFT] 1 peak(s): 59.84 Hz (132015)  
+[FFT] 1 peak(s): 59.79 Hz (134881)  
+[FFT] 1 peak(s): 59.80 Hz (134525)  
+[FFT] 1 peak(s): 59.82 Hz (132801)  
+[FFT] 1 peak(s): 59.86 Hz (130131)  
+[FFT] 1 peak(s): 59.79 Hz (134564)  
+[FFT] 1 peak(s): 59.81 Hz (134554)  
+[FFT] 1 peak(s): 59.84 Hz (133218)  
+[FFT] 1 peak(s): 59.81 Hz (132638)  
+[FFT] 1 peak(s): 59.84 Hz (135041)  
+[FFT] 1 peak(s): 59.81 Hz (131077)  
+[FFT] 1 peak(s): 59.84 Hz (132705)  
+[FFT] 1 peak(s): 59.83 Hz (132640)  
+[FFT] 1 peak(s): 59.79 Hz (136316)  
+[FFT] 1 peak(s): 59.82 Hz (137273)  
+[FFT] 1 peak(s): 59.83 Hz (133891)  
+[FFT] 1 peak(s): 59.85 Hz (130621)  
+[FFT] 1 peak(s): 59.79 Hz (133498)  
+[FFT] 1 peak(s): 59.80 Hz (132339)  
+[CM7] hop_interval=171000 us | proc=1949 us | proc_max=5294 us
+[FFT] 1 peak(s): 59.83 Hz (131501)  
+[FFT] 1 peak(s): 59.81 Hz (133483)  
+[FFT] 1 peak(s): 59.81 Hz (133080)  
+[FFT] 1 peak(s): 59.79 Hz (131647)  
+[FFT] 1 peak(s): 59.86 Hz (120059)  
+[FFT] 1 peak(s): 59.83 Hz (132201)  
+[FFT] 1 peak(s): 59.80 Hz (135526)  
+[FFT] 1 peak(s): 59.86 Hz (131895)  
+[FFT] 1 peak(s): 59.87 Hz (132566)  
+[FFT] 1 peak(s): 59.81 Hz (131731)  
+[FFT] 1 peak(s): 59.82 Hz (130654)  
+[FFT] 1 peak(s): 59.78 Hz (131237)  
+[FFT] 1 peak(s): 59.70 Hz (134961)  
+[CM7] hop_interval=171000 us | proc=5293 us | proc_max=5293 us
+[FFT] 1 peak(s): 59.80 Hz (136788)  
+[FFT] 1 peak(s): 59.78 Hz (134883)  
+[FFT] 1 peak(s): 59.80 Hz (137090)  
+[FFT] 1 peak(s): 59.82 Hz (134264)  
+[FFT] 1 peak(s): 59.80 Hz (136627)  
+[FFT] 1 peak(s): 59.84 Hz (135828)  
+[FFT] 1 peak(s): 59.80 Hz (134050)  
+[FFT] 1 peak(s): 59.77 Hz (137771)  
+[FFT] 1 peak(s): 59.80 Hz (136218)  
+[FFT] 1 peak(s): 59.82 Hz (132845)  
+[FFT] 1 peak(s): 59.78 Hz (132746)  
+[FFT] 1 peak(s): 59.78 Hz (134940)  
+[FFT] 1 peak(s): 59.79 Hz (134935)  
+[FFT] 1 peak(s): 59.79 Hz (138686)  
+[FFT] 1 peak(s): 59.76 Hz (141138)  
+[FFT] 1 peak(s): 59.80 Hz (137059)  
+[FFT] 1 peak(s): 59.73 Hz (137773)  
+[FFT] 1 peak(s): 59.80 Hz (134616)  
+[FFT] 1 peak(s): 59.83 Hz (136829)  
+[FFT] 1 peak(s): 59.80 Hz (136053)  
+[FFT] 1 peak(s): 59.83 Hz (137108)  
+[FFT] 1 peak(s): 59.77 Hz (137176)  
+[FFT] 1 peak(s): 59.84 Hz (135947)  
+[FFT] 1 peak(s): 59.81 Hz (135406)  
+[FFT] 1 peak(s): 59.81 Hz (135715)  
+[FFT] 1 peak(s): 59.82 Hz (137669)  
+[FFT] 1 peak(s): 59.82 Hz (135252)  
+[FFT] 1 peak(s): 59.81 Hz (135258)  
+[FFT] 1 peak(s): 59.82 Hz (134217)  
+[CM7] hop_interval=171000 us | proc=5293 us | proc_max=5294 us
+[FFT] 1 peak(s): 59.80 Hz (136590)  
+[FFT] 1 peak(s): 59.77 Hz (139590)  
+[FFT] 1 peak(s): 59.82 Hz (137491)  
+[FFT] 1 peak(s): 59.80 Hz (136120)  
+[FFT] 1 peak(s): 59.80 Hz (135464)  
+[FFT] 1 peak(s): 59.79 Hz (136975)  
+[FFT] 1 peak(s): 59.82 Hz (134594)  
+[FFT] 1 peak(s): 59.81 Hz (134730)  
+[FFT] 1 peak(s): 59.81 Hz (136390)  
+[FFT] 1 peak(s): 59.79 Hz (136456)  
+[FFT] 1 peak(s): 59.80 Hz (133222)  
+[FFT] 1 peak(s): 59.77 Hz (136469)  
+[FFT] 1 peak(s): 59.80 Hz (134983)  
+[FFT] 1 peak(s): 59.81 Hz (133959)  
+[FFT] 1 peak(s): 59.80 Hz (133941)  
+[FFT] 1 peak(s): 59.79 Hz (135355)  
+[FFT] 1 peak(s): 59.80 Hz (136682)  
+[FFT] 1 peak(s): 59.79 Hz (135178)  
+[FFT] 1 peak(s): 59.79 Hz (133996)  
+[FFT] 1 peak(s): 59.80 Hz (134402)  
+[FFT] 1 peak(s): 59.79 Hz (135576)  
+fftprint
+
+  FFT live print: OFF
+> [CM7] hop_interval=171000 us | proc=1950 us | proc_max=5294 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=168999 us | proc=1949 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=170999 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=168999 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=170999 us | proc=1949 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=168999 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=170999 us | proc=1949 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1950 us
+[CM7] hop_interval=168999 us | proc=1950 us | proc_max=1950 us
+fftprint
+
+  FFT live print: ON
+> [FFT] 1 peak(s): 59.83 Hz (127643)  
+[FFT] 1 peak(s): 59.79 Hz (130021)  
+[FFT] 2 peak(s): 59.81 Hz (128940)  208.92 Hz (118063)  
+[FFT] 1 peak(s): 59.81 Hz (128999)  
+[FFT] 1 peak(s): 59.87 Hz (131035)  
+[FFT] 1 peak(s): 59.84 Hz (128272)  
+[FFT] 1 peak(s): 59.88 Hz (128254)  
+[FFT] 1 peak(s): 59.59 Hz (125927)  
+[FFT] 1 peak(s): 59.88 Hz (129241)  
+[FFT] 1 peak(s): 59.76 Hz (131654)  
+[FFT] 1 peak(s): 59.91 Hz (129440)  
+[FFT] 1 peak(s): 59.77 Hz (126939)  
+[FFT] 1 peak(s): 59.84 Hz (127475)  
+[FFT] 1 peak(s): 59.84 Hz (130182)  
+[FFT] 2 peak(s): 62.11 Hz (181181)  179.90 Hz (107856)  
+[FFT] 1 peak(s): 311.19 Hz (309990)  
+[FFT] 6 peak(s): 209.02 Hz (3253759)  108.93 Hz (1275122)  100.08 Hz (541728)  117.83 Hz (429407)  125.92 Hz (353140)  91.98 Hz (231929)  
+[FFT] 6 peak(s): 234.87 Hz (2081684)  208.97 Hz (1895302)  108.95 Hz (1565686)  100.10 Hz (387986)  125.93 Hz (354791)  92.48 Hz (144977)  
+[FFT] 6 peak(s): 108.91 Hz (1831468)  208.98 Hz (1274357)  126.03 Hz (352728)  100.19 Hz (286057)  91.66 Hz (234885)  308.91 Hz (181536)  
+[CM7] hop_interval=172000 us | proc=14352 us | proc_max=14417 us
+[FFT] 6 peak(s): 108.92 Hz (2031159)  234.98 Hz (1663940)  208.95 Hz (1019721)  126.09 Hz (326957)  91.48 Hz (323320)  99.99 Hz (222709)  
+[FFT] 6 peak(s): 108.91 Hz (2110961)  234.94 Hz (1461636)  208.95 Hz (891624)  91.44 Hz (349151)  126.23 Hz (272806)  309.13 Hz (201139)  
+[FFT] 6 peak(s): 108.87 Hz (2117792)  234.92 Hz (1336735)  208.94 Hz (817514)  91.50 Hz (252882)  125.96 Hz (199777)  309.08 Hz (141103)  
+[FFT] 6 peak(s): 108.88 Hz (2112106)  234.89 Hz (1233164)  208.87 Hz (776630)  343.74 Hz (157706)  125.88 Hz (151206)  91.74 Hz (121451)  
+[FFT] 6 peak(s): 108.89 Hz (2063614)  234.92 Hz (1104896)  208.93 Hz (750761)  59.64 Hz (120744)  343.72 Hz (119583)  125.81 Hz (106893)  
+[FFT] 5 peak(s): 108.90 Hz (2012473)  235.07 Hz (991930)  208.94 Hz (708166)  344.00 Hz (109796)  59.96 Hz (107925)  
+[FFT] 6 peak(s): 108.94 Hz (1923142)  235.16 Hz (889363)  209.00 Hz (682920)  80.36 Hz (139196)  343.97 Hz (109136)  91.32 Hz (104677)  
+[FFT] 2 peak(s): 209.38 Hz (578822)  58.44 Hz (116927)  
+[FFT] 1 peak(s): 59.34 Hz (138272)  
+[FFT] 1 peak(s): 60.01 Hz (147835)  
+[FFT] 2 peak(s): 162.72 Hz (156779)  59.65 Hz (142288)  
+[FFT] 1 peak(s): 79.98 Hz (371383)  
+[FFT] 1 peak(s): 62.36 Hz (632001)  
+[FFT] 6 peak(s): 209.14 Hz (2673984)  82.94 Hz (838891)  137.74 Hz (837746)  226.72 Hz (537562)  153.67 Hz (467479)  179.74 Hz (266644)  
+[FFT] 6 peak(s): 242.05 Hz (6026452)  161.19 Hz (2404213)  153.23 Hz (741599)  138.28 Hz (654975)  108.85 Hz (511258)  185.49 Hz (387214)  
+[FFT] 6 peak(s): 241.65 Hz (4753787)  208.92 Hz (909791)  108.91 Hz (670592)  154.23 Hz (393260)  256.94 Hz (230009)  61.95 Hz (209911)  
+[FFT] 6 peak(s): 235.40 Hz (2601728)  81.18 Hz (685675)  108.59 Hz (670262)  209.06 Hz (655157)  73.67 Hz (509882)  135.22 Hz (272906)  
+[FFT] 6 peak(s): 235.24 Hz (2184380)  218.19 Hz (1898255)  80.08 Hz (930232)  126.89 Hz (275654)  138.46 Hz (273978)  73.97 Hz (251978)  
+[FFT] 6 peak(s): 242.71 Hz (4383415)  82.35 Hz (1383069)  109.37 Hz (577690)  152.27 Hz (429660)  59.75 Hz (275549)  68.69 Hz (258311)  
+[FFT] 6 peak(s): 80.73 Hz (1014900)  109.00 Hz (557741)  73.45 Hz (323750)  256.09 Hz (311755)  87.64 Hz (285973)  153.31 Hz (238398)  
+[FFT] 6 peak(s): 80.01 Hz (1289873)  108.77 Hz (636381)  209.26 Hz (270850)  94.65 Hz (261927)  355.78 Hz (166198)  127.03 Hz (148624)  
+[FFT] 6 peak(s): 161.59 Hz (4178597)  235.23 Hz (1451732)  403.22 Hz (1026532)  109.09 Hz (560768)  91.76 Hz (255923)  350.77 Hz (203657)  
+[FFT] 6 peak(s): 80.64 Hz (1393216)  235.70 Hz (1125342)  108.78 Hz (526986)  74.22 Hz (268800)  385.50 Hz (238943)  209.23 Hz (179728)  
+[FFT] 6 peak(s): 80.58 Hz (1498723)  108.86 Hz (565514)  256.20 Hz (317152)  208.70 Hz (217663)  92.03 Hz (213243)  270.42 Hz (192951)  
+[FFT] 6 peak(s): 161.33 Hz (3450772)  404.48 Hz (1021802)  109.16 Hz (581829)  208.92 Hz (246323)  256.39 Hz (234005)  384.55 Hz (233958)  
+[FFT] 6 peak(s): 80.78 Hz (1562398)  236.02 Hz (923266)  109.20 Hz (580327)  255.92 Hz (237248)  209.35 Hz (228082)  71.03 Hz (197306)  
+[FFT] 6 peak(s): 80.38 Hz (948563)  235.28 Hz (720278)  109.02 Hz (582771)  385.35 Hz (241450)  209.56 Hz (237049)  256.80 Hz (168601)  
+[FFT] 6 peak(s): 80.35 Hz (1067501)  109.16 Hz (544911)  209.69 Hz (235445)  385.46 Hz (184502)  256.66 Hz (182049)  224.71 Hz (151977)  
+[FFT] 6 peak(s): 80.98 Hz (692741)  109.28 Hz (487589)  209.33 Hz (198650)  58.56 Hz (146298)  73.89 Hz (135855)  153.78 Hz (115277)  
+[CM7] hop_interval=172000 us | proc=13947 us | proc_max=14444 us
+[FFT] 5 peak(s): 404.85 Hz (1384169)  79.87 Hz (839040)  108.96 Hz (473728)  208.95 Hz (194842)  254.48 Hz (118304)  
+[FFT] 4 peak(s): 81.01 Hz (846116)  109.10 Hz (471478)  208.99 Hz (194531)  91.05 Hz (125523)  
+[FFT] 4 peak(s): 80.51 Hz (723372)  108.99 Hz (449808)  208.84 Hz (172700)  58.63 Hz (106313)  
+[FFT] 5 peak(s): 80.62 Hz (896280)  109.00 Hz (435637)  247.34 Hz (339666)  208.93 Hz (169775)  59.11 Hz (127078)  
+[FFT] 4 peak(s): 80.52 Hz (904260)  235.20 Hz (477167)  108.99 Hz (407938)  208.92 Hz (158265)  
+[FFT] 4 peak(s): 80.22 Hz (869374)  108.95 Hz (367927)  209.39 Hz (167354)  60.34 Hz (126313)  
+[FFT] 3 peak(s): 80.17 Hz (824208)  108.73 Hz (358902)  208.97 Hz (150721)  
+[FFT] 3 peak(s): 80.32 Hz (900649)  108.77 Hz (331458)  208.76 Hz (157269)  
+[FFT] 5 peak(s): 243.49 Hz (1305314)  406.28 Hz (1057019)  78.87 Hz (876219)  85.31 Hz (747905)  209.07 Hz (311945)  
+[FFT] 6 peak(s): 80.34 Hz (3318718)  217.79 Hz (1545800)  233.07 Hz (1013352)  135.23 Hz (703018)  62.28 Hz (506320)  146.81 Hz (436061)  
+[FFT] 6 peak(s): 79.97 Hz (2935523)  417.86 Hz (2483852)  218.15 Hz (1328340)  336.82 Hz (796507)  95.34 Hz (420671)  65.93 Hz (406891)  
+[FFT] 6 peak(s): 80.28 Hz (2576184)  108.72 Hz (587018)  337.54 Hz (480717)  95.20 Hz (467304)  177.25 Hz (394215)  65.76 Hz (371590)  
+[FFT] 6 peak(s): 80.21 Hz (2259445)  109.22 Hz (766644)  93.99 Hz (254930)  147.57 Hz (241655)  70.19 Hz (233958)  276.71 Hz (228322)  
+[FFT] 6 peak(s): 80.14 Hz (2886417)  235.72 Hz (955697)  109.16 Hz (659393)  209.16 Hz (571962)  194.55 Hz (409954)  129.29 Hz (359781)  
+[FFT] 6 peak(s): 80.67 Hz (3543944)  235.42 Hz (1259746)  109.09 Hz (610276)  247.19 Hz (590170)  70.18 Hz (343108)  97.39 Hz (216578)  
+[FFT] 6 peak(s): 80.78 Hz (4070058)  108.95 Hz (619625)  167.34 Hz (603236)  256.26 Hz (579515)  208.70 Hz (364550)  176.87 Hz (260235)  
+[FFT] 6 peak(s): 80.73 Hz (4021385)  108.85 Hz (639977)  256.14 Hz (436895)  209.31 Hz (413691)  275.60 Hz (300569)  300.47 Hz (218971)  
+[FFT] 6 peak(s): 80.78 Hz (4202052)  209.20 Hz (452770)  256.66 Hz (433592)  276.05 Hz (274062)  180.06 Hz (202011)  336.54 Hz (194606)  
+[FFT] 6 peak(s): 80.27 Hz (4292072)  109.08 Hz (629722)  88.61 Hz (418536)  209.14 Hz (400286)  96.93 Hz (228997)  274.95 Hz (227487)  
+[FFT] 6 peak(s): 80.57 Hz (4129998)  108.87 Hz (613095)  209.23 Hz (406160)  93.05 Hz (265608)  257.02 Hz (239742)  175.80 Hz (165459)  
+[FFT] 6 peak(s): 80.76 Hz (3725086)  109.25 Hz (638415)  209.27 Hz (342544)  176.78 Hz (239576)  249.62 Hz (231166)  101.25 Hz (145527)  
+[FFT] 6 peak(s): 80.56 Hz (3927214)  108.93 Hz (582600)  208.94 Hz (305788)  96.97 Hz (186623)  337.73 Hz (150726)  58.46 Hz (127435)  
+[FFT] 5 peak(s): 80.37 Hz (4113103)  108.72 Hz (514106)  88.61 Hz (404574)  208.69 Hz (254059)  336.28 Hz (144116)  
+[FFT] 6 peak(s): 80.53 Hz (3746167)  108.93 Hz (502338)  209.24 Hz (246967)  255.95 Hz (219641)  59.70 Hz (130626)  295.04 Hz (115212)  
+[FFT] 5 peak(s): 80.52 Hz (3362722)  418.07 Hz (960386)  109.56 Hz (486454)  94.86 Hz (255416)  338.52 Hz (152434)  
+[FFT] 6 peak(s): 80.33 Hz (3228948)  418.05 Hz (911767)  109.20 Hz (444372)  95.95 Hz (161149)  59.27 Hz (117030)  256.95 Hz (104901)  
+[FFT] 5 peak(s): 80.52 Hz (2965560)  108.81 Hz (429155)  209.58 Hz (216705)  256.02 Hz (119461)  190.63 Hz (102235)  
+[FFT] 5 peak(s): 80.37 Hz (3162890)  108.84 Hz (445442)  208.71 Hz (195570)  338.05 Hz (112440)  190.56 Hz (112359)  
+[FFT] 5 peak(s): 80.61 Hz (3008158)  109.14 Hz (462508)  208.72 Hz (204533)  59.47 Hz (113263)  385.83 Hz (106663)  
+[FFT] 6 peak(s): 80.69 Hz (2725860)  109.02 Hz (459569)  209.01 Hz (177316)  91.77 Hz (133228)  59.99 Hz (114208)  385.15 Hz (110791)  
+[CM7] hop_interval=169999 us | proc=14028 us | proc_max=14364 us
+[FFT] 4 peak(s): 80.39 Hz (2816711)  109.11 Hz (423235)  209.15 Hz (187541)  385.07 Hz (118903)  
+[FFT] 5 peak(s): 80.47 Hz (2724777)  109.13 Hz (395361)  209.01 Hz (173111)  58.84 Hz (126692)  249.23 Hz (110651)  
+[FFT] 5 peak(s): 80.63 Hz (2629314)  109.20 Hz (356951)  209.28 Hz (168666)  386.17 Hz (117839)  299.46 Hz (109124)  
+[FFT] 4 peak(s): 80.62 Hz (2565186)  109.02 Hz (315720)  209.26 Hz (162544)  59.59 Hz (132168)  
+[FFT] 3 peak(s): 80.62 Hz (2451506)  109.12 Hz (284028)  209.16 Hz (147625)  
+[FFT] 3 peak(s): 80.56 Hz (2281312)  109.03 Hz (293037)  209.11 Hz (146962)  
+[FFT] 4 peak(s): 80.36 Hz (2250189)  109.09 Hz (254243)  209.13 Hz (138671)  59.62 Hz (119827)  
+[FFT] 4 peak(s): 80.60 Hz (2038336)  109.10 Hz (239490)  209.10 Hz (130794)  59.96 Hz (110887)  
+[FFT] 4 peak(s): 80.56 Hz (1963889)  109.18 Hz (226391)  209.24 Hz (133889)  60.29 Hz (106014)  
+[FFT] 4 peak(s): 80.51 Hz (1861145)  109.17 Hz (209441)  209.19 Hz (125827)  59.60 Hz (119442)  
+[FFT] 4 peak(s): 80.26 Hz (1755508)  108.84 Hz (186330)  59.80 Hz (122754)  208.92 Hz (119460)  
+[FFT] 4 peak(s): 80.17 Hz (1696516)  108.83 Hz (169348)  59.76 Hz (132635)  208.87 Hz (116758)  
+[FFT] 4 peak(s): 80.14 Hz (1602572)  108.69 Hz (150314)  208.99 Hz (116944)  60.25 Hz (106634)  
+[FFT] 5 peak(s): 159.37 Hz (255989)  243.66 Hz (204724)  59.55 Hz (153791)  107.60 Hz (135493)  208.94 Hz (127172)  
+[FFT] 6 peak(s): 327.00 Hz (1030186)  379.49 Hz (327435)  274.73 Hz (283198)  89.14 Hz (262259)  261.27 Hz (232947)  58.00 Hz (122571)  
+[FFT] 6 peak(s): 80.17 Hz (4164735)  146.80 Hz (827530)  136.11 Hz (744077)  129.51 Hz (521247)  305.04 Hz (338278)  356.52 Hz (303176)  
+[FFT] 6 peak(s): 80.36 Hz (3853062)  108.98 Hz (3354742)  209.01 Hz (1498016)  344.90 Hz (337606)  98.69 Hz (306958)  144.03 Hz (263868)  
+[FFT] 6 peak(s): 80.30 Hz (3766358)  108.91 Hz (3217873)  209.03 Hz (1118742)  58.74 Hz (718775)  395.01 Hz (328858)  332.70 Hz (282416)  
+[FFT] 5 peak(s): 80.15 Hz (3610011)  108.97 Hz (3089478)  209.41 Hz (1018005)  395.13 Hz (276386)  180.52 Hz (195133)  
+[FFT] 6 peak(s): 108.95 Hz (3026128)  80.26 Hz (2872280)  208.66 Hz (778265)  132.19 Hz (543433)  315.66 Hz (359198)  385.65 Hz (332747)  
+[FFT] 6 peak(s): 108.99 Hz (3110992)  80.23 Hz (2225890)  208.90 Hz (720892)  189.25 Hz (703868)  132.32 Hz (650095)  315.15 Hz (359345)  
+[FFT] 6 peak(s): 109.09 Hz (2974956)  80.05 Hz (1903627)  235.42 Hz (1134642)  209.31 Hz (782873)  133.31 Hz (710072)  189.71 Hz (561388)  
+[FFT] 6 peak(s): 109.06 Hz (3037794)  80.31 Hz (2111430)  209.85 Hz (720356)  351.06 Hz (580616)  270.79 Hz (506360)  126.92 Hz (244035)  
+[FFT] 6 peak(s): 109.04 Hz (3045020)  80.33 Hz (2239332)  209.49 Hz (735137)  132.48 Hz (403518)  58.65 Hz (204505)  288.58 Hz (140333)  
+[FFT] 6 peak(s): 109.02 Hz (2914420)  80.43 Hz (2406015)  208.98 Hz (650705)  132.70 Hz (368837)  351.15 Hz (306684)  315.93 Hz (150751)  
+[FFT] 6 peak(s): 109.02 Hz (2728914)  80.54 Hz (2610944)  208.60 Hz (601555)  132.68 Hz (303628)  189.11 Hz (295088)  58.71 Hz (159909)  
+[FFT] 6 peak(s): 80.42 Hz (2591780)  109.06 Hz (2531250)  209.62 Hz (575105)  350.42 Hz (247120)  132.96 Hz (163863)  376.21 Hz (155047)  
+[FFT] 6 peak(s): 80.50 Hz (2547867)  109.04 Hz (2409435)  209.69 Hz (552609)  235.20 Hz (483245)  270.11 Hz (458976)  189.32 Hz (360202)  
+[FFT] 6 peak(s): 80.53 Hz (2489298)  109.05 Hz (2202820)  270.62 Hz (551403)  209.15 Hz (495113)  235.70 Hz (448629)  189.38 Hz (329154)  
+[CM7] hop_interval=169999 us | proc=14311 us | proc_max=14454 us
+[FFT] 6 peak(s): 80.48 Hz (2321582)  109.02 Hz (2170905)  209.13 Hz (473907)  189.23 Hz (332396)  133.88 Hz (226931)  351.49 Hz (212342)  
+[FFT] 6 peak(s): 80.48 Hz (2262016)  109.06 Hz (2094127)  209.16 Hz (472466)  189.52 Hz (296724)  132.95 Hz (256503)  351.21 Hz (241051)  
+[FFT] 6 peak(s): 80.38 Hz (2198437)  109.06 Hz (1922012)  208.76 Hz (406233)  189.80 Hz (263507)  132.66 Hz (222088)  58.76 Hz (137136)  
+[FFT] 5 peak(s): 80.49 Hz (2008566)  109.03 Hz (1889723)  209.24 Hz (422571)  132.44 Hz (212754)  384.94 Hz (132830)  
+[FFT] 6 peak(s): 80.51 Hz (1983754)  109.10 Hz (1866302)  209.79 Hz (437107)  385.33 Hz (128507)  350.45 Hz (115972)  133.12 Hz (114041)  
+[FFT] 6 peak(s): 80.43 Hz (1938401)  109.08 Hz (1838503)  209.56 Hz (430608)  270.49 Hz (351464)  189.79 Hz (217823)  351.10 Hz (153053)  
+[FFT] 6 peak(s): 80.56 Hz (1896102)  109.04 Hz (1764837)  208.74 Hz (365917)  190.04 Hz (198247)  132.22 Hz (151550)  351.18 Hz (137139)  
+[FFT] 6 peak(s): 80.48 Hz (1897488)  109.00 Hz (1737661)  208.91 Hz (352331)  189.51 Hz (169789)  132.58 Hz (139359)  350.91 Hz (130830)  
+[FFT] 6 peak(s): 80.43 Hz (1798580)  109.06 Hz (1681471)  209.43 Hz (376540)  189.24 Hz (194209)  270.08 Hz (149703)  350.70 Hz (116578)  
+[FFT] 6 peak(s): 80.47 Hz (1707117)  109.07 Hz (1572479)  209.28 Hz (363064)  189.09 Hz (169676)  295.32 Hz (144119)  60.08 Hz (109932)  
+[FFT] 5 peak(s): 80.49 Hz (1578682)  109.04 Hz (1466734)  209.20 Hz (328023)  294.71 Hz (144087)  189.63 Hz (120100)  
+[FFT] 6 peak(s): 80.06 Hz (1486328)  109.03 Hz (1331647)  209.85 Hz (326184)  58.83 Hz (146318)  270.57 Hz (132515)  250.43 Hz (131388)  
+[FFT] 1 peak(s): 209.27 Hz (195382)  
+[FFT] 1 peak(s): 59.74 Hz (113385)  
+[FFT] 1 peak(s): 59.89 Hz (125906)  
+[FFT] 1 peak(s): 59.86 Hz (127300)  
+[FFT] 1 peak(s): 59.85 Hz (121519)  
+[FFT] 1 peak(s): 59.70 Hz (119680)  
+[FFT] 1 peak(s): 59.75 Hz (110639)  
+[FFT] 1 peak(s): 59.85 Hz (125531)  
+[FFT] 1 peak(s): 59.83 Hz (119460)  
+---- Closed the serial port /dev/tty.usbmodem1103 ----
+---- Opened the serial port /dev/tty.usbmodem1103 ----
+5 Hz (120535)  
+[FFT] 1 peak(s): 59.87 Hz (122891)  
+[CM7] hop_interval=170999 us | proc=1949 us | proc_max=13949 us
+[CM7] hop_interval=170999 us | proc=1949 us | proc_max=1949 us
+[CM7] hop_interval=171000 us | proc=1949 us | proc_max=1949 us
+[CM7] hop_interval=168999 us | proc=1949 us | proc_max=1949 us
+[CM7] hop_interval=170999 us | proc=1949 us | proc_max=1949 us
+[CM7] hop_interval=170999 us | proc=1949 us | proc_max=1949 us
+[CM7] hop_interval=168999 us | proc=1949 us | proc_max=1949 us
+[CM7] hop_interval=168999 us | proc=1949 us | proc_max=1949 us
+[CM7] hop_interval=171000 us | proc=1949 us | proc_max=1949 us
+[CM7] hop_interval=171000 us | proc=1949 us | proc_max=1949 us
+[CM7] hop_interval=171000 us | proc=1949 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1949 us | proc_max=1950 us
+fftprint
+
+  FFT live print: OFF
+> [CM7] hop_interval=170999 us | proc=1949 us | proc_max=1950 us
+[CM7] hop_interval=171000 us | proc=1949 us | proc_max=2017 us
+[CM7] hop_interval=171000 us | proc=1965 us | proc_max=1980 us
+[CM7] hop_interval=168999 us | proc=1949 us | proc_max=2017 us
+[CM7] hop_interval=171000 us | proc=1951 us | proc_max=1974 us
+[CM7] hop_interval=171000 us | proc=1959 us | proc_max=2027 us
+[CM7] hop_interval=171000 us | proc=1944 us | proc_max=1996 us
+[CM7] hop_interval=168999 us | proc=1941 us | proc_max=1954 us
+[CM7] hop_interval=171000 us | proc=1941 us | proc_max=1960 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1971 us
+[CM7] hop_interval=171000 us | proc=1950 us | proc_max=1951 us
+[CM7] hop_interval=171000 us | proc=1951 us | proc_max=1951 us

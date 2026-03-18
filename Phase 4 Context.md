@@ -1,6 +1,6 @@
 # Phase 4 Context
 
-Last verified against the codebase: 2026-03-17 (updated with calibration V3 + tune feature)
+Last verified against the codebase: 2026-03-18
 
 ## Fast Mental Model
 
@@ -158,16 +158,19 @@ The active measurement path is `fft_processing.c`.
 - Runs CMSIS real FFT.
 - Computes magnitudes.
 - Searches a bin range that works out to about `58.6 Hz` to `442 Hz` because `FFT_RESOLUTION` is integer-truncated in macros.
+- Uses an adaptive per-bin noise floor (EMA) with configurable `NOISE_FLOOR_ALPHA`, `NOISE_FLOOR_SNR`, and `NOISE_FLOOR_MIN`.
 - Uses local-maximum detection, a "fat peak" rejection heuristic, parabolic interpolation, and harmonic rejection.
-- Sorts candidates by magnitude and keeps the top `NUM_STRINGS`.
+- Sorts candidates by magnitude (strongest first) and keeps the top `NUM_STRINGS`.
+- Legacy `NOISE_GATE_THRESHOLD` and `TUNING_SNR_THRESHOLD` have been removed — the adaptive floor replaces both.
 
 ### Current FFT outputs
 
 - `active_frequencies[NUM_STRINGS]`
 - `active_magnitudes[MAX_HARMONICS]`
 - `active_string_count`
+- `fft_dbg_mag[3]`, `fft_dbg_nf[3]`, `fft_dbg_peak` — debug snapshots (only populated when noise floor debug is active)
 
-`fftprint` toggles live UART printing of the accepted peaks.
+`fftprint` or `debug fft` toggles live UART printing of the accepted peaks (printed in `app_cm7.c`, outside the processing timer).
 
 ### Goertzel status
 
@@ -198,7 +201,8 @@ Current behavior:
   - `tuning_ff_freq_bp[6][7]`
   - `tuning_ff_steps_bp[6][7]`
 - FF lookup uses calibrated quadratic polynomial `steps = a + b·f + c·f²` via `FF_Interpolate()`, plus tune offset from `Cal_TuneGetOffset(str)`.
-- Finds the closest accepted FFT peak to the target frequency.
+- Finds the closest accepted FFT peak to the target frequency (`GetFFTRadarLock`). No secondary magnitude threshold — peaks are already SNR-vetted by the FFT's adaptive noise floor.
+- Measurement trust is now binary: `measured_freq_hz > 0.0f` means a valid lock was found.
 - Applies per-string FF lookup plus discrete PI trim.
 - Uses post-note delay, **cents-based lock-band hysteresis** (±10 cents in, ±20 cents out — computed at runtime relative to target frequency), minimum-move threshold (`16` microsteps), slew limit (`65000` microsteps/s), and default mechanical bounds of `-800` to `8000` microsteps.
 - PI gains: `Kp = 48.0` microsteps/Hz, `Ki = 24.0` microsteps/Hz/s, trim clamp ±`6400` microsteps.
@@ -374,16 +378,42 @@ The batch motor enable/disable path is real and active:
 - Motor control: `start`, `speed`, `accel`, `maxspeed`, `move`, `goto`, `microstep`, `enable`, `disable`, `zero`, `home`, `stop`, `status`
 - Solenoid control: `sol`, `solstop`, `solstatus`
 - Commissioning: `calibrate`, `tune`, `mapfrets`, `printlut`, `fftprint`
+- Debug: `debug [hop|nf|fft|all|off]` — toggles hop timer, noise floor, FFT peaks, all, or all off
 - Playback/demo: `smoke`, `demo`
 - Presets/help: `save`, `delete`, `presets`, `help`
 
 ### Workflow caveats that matter
 
 - `start` only unlocks manual movement commands in the CM7 CLI. It does not enable motors.
-- `sol` intentionally warns and returns for solenoids `0`, `4`, and `5` because those have no timer assigned.
+- `sol` catches null-timer solenoids (`0`, `4`, `5`) on the CM7 side with a warning message and early return, preventing a silent no-op.
 - `mapfrets` enables the requested motors. `calibrate` does not.
 - `smoke` only targets D3/G3, which matches the currently live playback-friendly channels. The tuning controller now auto-enables the needed motors during playback and disables them when the song ends.
 - `demo` still targets solenoid `0`, which has no live PWM timer in the current runtime.
+
+## Timer Calibration
+
+- All timers (ADC trigger, solenoid PWM) share the same PLL-derived clock, which runs ~0.52% fast.
+- `TIMER_CALIBRATION_FACTOR = 1.005245182f` is defined in `application_config.h` and used in:
+  - FFT parabolic interpolation (frequency correction)
+  - Solenoid ARR calculations (`Solenoid_SetFrequency`, `Solenoid_SetFrequencyHz`, `main.c` timer inits)
+  - Solenoid `GetFrequency` reverse calculation
+- CCR duty cycle calculations consistently use `(ARR + 1)` as the period (timer counts 0 to ARR inclusive).
+
+## Debug And Timing Infrastructure
+
+- DWT cycle counter (Cortex-M7, 396 MHz, ~2.5 ns resolution) measures hop interval and processing time.
+- `app_debug_flags` (toggled via `debug` command) controls:
+  - `DEBUG_FLAG_HOP_TIMER`: periodic 5s print of hop interval, proc time, and proc max
+  - `DEBUG_FLAG_NOISE_FLOOR`: per-bin noise floor vs magnitude at key bins (~1 Hz decimated)
+- `fft_print_enabled` (toggled via `fftprint` or `debug fft`): live FFT peak output
+- All debug prints run AFTER the proc timer measurement in `app_cm7.c` to avoid inflating processing time.
+- Measured baseline: hop interval ~170 ms, processing time ~1950 us (1.1% of budget).
+
+## UART RX Fix
+
+- The UART RX callback (`HAL_UART_RxCpltCallback`) no longer calls blocking `HAL_UART_Transmit` in ISR context.
+- Echo characters are buffered in a ring buffer and drained by `Debug_UART_FlushEcho()` from the main loop.
+- This prevents a race condition where ISR TX and main-loop `printf` TX could deadlock the UART handle, permanently killing RX re-arming.
 
 ## Current Verified Gotchas
 
@@ -427,7 +457,6 @@ These are real current behaviors or mismatches that future sessions should keep 
 - `inter_core_cm7.h` still says homing uses limit switches.
 - `motor_control.h` still calls homing a future placeholder even though software zero-return is implemented.
 - `app_cm4.c` still talks about all 6 solenoids having independent timers.
-- `fft_processing.c` still names its correction factor `TIM6_CALIBRATION_FACTOR` even though the live trigger is `TIM1`.
 
 ### 7. Shared config macros are partially stale
 

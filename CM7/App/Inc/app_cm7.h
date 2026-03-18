@@ -22,4 +22,9 @@ void App_RequestPlay(void);
 void App_RequestLutBuild(uint8_t string_mask);
 void App_RequestTune(uint8_t string_mask);
 
+/* Debug flags — toggled via 'debug' serial command */
+#define DEBUG_FLAG_HOP_TIMER   (1u << 0)  /* Print hop interval & proc time every 5s */
+#define DEBUG_FLAG_NOISE_FLOOR (1u << 1)  /* Print per-bin noise floor samples */
+extern uint8_t app_debug_flags;
+
 #endif /* APP_CM7_H */

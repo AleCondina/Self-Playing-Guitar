@@ -110,6 +110,7 @@ static void Cmd_PrintLut(char *args);
 static void Cmd_Smoke(char *args);
 static void Cmd_FftPrint(char *args);
 static void Cmd_Tune(char *args);
+static void Cmd_Debug(char *args);
 static void Demo_Tick(void);
 
 /* Command table entry */
@@ -143,6 +144,7 @@ static const CmdEntry_t command_table[] = {
     { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water" },
     { "tune",      Cmd_Tune,      "tune [str ...]            Tune open strings 0-3 to standard pitch" },
     { "fftprint",  Cmd_FftPrint,  "fftprint                 Toggle live FFT peak output" },
+    { "debug",     Cmd_Debug,     "debug [hop|nf|all|off]   Toggle debug outputs" },
     { "help",      Cmd_Help,      "help                    Show this help" },
     { "sol",       Cmd_Sol,       "sol <id> <str> <fret> [duty] [time] [cycles]  Trigger solenoid" },
     { "solstop",   Cmd_SolStop,   "solstop <id|all>        Stop solenoid(s)" },
@@ -817,6 +819,39 @@ static void Cmd_FftPrint(char *args)
     (void)args;
     fft_print_enabled = !fft_print_enabled;
     printf("  FFT live print: %s\r\n", fft_print_enabled ? "ON" : "OFF");
+}
+
+static void Cmd_Debug(char *args)
+{
+    (void)args;
+    char *tok = strtok(NULL, " \t");
+
+    if (tok == NULL) {
+        /* No arg: print current state */
+        printf("  Debug flags: 0x%02X\r\n", app_debug_flags);
+        printf("    hop   = %s\r\n", (app_debug_flags & DEBUG_FLAG_HOP_TIMER)   ? "ON" : "OFF");
+        printf("    nf    = %s\r\n", (app_debug_flags & DEBUG_FLAG_NOISE_FLOOR) ? "ON" : "OFF");
+        printf("    fft   = %s\r\n", fft_print_enabled ? "ON" : "OFF");
+    } else if (strcmp(tok, "hop") == 0) {
+        app_debug_flags ^= DEBUG_FLAG_HOP_TIMER;
+        printf("  Hop timer: %s\r\n", (app_debug_flags & DEBUG_FLAG_HOP_TIMER) ? "ON" : "OFF");
+    } else if (strcmp(tok, "nf") == 0) {
+        app_debug_flags ^= DEBUG_FLAG_NOISE_FLOOR;
+        printf("  Noise floor: %s\r\n", (app_debug_flags & DEBUG_FLAG_NOISE_FLOOR) ? "ON" : "OFF");
+    } else if (strcmp(tok, "fft") == 0) {
+        fft_print_enabled = !fft_print_enabled;
+        printf("  FFT print: %s\r\n", fft_print_enabled ? "ON" : "OFF");
+    } else if (strcmp(tok, "all") == 0) {
+        app_debug_flags = 0xFF;
+        fft_print_enabled = 1;
+        printf("  All debug ON\r\n");
+    } else if (strcmp(tok, "off") == 0) {
+        app_debug_flags = 0;
+        fft_print_enabled = 0;
+        printf("  All debug OFF\r\n");
+    } else {
+        printf("  Usage: debug [hop|nf|fft|all|off]\r\n");
+    }
 }
 
 static void Cmd_Smoke(char *args)

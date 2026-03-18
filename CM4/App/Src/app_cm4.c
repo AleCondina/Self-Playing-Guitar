@@ -79,7 +79,7 @@ void App_CM4_Main(void)
     /* DEBUG: Read back all configuration */
     volatile uint32_t debug_arr = __HAL_TIM_GET_AUTORELOAD(&htim2);
     volatile uint32_t debug_ccr = __HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_1);
-    volatile uint32_t debug_freq = Solenoid_GetFrequency(SOLENOID_STRING_D3);
+    volatile float debug_freq = Solenoid_GetFrequency(SOLENOID_STRING_D3);
     volatile uint8_t debug_active = Solenoid_GetActiveMask();
 
     /* Read TIM2 control registers for verification */
