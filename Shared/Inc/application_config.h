@@ -97,5 +97,11 @@
 
 #define E4_HZ   329.63f
 #define F4_HZ   349.23f
+#define Fs4_HZ  369.99f /* F#4 / Gb4 */
+#define G4_HZ   392.00f
+#define Gs4_HZ  415.30f /* G#4 / Ab4 */
+#define A4_HZ   440.00f
+#define As4_HZ  466.16f /* A#4 / Bb4 */
+#define B4_HZ   493.88f
 
 #endif /* APPLICATION_CONFIG_H */

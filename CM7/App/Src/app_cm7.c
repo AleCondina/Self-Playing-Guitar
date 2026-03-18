@@ -103,6 +103,14 @@ void App_CM7_Main(void) {
         printf("[CM7] Initializing FFT engine...\r\n");
         FFT_Init();
 
+        /* Restore calibration LUT + polynomial from backup SRAM (VBAT-backed) */
+        if (Cal_LoadFromSRAM()) {
+            printf("[CM7] Calibration restored from backup SRAM.\r\n");
+        } else {
+            Cal_FitFromBaseLUT();
+            printf("[CM7] No SRAM calibration — polynomial seeded from base LUT.\r\n");
+        }
+
         /* Initialize tuning controller (depends on home being established) */
         printf("[CM7] Initializing tuning controller...\r\n");
         TuningCtrl_Init();
@@ -175,6 +183,13 @@ void App_CM7_Main(void) {
                 if (Cal_GetStatus() == CAL_STATUS_DONE ||
                     Cal_GetStatus() == CAL_STATUS_ERROR) {
                     app_state = STATE_RUNNING;
+                    /* Belt-and-suspenders home: BUILD already sent goto(0) per
+                     * string, but those commands can be lost if CM4 processes
+                     * the stop-solenoid/max-speed/goto trio in a single 1ms tick
+                     * and only sees the last command flag. Re-issue home here,
+                     * outside the calibration hop, where CM4 has a quiet bus. */
+                    InterCore_HomeMotors();
+                    printf("\r\n[CMD] Calibration finished. Ready.\r\n> ");
                 }
                 break;
 

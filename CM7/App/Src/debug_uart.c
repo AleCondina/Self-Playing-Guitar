@@ -171,6 +171,22 @@ void Debug_UART_FlushEcho(void)
     }
 }
 
+/**
+ * @brief UART error callback — re-arms RX after overrun or framing errors.
+ * @note  Without this, a UART overrun (ORE) during heavy printf output
+ *        permanently disables RX interrupts and the firmware goes deaf.
+ */
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART3) {
+        /* Clear all UART error flags */
+        __HAL_UART_CLEAR_FLAG(huart, UART_CLEAR_OREF | UART_CLEAR_NEF |
+                                     UART_CLEAR_PEF  | UART_CLEAR_FEF);
+        /* Re-arm the RX interrupt so the firmware can receive again */
+        HAL_UART_Receive_IT(huart, &rx_byte, 1);
+    }
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART3) {

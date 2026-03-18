@@ -29,6 +29,7 @@
  */
 
 #include "tuning_controller.h"
+#include "calibration_controller.h"
 #include "song_scheduler.h"
 #include "fft_processing.h"
 #include "inter_core_cm7.h"
@@ -61,7 +62,7 @@ float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     /* Measured frequencies from LUT RUN 1 */
     /* E2 frets 0-6 */ {  82.41f,  82.69f,  89.97f,  96.05f, 100.07f, 106.37f, 112.82f },
     /* A2 frets 0-6 */ { 110.35f, 112.65f, 120.05f, 127.02f, 134.33f, 143.71f, 155.56f },
-    /* D3 frets 0-6 */ { 146.83f, 153.98f, 200.85f, 171.15f, 178.71f, 200.86f, 208.44f },
+    /* D3 frets 0-6 */ { 146.83f, 152.16f, 161.79f, 171.01f, 182.02f, 200.17f, 204.43f },
     /* G3 frets 0-6 */ { 196.00f, 205.70f, 218.73f, 233.08f, 246.13f, 261.81f, 275.53f },
     /* B3 frets 0-6 */ { 246.94f, 261.63f, 277.18f, 293.66f, 311.13f, 329.63f, 349.23f },
     /* E4 frets 0-6 */ { 329.63f, 349.23f, 369.99f, 392.00f, 415.30f, 440.00f, 466.16f },
@@ -71,7 +72,7 @@ float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     /* Measured microsteps from LUT RUN 1 */
     /* E2 */ {   0.0f, 267.0f, 1080.0f, 1623.0f, 2029.0f, 2706.0f, 3385.0f },
     /* A2 */ {   0.0f, 403.0f, 1083.0f, 1899.0f, 2709.0f, 3798.0f, 4887.0f },
-    /* D3 */ {   0.0f, 950.0f, 1766.0f, 2719.0f, 3535.0f, 3941.0f, 7073.0f },
+    /* D3 */ {   0.0f, 1089.0f, 2040.0f, 2993.0f, 4220.0f, 4628.0f, 7082.0f },
     /* G3 */ {   0.0f, 950.0f, 1766.0f, 2450.0f, 3401.0f, 4493.0f, 5447.0f },
     /* B3 */ {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
     /* E4 */ {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
@@ -126,25 +127,15 @@ static inline float Lerpf(float x0, float y0, float x1, float y1, float x)
  */
 static float FF_Interpolate(uint8_t str, float freq)
 {
-    const float *fbp = tuning_ff_freq_bp[str];
-    const float *sbp = tuning_ff_steps_bp[str];
-    const uint8_t n  = TUNING_FF_NUM_POINTS;
-
-    /* Below first breakpoint: clip */
-    if (freq <= fbp[0]) return sbp[0];
-
-    /* Above last breakpoint: clip */
-    if (freq >= fbp[n - 1u]) return sbp[n - 1u];
-
-    /* Find surrounding interval and interpolate */
-    for (uint8_t i = 0u; i < (n - 1u); i++) {
-        if (freq >= fbp[i] && freq <= fbp[i + 1u]) {
-            return Lerpf(fbp[i], sbp[i], fbp[i + 1u], sbp[i + 1u], freq);
-        }
-    }
-
-    /* Should not reach here, but be safe */
-    return sbp[n - 1u];
+    /* Evaluate the calibrated quadratic: steps = a + b·f + c·f²
+     * cal_poly_coeff is seeded at boot from the base LUT (Cal_FitFromBaseLUT)
+     * and updated after each calibration run (Cal_FitPolynomial). */
+    float a     = cal_poly_coeff[str][0];
+    float b     = cal_poly_coeff[str][1];
+    float c     = cal_poly_coeff[str][2];
+    float steps = a + b * freq + c * freq * freq;
+    if (steps < 0.0f) steps = 0.0f;
+    return steps;
 }
 
 /**
