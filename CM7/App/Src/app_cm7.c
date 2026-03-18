@@ -224,7 +224,7 @@ if (g_event_count > 0)
             g_events[i].velocity);
         }
 
-        SongScheduler_Init(&g_sched,g_events,g_event_count,HAL_GetTick());
+        
     /* Main loop */
     while (1) {
         /* Update heartbeat */
@@ -308,6 +308,8 @@ if (g_event_count > 0)
                  * Audio processing and tuning control hop
                  * Fires every ~170 ms (1024 samples / 6000 Hz sample rate)
                  * ============================================================ */
+
+                 SongScheduler_Update(&g_sched, HAL_GetTick());
                 if (Audio_HasNewSamples()) {
                     /* Measure hop interval (time between consecutive audio-ready events) */
                     uint32_t cyc_now = DWT->CYCCNT;
@@ -349,16 +351,22 @@ if (g_event_count > 0)
                         break;
                     }
                     if (s_request_play) {
-                        printf("[CM7] Playback restarted.\r\n");
-                        s_request_play = 0u;
-                        SongScheduler_Init(&g_sched, g_events, g_event_count, HAL_GetTick());
+                        if (g_event_count == 0) {
+                            printf("[CM7] No MIDI DATA loaded.\r\n");
+                        }else{
+
+                            printf("[CM7] Playback restarted.\r\n");
+                        SongScheduler_Init(&g_sched,g_events,g_event_count,HAL_GetTick());
+                        
+                        }
+                         s_request_play = 0u;
                     }
 
                     /* --- Song scheduler tick --- */
 
                     //SongSched_Tick(HAL_GetTick());
 
-                    SongScheduler_Update(&g_sched, HAL_GetTick());
+                  //  SongScheduler_Update(&g_sched, HAL_GetTick());
 
                     /* --- Tuning control hop ---
                      * Reads FFT results and song scheduler state,
@@ -422,7 +430,9 @@ if (g_event_count > 0)
                        (unsigned long)proc_max_us);
                 proc_max_us = 0;  /* Reset peak after reporting */
             }
-            if (app_state == STATE_RUNNING && SongSched_IsActive()) {
+
+           // if (app_state == STATE_RUNNING && SongSched_IsActive()) Replaced schdualer
+            if (app_state == STATE_RUNNING) {
                 printf("[CM7] Song note %lu/%lu | CM4 loop %lu Hz\r\n",
                        g_sched.index,
                        g_event_count,
