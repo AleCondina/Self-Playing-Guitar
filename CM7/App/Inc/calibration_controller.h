@@ -18,7 +18,7 @@
  *     c. After CAL_BURST_WAIT_HOPS the FFT window is fully post-burst and
  *        sensing is re-enabled.
  *     d. An inline PI controller drives the motor to the exact frequency.
- *        Once locked (|error| ≤ TUNING_LOCK_BAND_IN_HZ for
+ *        Once locked (|error| ≤ CAL_LOCK_BAND_HZ for
  *        CAL_LOCK_CONSEC_HOPS consecutive hops), the actual motor position
  *        from shared memory is recorded.
  *     e. If the string decays before lock, the solenoid re-bursts (up to

@@ -31,7 +31,7 @@
  *    target; the PI corrects the remaining error.
  *
  *    Lock-band leeway: the PI only accumulates outside CAL_LOCK_BAND_HZ
- *    (1 Hz), and motor commands are suppressed below TUNING_MIN_MOVE_STEPS
+ *    (0.6 Hz), and motor commands are suppressed below TUNING_MIN_MOVE_STEPS
  *    (2 microsteps) to prevent hunting — both constants from tuning_controller.h.
  *
  *    "Last valid frequency" tracking:
@@ -109,9 +109,8 @@
 /** Hops to wait after homing before listening for the initial pluck. */
 #define CAL_HOME_SETTLE_HOPS        6u
 
-/** Lock-band deadband (Hz).  PI only accumulates outside this band.
- *  Replaces the removed CAL_LOCK_BAND_HZ constant. */
-#define CAL_LOCK_BAND_HZ            1.0f
+/** Lock-band deadband (Hz).  PI only accumulates outside this band. */
+#define CAL_LOCK_BAND_HZ            0.6f
 
 /** Motor position (steps) within which we consider the string "at home". */
 #define CAL_HOME_POS_THRESHOLD      50
@@ -919,7 +918,7 @@ void Cal_Hop(void){
                              ? (float)s_cal_steps_max[s_str]  /* converging: full range  */
                              : CAL_PI_MAX_TRIM;               /* stalled:    hard cap    */
 
-            if (abs_error > TUNING_LOCK_BAND_IN_HZ) {
+            if (abs_error > CAL_LOCK_BAND_HZ) {
                 s_pi_integral = CalClampf(
                     s_pi_integral + CAL_PI_KI * error * TUNING_SAMPLE_TIME_S,
                     -trim_cap, trim_cap);
@@ -1222,8 +1221,7 @@ void Cal_Hop(void){
 
             float error = target_freq - meas_f;
 
-            /* Deadband: only move motor outside the lock band.
-             * CAL_LOCK_BAND_HZ (1 Hz) effectively acts as the deadband. */
+            /* Deadband: only move motor outside the lock band. */
             if (fabsf(error) > CAL_LOCK_BAND_HZ) {
                 s_pi_integral = CalClampf(
                     s_pi_integral + CAL_PI_KI * error * TUNING_SAMPLE_TIME_S,
@@ -1478,7 +1476,7 @@ void Cal_Hop(void){
 
             float error = target_freq - meas_f;
 
-            if (fabsf(error) > TUNING_LOCK_BAND_IN_HZ) {
+            if (fabsf(error) > CAL_LOCK_BAND_HZ) {
                 s_pi_integral = CalClampf(
                     s_pi_integral + CAL_PI_KI * error * TUNING_SAMPLE_TIME_S,
                     -CAL_PI_MAX_TRIM, CAL_PI_MAX_TRIM);
@@ -1671,7 +1669,7 @@ void Cal_Hop(void){
 #define TUNE_LOCK_BAND_HZ           0.6f
 
 /** Only integrate once the string is already close to target. */
-#define TUNE_INTEGRAL_ENABLE_BAND_HZ  4.0f
+#define TUNE_INTEGRAL_ENABLE_BAND_HZ  1.0f
 
 /** Consecutive locked hops to confirm convergence. */
 #define TUNE_LOCK_CONSEC_HOPS       2u
