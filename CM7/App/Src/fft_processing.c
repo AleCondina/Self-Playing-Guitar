@@ -1,4 +1,5 @@
 #include "fft_processing.h"
+#include "app_cm7.h"
 #include "application_config.h"
 #include <stdint.h>
 #include <string.h>
@@ -33,6 +34,11 @@ float active_frequencies[NUM_STRINGS];
 float active_magnitudes[MAX_HARMONICS];
 uint8_t active_string_count;
 uint8_t fft_print_enabled = 0;
+
+/* Debug snapshot — updated every frame, printed by app_cm7.c when debug nf is on */
+float fft_dbg_mag[3];
+float fft_dbg_nf[3];
+float fft_dbg_peak;
 
 
 
@@ -71,37 +77,18 @@ void FFT_ProcessBlock(uint16_t* audio_buf)
     /* 4. Calculate Magnitudes from Complex Output */
     arm_cmplx_mag_f32(fft_output, fft_mag, FFT_SIZE / 2);
 
-    //DEBUG: tune noise gate with guitar
-        /* --- TEMPORARY NOISE GATE CALIBRATION --- */
-        float temp_max_mag = 0.0f;
-        for (uint32_t i = SEARCH_START_BIN; i < SEARCH_END_BIN; i++) {
-            if (fft_mag[i] > temp_max_mag) {
-                temp_max_mag = fft_mag[i];
+        /* Snapshot debug values only when noise floor debug is active */
+        if (app_debug_flags & DEBUG_FLAG_NOISE_FLOOR) {
+            fft_dbg_mag[0] = fft_mag[28];  fft_dbg_nf[0] = noise_floor[28];
+            fft_dbg_mag[1] = fft_mag[67];  fft_dbg_nf[1] = noise_floor[67];
+            fft_dbg_mag[2] = fft_mag[112]; fft_dbg_nf[2] = noise_floor[112];
+            float peak = 0.0f;
+            for (uint32_t i = SEARCH_START_BIN; i < SEARCH_END_BIN; i++) {
+                if (fft_mag[i] > peak) peak = fft_mag[i];
             }
+            fft_dbg_peak = peak;
         }
-        // Print the absolute loudest thing the ADC hears right now */
-        // printf("[DSP Debug] Peak Magnitude: %.1f\r\n", temp_max_mag);
-
-        /* DEBUG: Print noise floor vs magnitude at key bins every ~1 second (every 6th frame at ~6 fps) */
-        // static uint32_t dbg_counter = 0;
-        // if (++dbg_counter % 6 == 0) {
-        //     /* Bin 67 ≈ 196 Hz (G3), Bin 28 ≈ 82 Hz (E2), Bin 112 ≈ 330 Hz (E4) */
-        //     printf("[NF] bin28: mag=%.0f nf=%.0f | bin67: mag=%.0f nf=%.0f | bin112: mag=%.0f nf=%.0f | peak=%.0f\r\n",
-        //            fft_mag[28], noise_floor[28],
-        //            fft_mag[67], noise_floor[67],
-        //            fft_mag[112], noise_floor[112],
-        //            temp_max_mag);
-        // }
         
-        if (fft_print_enabled && active_string_count > 0) {
-            printf("[FFT] %d peak(s): ", active_string_count);
-            for (uint8_t i = 0; i < active_string_count; i++) {
-                printf("%.2f Hz (%.0f)  ", (double)active_frequencies[i], (double)active_magnitudes[i]);
-            }
-            printf("\r\n");
-        }
-    
-
 
 
     /* 5. Update adaptive noise floor (EMA per bin) */

@@ -16,6 +16,11 @@ extern float active_magnitudes[];
 extern uint8_t active_string_count;
 extern uint8_t fft_print_enabled;
 
+/* Debug snapshots — updated every FFT frame, printed by app_cm7.c */
+extern float fft_dbg_mag[3];   /* mag at bin28(E2), bin67(G3), bin112(E4) */
+extern float fft_dbg_nf[3];    /* noise floor at same bins */
+extern float fft_dbg_peak;     /* peak magnitude in search range */
+
 void FFT_Init(void);
 
 /**
