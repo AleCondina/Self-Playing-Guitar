@@ -159,6 +159,18 @@
 /** Max re-excite retries per fret before accepting a best-estimate recording. */
 #define CAL_MAX_RETRIES             3u
 
+/** Max re-excite retries during HOME_PI_LOCK.
+ *  Higher than CAL_MAX_RETRIES because homing occurs after all frets have
+ *  been measured — the string is old and decayed and needs more patience. */
+#define CAL_HOME_MAX_RETRIES        8u
+
+/** Re-excite burst duration (ms) used during HOME_PI_LOCK.
+ *  Longer than CAL_REEXCITE_DURATION_MS to give the string a strong ring
+ *  with enough decay time for the PI to converge at the open frequency.
+ *  Wait hops = ceil((700 + 341) / 170) = 7 → reuse CAL_REEXCITE_WAIT_HOPS
+ *  is slightly short; HOME burst re-enables after CAL_BURST_WAIT_HOPS (8). */
+#define CAL_HOME_REEXCITE_MS        700u
+
 /** Motor-position error (steps) that triggers a stall warning. */
 #define CAL_STALL_WARN_STEPS        250
 
@@ -297,6 +309,15 @@ static uint8_t     s_pi_lock_consec    = 0u;
 /* Last-valid-frequency tracking (for early-exit re-excite) */
 static float       s_last_valid_freq   = 0.0f;
 static uint8_t     s_pi_no_sig_cnt     = 0u;   /* consecutive no-signal hops  */
+
+/* Dynamic trim cap state (OPEN_PI_LOCK only)
+ * Tracks whether the PI is actually converging hop-over-hop.
+ * If converging: trim allowed up to cal_steps_max (PI drives as far as needed).
+ * If not converging for CAL_OPEN_STALL_HOPS consecutive hops: hard cap at
+ * CAL_PI_MAX_TRIM to protect against stall / dead string / false FFT reading. */
+static float       s_pi_last_abs_error   = 9999.0f; /* abs error from previous hop     */
+static uint8_t     s_pi_stall_cnt        = 0u;       /* consecutive non-converging hops */
+#define CAL_OPEN_STALL_HOPS  3u                      /* hops before hard cap re-engages */
 
 /* Generic wait */
 static uint16_t    s_wait_cnt          = 0u;
@@ -641,8 +662,10 @@ void Cal_Hop(void){
         s_pluck_detected     = 0u;
         s_home_timeout_cnt   = 0u;
         s_open_detected_freq = 0.0f;
-        s_open_homing_target = 0;
-        s_last_valid_freq    = 0.0f;
+        s_open_homing_target  = 0;
+        s_last_valid_freq     = 0.0f;
+        s_pi_last_abs_error   = 9999.0f;
+        s_pi_stall_cnt        = 0u;
         s_pi_integral        = 0.0f;
         s_pi_cmd_steps       = 0;
         s_pi_hop_cnt         = 0u;
@@ -816,10 +839,12 @@ void Cal_Hop(void){
         s_pi_cmd_steps   = s_open_homing_target;
         s_pi_hop_cnt     = 0u;
         s_pi_lock_consec = 0u;
-        s_pi_no_sig_cnt  = 0u;
-        s_last_valid_freq = 0.0f;
-        s_retry_cnt      = 0u;
-        s_is_reexciting  = 0u;
+        s_pi_no_sig_cnt      = 0u;
+        s_last_valid_freq    = 0.0f;
+        s_retry_cnt          = 0u;
+        s_is_reexciting      = 0u;
+        s_pi_last_abs_error  = 9999.0f;
+        s_pi_stall_cnt       = 0u;
 
         WaitThen(CAL_BURST_WAIT_HOPS, CAL_PHASE_OPEN_BURST_REENABLE);
         break;
@@ -860,19 +885,37 @@ void Cal_Hop(void){
             s_last_valid_freq = meas_f;
             s_pi_no_sig_cnt   = 0u;
 
-            float error = target_freq - meas_f;
+            float error     = target_freq - meas_f;
+            float abs_error = fabsf(error);
 
-            if (fabsf(error) > TUNING_LOCK_BAND_IN_HZ) {
+            /* Dynamic trim cap:
+             * If the frequency error is shrinking → PI is working, let it
+             * drive as far as needed (bounded by full mechanical range).
+             * If error is NOT shrinking for CAL_OPEN_STALL_HOPS consecutive
+             * hops → stall / dead string / false reading → re-engage the
+             * hard CAL_PI_MAX_TRIM cap to stop runaway accumulation.       */
+            if (abs_error < s_pi_last_abs_error) {
+                s_pi_stall_cnt = 0u;                        /* converging — reset stall counter */
+            } else {
+                if (s_pi_stall_cnt < CAL_OPEN_STALL_HOPS) s_pi_stall_cnt++;
+            }
+            s_pi_last_abs_error = abs_error;
+
+            float trim_cap = (s_pi_stall_cnt < CAL_OPEN_STALL_HOPS)
+                             ? (float)s_cal_steps_max[s_str]  /* converging: full range  */
+                             : CAL_PI_MAX_TRIM;               /* stalled:    hard cap    */
+
+            if (abs_error > TUNING_LOCK_BAND_IN_HZ) {
                 s_pi_integral = CalClampf(
                     s_pi_integral + CAL_PI_KI * error * TUNING_SAMPLE_TIME_S,
-                    -CAL_PI_MAX_TRIM, CAL_PI_MAX_TRIM);
+                    -trim_cap, trim_cap);
 
                 float trim = CalClampf(CAL_PI_KP * error + s_pi_integral,
-                                       -CAL_PI_MAX_TRIM, CAL_PI_MAX_TRIM);
+                                       -trim_cap, trim_cap);
                 int32_t cmd = (int32_t)CalClampf(
                     (float)s_open_homing_target + trim,
-                    (float)(s_open_homing_target - 300),
-                    (float)(s_open_homing_target + 300));
+                    -(float)s_cal_steps_max[s_str],
+                     (float)s_cal_steps_max[s_str]);
 
                 int32_t delta = cmd - s_pi_cmd_steps;
                 if ((delta < 0 ? -delta : delta) >= (int32_t)TUNING_MIN_MOVE_STEPS) {
@@ -1458,7 +1501,7 @@ void Cal_Hop(void){
             if (s_pi_no_sig_cnt >= CAL_DEAD_HOPS) {
                 s_retry_cnt++;
 
-                if (s_retry_cnt < CAL_MAX_RETRIES) {
+                if (s_retry_cnt < CAL_HOME_MAX_RETRIES) {
                     s_burst_freq = (s_last_valid_freq > 0.0f)
                                    ? s_last_valid_freq
                                    : target_freq;
@@ -1466,16 +1509,18 @@ void Cal_Hop(void){
                     printf("[CAL] str%u: home signal lost — re-excite %.2f Hz "
                            "(retry %u/%u)\r\n",
                            (unsigned)s_str, (double)s_burst_freq,
-                           (unsigned)s_retry_cnt, (unsigned)CAL_MAX_RETRIES);
+                           (unsigned)s_retry_cnt, (unsigned)CAL_HOME_MAX_RETRIES);
 
-                    /* Re-excite: inhibit FFT, fire short burst, re-issue goto */
+                    /* Re-excite: inhibit FFT, fire longer burst, re-issue goto.
+                     * CAL_HOME_REEXCITE_MS is longer than the fret re-excite to
+                     * give the decayed string a strong ring for PI convergence. */
                     fft_sensing_enabled = 0u;
                     if (s_burst_freq >= 40.0f && s_burst_freq <= 800.0f) {
                         InterCore_TriggerSolenoidHz(s_str,
                                                     s_burst_freq,
                                                     CAL_SOLENOID_DUTY,
                                                     SOLENOID_MODE_TIMED,
-                                                    (uint16_t)CAL_REEXCITE_DURATION_MS,
+                                                    (uint16_t)CAL_HOME_REEXCITE_MS,
                                                     0u);
                     }
                     InterCore_SendMotorGoto(s_str, s_open_position_offset);
@@ -1483,7 +1528,7 @@ void Cal_Hop(void){
                     s_pi_hop_cnt     = 0u;
                     s_pi_lock_consec = 0u;
                     s_pi_no_sig_cnt  = 0u;
-                    WaitThen(CAL_REEXCITE_WAIT_HOPS, CAL_PHASE_HOME_BURST_REENABLE);
+                    WaitThen(CAL_BURST_WAIT_HOPS, CAL_PHASE_HOME_BURST_REENABLE);
                 } else {
                     printf("[CAL] str%u: home max retries — accepting position %ld\r\n",
                            (unsigned)s_str,
@@ -1502,7 +1547,7 @@ void Cal_Hop(void){
              * This fires even if s_pi_lock_consec > 0 (partial lock). */
             s_retry_cnt++;
 
-            if (s_retry_cnt < CAL_MAX_RETRIES) {
+            if (s_retry_cnt < CAL_HOME_MAX_RETRIES) {
                 s_burst_freq = (s_last_valid_freq > 0.0f)
                                ? s_last_valid_freq
                                : target_freq;
@@ -1510,7 +1555,7 @@ void Cal_Hop(void){
                 printf("[CAL] str%u: home lock timeout — re-excite %.2f Hz "
                        "(retry %u/%u)\r\n",
                        (unsigned)s_str, (double)s_burst_freq,
-                       (unsigned)s_retry_cnt, (unsigned)CAL_MAX_RETRIES);
+                       (unsigned)s_retry_cnt, (unsigned)CAL_HOME_MAX_RETRIES);
 
                 fft_sensing_enabled = 0u;
                 if (s_burst_freq >= 40.0f && s_burst_freq <= 800.0f) {
@@ -1518,7 +1563,7 @@ void Cal_Hop(void){
                                                 s_burst_freq,
                                                 CAL_SOLENOID_DUTY,
                                                 SOLENOID_MODE_TIMED,
-                                                (uint16_t)CAL_REEXCITE_DURATION_MS,
+                                                (uint16_t)CAL_HOME_REEXCITE_MS,
                                                 0u);
                 }
                 InterCore_SendMotorGoto(s_str, s_open_position_offset);
@@ -1526,10 +1571,10 @@ void Cal_Hop(void){
                 s_pi_hop_cnt     = 0u;
                 s_pi_lock_consec = 0u;
                 s_pi_no_sig_cnt  = 0u;
-                WaitThen(CAL_REEXCITE_WAIT_HOPS, CAL_PHASE_HOME_BURST_REENABLE);
+                WaitThen(CAL_BURST_WAIT_HOPS, CAL_PHASE_HOME_BURST_REENABLE);
             } else {
                 printf("[CAL] str%u: home timeout after %u retries — pos=%ld\r\n",
-                       (unsigned)s_str, (unsigned)CAL_MAX_RETRIES,
+                       (unsigned)s_str, (unsigned)CAL_HOME_MAX_RETRIES,
                        (long)g_shared_memory.current_positions[s_str]);
                 s_phase = CAL_PHASE_HOME_DONE;
             }
