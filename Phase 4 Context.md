@@ -1,6 +1,6 @@
 # Phase 4 Context
 
-Last verified against the codebase: 2026-03-18
+Last verified against the codebase: 2026-03-18 (calibration section updated same date)
 
 ## Fast Mental Model
 
@@ -11,10 +11,10 @@ Last verified against the codebase: 2026-03-18
 - Pitch sensing is live now: `ADC3 + BDMA + TIM1 TRGO + 2048-point FFT`.
 - The active tuning path is FFT-based. Goertzel code still exists on disk but is not part of the runtime build.
 - The active commissioning tools are:
-  - `calibrate`: PI lock-in calibration with solenoid burst excitation, per-fret sweep, polynomial + LUT fitting, SRAM-persisted
+  - `calibrate`: fully automatic per-string calibration with PI lock-in, SRAM persistence, and polynomial feedforward
   - `mapfrets`: manual-pluck LUT builder, restricted to configured motors `0-3`
-  - `tune`: open-string pitch correction — detects frequency via FFT, adjusts motor bidirectionally (forward if flat, backward if sharp), saves offset to SRAM
-- Feed-forward LUTs and polynomial coefficients persist to backup SRAM (0x38800000, VBAT-backed, 4 KB). Tune offsets also persist.
+- Feed-forward LUTs persist across reset via VBAT-backed backup SRAM (`0x38800000`, 4 KB).
+- Calibration also fits and stores a quadratic polynomial `steps = a + b·f + c·f²` per string.
 
 ## What Is Actually Implemented
 
@@ -29,10 +29,9 @@ Last verified against the codebase: 2026-03-18
 | Motor safeguard | `Motor_Update()` skips disabled motors — no stepping, no position drift | Software position freezes while disabled; may not match physical position on re-enable |
 | Motor power mgmt | Tuning controller auto-enables motors for active strings, disables when idle | Uses `CMD_MOTOR_ENABLE_MASK` bitmask via `InterCore_SendMotorEnableMask()` |
 | Playback | Hardcoded 12-note "Smoke on the Water" riff | No looping; only two-string D3/G3 chord data exists |
-| Calibration | PI lock-in fret calibration with solenoid burst, polynomial fit, SRAM persistence | Real hardware support is incomplete for all 6 strings |
-| Tune | Open-string pitch correction with bidirectional motor adjustment and SRAM persistence | Only strings with solenoids (1-3) get automatic re-excite; others need manual re-pluck |
+| Calibration | Active PI-lock sweep with feedforward homing, SRAM persistence, polynomial fitting | Solenoid excitation only live for strings `1-3`; E2 relies on manual pluck ring-down |
 | LUT builder | Active fret-mapping state machine | Only supports configured motors `0-3` |
-| Persistence | Backup SRAM (VBAT-backed) stores calibration LUT, polynomial, and tune offsets | Survives power cycles; tune offsets cleared on recalibration |
+| Persistence | Backup SRAM (`0x38800000`, VBAT-backed) via `Cal_SaveToSRAM()` / `Cal_LoadFromSRAM()` | Restored at boot; magic + XOR checksum guard |
 
 ## Source Of Truth
 
@@ -231,43 +230,148 @@ Important current limitation:
 
 ### Automatic calibration (V3 — PI lock-in)
 
-`calibration_controller.c` is active and compiled.
+`calibration_controller.c` is active and compiled. Triggered by `calibrate <string>` or `calibrate all`.
 
-Current behavior:
+#### Full state machine (per string)
 
-- Triggered by `calibrate [str ...]`.
-- Uses FFT results, not Goertzel.
-- Per-string flow: prompt pluck → detect pluck → home motor → for each fret 1–7:
-  - Fire solenoid at previous fret's measured frequency (1 s burst) while motor moves toward next fret's polynomial-estimated position.
-  - After burst+wait (8 hops), re-enable FFT and run inline PI controller (KP=3.0, KI=1.5, max trim ±600 microsteps) to lock onto the target fret frequency.
-  - Lock criterion: 2 consecutive hops within 1 Hz deadband.
-  - If string decays (3 consecutive no-signal hops), re-excite at last valid frequency. Up to 3 retries.
-  - Record (actual_motor_steps, measured_freq) on lock or best estimate on failure.
-- After all frets: build 7-point LUT (`Cal_BuildTable`) + fit quadratic polynomial `steps = a + b·f + c·f²` (`Cal_FitPolynomial`).
-- Persist LUT + polynomial to backup SRAM (0x38800000, VBAT-backed, 4 KB) with magic number + XOR checksum.
-- Boot: `Cal_LoadFromSRAM()` restores previous calibration; falls back to `Cal_FitFromBaseLUT()` to seed polynomial from hardcoded LUT.
-- Per-string safety caps prevent motor over-travel: E2=5000, A2=6500, D3=9000, G3=7000.
+```
+STR_INIT → WAIT_PLUCK → WAIT_HOME
+  → OPEN_SOL_BURST → OPEN_BURST_REENABLE → OPEN_PI_LOCK → OPEN_DONE
+  → [for frets 1–7]:
+      SOL_BURST → BURST_REENABLE → PI_LOCK → RECORD
+  → BUILD
+  → HOME_SOL_BURST → HOME_BURST_REENABLE → HOME_PI_LOCK → HOME_DONE
+  → [next string or DONE]
+```
 
-What it assumes:
+#### Phase descriptions
 
-- The target motor can physically move.
-- The target solenoid can be driven continuously at exact Hz (for re-excitation).
+| Phase | What happens |
+|---|---|
+| `STR_INIT` | Enables motor, resets all state, prompts user to pluck |
+| `WAIT_PLUCK` | Listens for any FFT peak in 70–180% of nominal open freq with magnitude > 50. Wide window accepts any fret position. On detect: captures `s_open_detected_freq`, computes polynomial FF delta, sends motor to `s_open_homing_target`. On timeout (25 hops ≈ 4.3 s): sends motor to 0 and proceeds. |
+| `WAIT_HOME` | Polls `|current_pos - s_open_homing_target| ≤ 50` steps. Timeout after 30 hops. |
+| `OPEN_SOL_BURST` | Fires solenoid at nominal open freq for 1000 ms. Inhibits FFT. Resets PI state seeded from `s_open_homing_target`. |
+| `OPEN_BURST_REENABLE` | Re-enables FFT sensing. |
+| `OPEN_PI_LOCK` | PI targets `s_open_freq[str]`. **Dynamic trim cap**: if frequency error is shrinking hop-over-hop, cap = `s_cal_steps_max` (full range); if not converging for 3 consecutive hops (`CAL_OPEN_STALL_HOPS`), hard cap reverts to `CAL_PI_MAX_TRIM` (600 steps). Motor clamp = `±s_cal_steps_max`. Up to `CAL_MAX_RETRIES` (3) re-excites. |
+| `OPEN_DONE` | Calls `InterCore_SendMotorZero()` — re-zeros motor at locked physical position. Sets `s_open_position_offset = 0`. Fret calibration now proceeds from this true home. |
+| `SOL_BURST` | Fires solenoid at last measured frequency (or open freq for fret 1). Starts motor moving toward next fret via polynomial estimate + `s_open_position_offset`. Inhibits FFT. |
+| `BURST_REENABLE` | Re-enables FFT, resets PI. |
+| `PI_LOCK` | PI fine-tunes motor position using FFT feedback. Lock band ±1 Hz, 2 consecutive locked hops to confirm. Up to `CAL_MAX_RETRIES` (3) re-excites on signal loss or timeout. |
+| `RECORD` | Saves `(actual_motor_steps, measured_freq)` to `s_buf`. Falls back to `s_last_valid_freq` or theoretical estimate if PI never locked. Advances `s_fret`. |
+| `BUILD` | Calls `Cal_BuildTable()` (7-point LUT from samples), `Cal_FitPolynomial()` (quadratic least-squares), `Cal_SaveToSRAM()`. |
+| `HOME_SOL_BURST` | Fires solenoid at last measured fret frequency. Commands motor to `s_open_position_offset` (= 0 after re-zero). |
+| `HOME_PI_LOCK` | Same PI logic as `OPEN_PI_LOCK` targeting `s_open_freq[str]`. Uses **`CAL_HOME_MAX_RETRIES = 8`** (not the fret `CAL_MAX_RETRIES = 3`) and **`CAL_HOME_REEXCITE_MS = 700 ms`** bursts (not 300 ms) — string is decayed after full calibration sweep and needs more patient re-excitation. |
+| `HOME_DONE` | Advances to next string in mask, or transitions to `CAL_PHASE_DONE`. |
 
-That assumption is only valid today for part of the system.
+#### Polynomial feedforward homing (WAIT_PLUCK → OPEN_PI_LOCK)
 
-### Open-string tuning
+When the string is out of tune at pluck time (e.g., E2 at 90 Hz instead of 82.41 Hz):
 
-`calibration_controller.c` also contains the tune controller (added alongside calibration, sharing helpers).
+1. `s_open_detected_freq` = pluck reading (e.g., 90 Hz)
+2. `delta = poly(open_freq) - poly(detected_freq)` = 0 − 1080 = −1080 steps
+3. `s_open_homing_target = current_pos + delta` = −1080 (clamped to ±`s_cal_steps_max`)
+4. Motor moves to −1080. `WAIT_HOME` polls against this target (not against 0).
+5. `OPEN_PI_LOCK` starts from −1080 with dynamic trim cap — converges to 82.41 Hz regardless of how far off the LUT was.
+6. `OPEN_DONE` re-zeros motor. Position 0 = true open-string frequency. Fret polynomial targets are now accurate.
 
-Current behavior:
+If no pluck detected (timeout): `s_open_homing_target = 0`, same as old behavior.
 
-- Triggered by `tune [str ...]` (default mask 0x0F = motors 0-3).
-- Per-string flow: prompt pluck → detect pluck via FFT → compute initial motor position using polynomial derivative sensitivity → move motor → PI lock to open-string frequency.
-- **Bidirectional**: motor moves forward (positive steps) if string is flat, backward (negative steps) if sharp. Clamped to [TUNING_STEPS_MIN_DEFAULT (-800), s_cal_steps_max[str]].
-- Solenoid re-excite on signal decay for strings 1-3 (have solenoids). Strings 0/4/5 re-prompt the user to pluck.
-- On lock, the motor position is saved as `tune_offset[str]` and applied in `FF_Interpolate()` so all subsequent tuning controller commands are shifted.
-- Tune offsets persist to backup SRAM (separate block after calibration data, own magic + checksum).
-- Tune offsets are cleared when `Cal_Start()` runs (recalibration invalidates offsets).
+#### Key calibration parameters
+
+| Constant | Value | Meaning |
+|---|---|---|
+| `CAL_NUM_FRETS` | 8 | Frets measured: 0 (anchor) + frets 1–7 |
+| `CAL_MOTOR_SPEED_FAST` | 3000 steps/s | Inter-fret transit speed |
+| `CAL_HOME_POS_THRESHOLD` | 50 steps | Arrival tolerance for `WAIT_HOME` |
+| `CAL_HOME_TIMEOUT_HOPS` | 30 hops | Max wait for motor to reach homing target |
+| `CAL_PLUCK_TIMEOUT` | 25 hops ≈ 4.3 s | Max wait for user pluck before proceeding |
+| `CAL_SOL_DURATION_MS` | 1000 ms | Primary burst duration |
+| `CAL_REEXCITE_DURATION_MS` | 300 ms | Fret re-excite burst duration |
+| `CAL_HOME_REEXCITE_MS` | 700 ms | Home re-excite burst duration (longer for decayed string) |
+| `CAL_BURST_WAIT_HOPS` | 8 hops ≈ 1.36 s | FFT blackout after primary or home burst |
+| `CAL_REEXCITE_WAIT_HOPS` | 4 hops ≈ 0.68 s | FFT blackout after fret re-excite |
+| `CAL_SOLENOID_DUTY` | 50% | Solenoid PWM duty cycle |
+| `CAL_PI_KP` | 3.0 | Proportional gain (steps/Hz) |
+| `CAL_PI_KI` | 1.5 | Integral gain (steps/Hz/s) |
+| `CAL_PI_MAX_TRIM` | 600 steps | Hard trim cap (safety, active when PI is NOT converging) |
+| `CAL_PI_LOCK_TIMEOUT` | 25 hops ≈ 4.3 s | PI lock timeout per attempt |
+| `CAL_DEAD_HOPS` | 3 hops | No-signal hops before early-exit re-excite |
+| `CAL_LOCK_CONSEC_HOPS` | 2 hops | Consecutive in-band hops to confirm lock |
+| `CAL_MAX_RETRIES` | 3 | Max re-excites per fret PI_LOCK |
+| `CAL_HOME_MAX_RETRIES` | 8 | Max re-excites for HOME_PI_LOCK |
+| `CAL_OPEN_STALL_HOPS` | 3 hops | Non-converging hops before dynamic cap reverts to hard limit |
+| `CAL_STALL_WARN_STEPS` | 250 steps | Position error threshold for stall warning print |
+| `s_cal_steps_max[str]` | per-string | Hard motor position ceiling during calibration |
+
+#### Per-string hardware capability during calibration
+
+| String | Motor | Solenoid | Calibration capability |
+|---|---|---|---|
+| 0 (E2) | Configured | **None** (htim = NULL) | Relies entirely on manual pluck ring-down. OPEN/fret/HOME solenoid calls are safe no-ops. Polynomial LUT less accurate (old data). |
+| 1 (A2) | Configured | Live (TIM3_CH2) | Fully automatic. Best calibrated. |
+| 2 (D3) | Configured | Live (TIM2_CH1) | Fully automatic. |
+| 3 (G3) | Configured | Live (TIM4_CH1) | Fully automatic. |
+| 4 (B3) | **Unconfigured** | None | Do not calibrate. |
+| 5 (E4) | **Unconfigured** | None | Do not calibrate. |
+
+#### Measured LUT data (last run — loaded into tuning_controller.c)
+
+**A2 (string 1):**
+
+| Fret | Freq (Hz) | Steps |
+|---|---|---|
+| 0 | 110.00 | 0 |
+| 1 | 115.54 | 751 |
+| 2 | 121.57 | 1549 |
+| 3 | 127.57 | 2370 |
+| 4 | 139.23 | 4103 |
+| 5 | 145.69 | 5013 |
+| 6 | 151.22 | 5955 |
+
+**D3 (string 2):**
+
+| Fret | Freq (Hz) | Steps |
+|---|---|---|
+| 0 | 146.83 | 0 |
+| 1 | 160.03 | 2331 |
+| 2 | 170.43 | 3363 |
+| 3 | 179.45 | 4417 |
+| 4 | 188.51 | 5477 |
+| 5 | 197.45 | 6533 |
+| 6 | 205.19 | 7499 |
+
+**G3 (string 3):**
+
+| Fret | Freq (Hz) | Steps |
+|---|---|---|
+| 0 | 196.00 | 0 |
+| 1 | 207.65 | 910 |
+| 2 | 233.38 | 2583 |
+| 3 | 248.76 | 3485 |
+| 4 | 262.49 | 4480 |
+| 5 | 277.12 | 5523 |
+| 6 | 292.19 | 6646 |
+
+**E2 (string 0):** older data, less reliable — `{82.41, 82.69, 89.97, 96.05, 100.07, 106.37, 112.82}` Hz, `{0, 267, 1080, 1623, 2029, 2706, 3385}` steps.
+
+#### Persistence (backup SRAM)
+
+- `Cal_LoadFromSRAM()`: called at boot. Restores `tuning_ff_freq_bp`, `tuning_ff_steps_bp`, and `cal_poly_coeff` if magic word (`0xCA115701`) and XOR checksum both pass. Returns 1 on success.
+- `Cal_SaveToSRAM()`: called at end of each string's `BUILD` phase. Writes all 6 strings.
+- `Cal_FitFromBaseLUT()`: called at boot if `Cal_LoadFromSRAM()` returns 0. Seeds `cal_poly_coeff` from the hardcoded LUT so the tuning controller has a valid polynomial from first boot.
+- SRAM region: `0x38800000`, 4 KB, powered by VBAT regulator. `Cal_EnableBkpSRAM()` calls `HAL_PWR_EnableBkUpAccess()` + `__HAL_RCC_BKPRAM_CLK_ENABLE()` + `HAL_PWREx_EnableBkUpReg()` before every read or write.
+
+#### Dynamic trim cap (OPEN_PI_LOCK only)
+
+Protects against motor runaway when FFT gives a sustained wrong reading, while allowing the PI to travel as far as physically needed when it is genuinely converging:
+
+- `s_pi_last_abs_error`: absolute frequency error from the previous hop. Initialized to 9999 so the first hop always counts as converging.
+- `s_pi_stall_cnt`: counts consecutive hops where error is NOT shrinking. Reset to 0 whenever error shrinks.
+- If `s_pi_stall_cnt < CAL_OPEN_STALL_HOPS (3)`: `trim_cap = s_cal_steps_max` — full range allowed.
+- If `s_pi_stall_cnt >= 3`: `trim_cap = CAL_PI_MAX_TRIM (600)` — hard safety cap re-engages.
+- Both variables reset in `STR_INIT` and `OPEN_SOL_BURST`.
+- This logic is **only in OPEN_PI_LOCK**. Fret `PI_LOCK` and `HOME_PI_LOCK` use the fixed `CAL_PI_MAX_TRIM` cap.
 
 ### LUT builder
 
@@ -431,12 +535,12 @@ These are real current behaviors or mismatches that future sessions should keep 
 - Software position freezes while disabled and resumes from the frozen value on re-enable.
 - Caveat: physical position may drift while disabled (no holding torque). The PI loop corrects on re-enable via FFT feedback.
 
-### 3. `calibrate all` is not aligned with current hardware
+### 3. `calibrate all` is partially misaligned with current hardware
 
-- The calibration path assumes both a working motor and a timer-backed exact-Hz solenoid.
-- That is not true for `E2`, `B3`, or `E4`.
-- Motors `4` and `5` are not configured.
-- Solenoids `0`, `4`, and `5` have no live timer.
+- Strings `1` (A2), `2` (D3), `3` (G3): fully automatic with solenoid excitation. **Use these.**
+- String `0` (E2): motor is configured but solenoid `0` has no timer (`htim = NULL`). Calibration proceeds but relies entirely on the decay of the initial manual pluck. Works but is less reliable — solenoid re-excites during `OPEN_PI_LOCK`, `PI_LOCK`, and `HOME_PI_LOCK` are silent no-ops.
+- Strings `4` (B3) and `5` (E4): motors not configured, no solenoids. **Do not calibrate.**
+- Recommended: `calibrate 1`, `calibrate 2`, `calibrate 3` individually, or mask `0x0E` for A2+D3+G3.
 
 ### 4. `demo` is stale relative to current solenoid mapping
 
@@ -513,12 +617,14 @@ These files are still useful for background, but they do not fully match the cur
 The current repo is best understood as:
 
 - a live 6-string logical architecture
-- 4 configured stepper channels
-- 3 live timer-backed solenoid channels
+- 4 configured stepper channels (0–3)
+- 3 live timer-backed solenoid channels (1–3)
 - a real CM7 audio/FFT sensing loop
-- a real CM7 tuning controller with cents-based lock bands and 1/16 microstep safeguard
-- a real LUT-builder, calibration framework (PI lock-in + polynomial fit), and open-string tune controller
-- calibration LUT, polynomial, and tune offsets persisted to backup SRAM (VBAT-backed)
+- a real CM7 tuning controller with calibrated polynomial feedforward
+- a fully functional automatic calibration system with VBAT-backed SRAM persistence
+- polynomial feedforward homing: pluck detection → polynomial delta → motor moves to estimated open position → PI locks → motor re-zeros at true open position
+- dynamic PI trim cap in OPEN_PI_LOCK: expands to full mechanical range when converging, falls back to 600-step hard cap when stalled
+- patient HOME_PI_LOCK: 8 retries with 700 ms bursts (vs 3 retries / 300 ms for frets)
 - motor safeguard preventing disabled motors from stepping or drifting position
 - microstep safeguard preventing the tuning controller from running if motors are not in 1/16 mode
 - automatic motor power management driven by the tuning controller and song scheduler
@@ -526,7 +632,8 @@ The current repo is best understood as:
 
 If a future session needs bench-realistic assumptions, use this stricter model:
 
-- Motors that exist in code and are wired enough to target: `0-3`
-- Solenoids that exist in code and can actually generate PWM: `1-3`
+- Motors wired and calibrated: `1–3` (A2, D3, G3). Motor `0` (E2) wired but no solenoid.
+- Solenoids with live PWM: `1–3`
 - Playback path that best matches current commissioned strings: the D3/G3 `smoke` workflow
-- Commissioning path that best matches current hardware: `mapfrets` on strings `0-3`, `calibrate` on strings `1-3` (solenoid-backed), `tune` on strings `0-3`
+- Best calibration targets: `calibrate 1`, `calibrate 2`, `calibrate 3`
+- Commissioning path for manual measurement: `mapfrets` on strings `0-3`

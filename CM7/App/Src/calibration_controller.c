@@ -162,10 +162,18 @@
 /** Max re-excite retries per fret before accepting a best-estimate recording. */
 #define CAL_MAX_RETRIES             3u
 
-/** Max re-excite retries during HOME_PI_LOCK.
- *  Higher than CAL_MAX_RETRIES because homing occurs after all frets have
- *  been measured — the string is old and decayed and needs more patience. */
-#define CAL_HOME_MAX_RETRIES        8u
+/** Max re-excite retries during HOME_PI_LOCK. */
+#define CAL_HOME_MAX_RETRIES        5u
+
+/** Tight lock-band for HOME_PI_LOCK (Hz). Tighter than TUNING_LOCK_BAND_IN_HZ
+ *  (1.0 Hz) so the string must settle to within 0.6 Hz before home is declared. */
+#define CAL_HOME_LOCK_BAND_HZ       0.6f
+
+/** Continuity tracking window (Hz). Once the first valid reading is captured,
+ *  subsequent hops search within ±CAL_TRACK_BAND_HZ of s_last_valid_freq.
+ *  Chosen > max motor-induced Hz-per-hop (~3.5 Hz at 3000 steps/sec) but
+ *  well below adjacent-string minimum separation (~15 Hz at high frets). */
+#define CAL_TRACK_BAND_HZ           5.0f
 
 /** Re-excite burst duration (ms) used during HOME_PI_LOCK.
  *  Longer than CAL_REEXCITE_DURATION_MS to give the string a strong ring
@@ -891,7 +899,14 @@ void Cal_Hop(void){
         float search_band = target_freq * 0.15f;
 
         float meas_f = 0.0f;
-        CalGetFreq(target_freq, search_band, &meas_f);
+        if (s_last_valid_freq > 0.0f) {
+            CalGetFreq(s_last_valid_freq, CAL_TRACK_BAND_HZ, &meas_f);
+            if (meas_f == 0.0f) {
+                CalGetFreq(target_freq, search_band, &meas_f);
+            }
+        } else {
+            CalGetFreq(target_freq, search_band, &meas_f);
+        }
 
         /* ----- Valid FFT reading ----- */
         if (meas_f > 0.0f) {
@@ -1168,7 +1183,10 @@ void Cal_Hop(void){
         s_pi_hop_cnt     = 0u;
         s_pi_lock_consec = 0u;
         s_pi_no_sig_cnt  = 0u;
-        s_last_valid_freq = 0.0f;
+        /* Primary burst: motor moved to a new fret — old frequency is stale, reset.
+         * Re-excite: motor barely moved — seed tracking with the burst frequency
+         * so PI_LOCK immediately resumes in narrow-window mode after the gap. */
+        s_last_valid_freq = s_is_reexciting ? s_burst_freq : 0.0f;
 
         WaitThen(wait_hops, CAL_PHASE_BURST_REENABLE);
         break;
@@ -1212,7 +1230,19 @@ void Cal_Hop(void){
         float search_band = target_freq * 0.15f;   /* ±15% search window  */
 
         float meas_f = 0.0f;
-        CalGetFreq(target_freq, search_band, &meas_f);
+        if (s_last_valid_freq > 0.0f) {
+            /* Tracking mode: follow the string's actual frequency each hop.
+             * Rejects adjacent strings resonating outside the continuity window. */
+            CalGetFreq(s_last_valid_freq, CAL_TRACK_BAND_HZ, &meas_f);
+            if (meas_f == 0.0f) {
+                /* Not found in tracking window — string may have decayed.
+                 * Fall back to wide target search so no-signal logic triggers. */
+                CalGetFreq(target_freq, search_band, &meas_f);
+            }
+        } else {
+            /* First measurement for this fret: use wide target-anchored search. */
+            CalGetFreq(target_freq, search_band, &meas_f);
+        }
 
         /* ----- Valid FFT reading ----- */
         if (meas_f > 0.0f) {
@@ -1339,7 +1369,14 @@ void Cal_Hop(void){
         float search_band = target_freq * 0.15f;
 
         float meas_f = 0.0f;
-        CalGetFreq(target_freq, search_band, &meas_f);
+        if (s_last_valid_freq > 0.0f) {
+            CalGetFreq(s_last_valid_freq, CAL_TRACK_BAND_HZ, &meas_f);
+            if (meas_f == 0.0f) {
+                CalGetFreq(target_freq, search_band, &meas_f);
+            }
+        } else {
+            CalGetFreq(target_freq, search_band, &meas_f);
+        }
 
         int32_t actual_steps = g_shared_memory.current_positions[s_str];
 
@@ -1467,7 +1504,14 @@ void Cal_Hop(void){
         float search_band = target_freq * 0.15f;   /* ±15% */
 
         float meas_f = 0.0f;
-        CalGetFreq(target_freq, search_band, &meas_f);
+        if (s_last_valid_freq > 0.0f) {
+            CalGetFreq(s_last_valid_freq, CAL_TRACK_BAND_HZ, &meas_f);
+            if (meas_f == 0.0f) {
+                CalGetFreq(target_freq, search_band, &meas_f);
+            }
+        } else {
+            CalGetFreq(target_freq, search_band, &meas_f);
+        }
 
         /* ----- Valid FFT reading ----- */
         if (meas_f > 0.0f) {
@@ -1476,7 +1520,7 @@ void Cal_Hop(void){
 
             float error = target_freq - meas_f;
 
-            if (fabsf(error) > CAL_LOCK_BAND_HZ) {
+            if (fabsf(error) > CAL_HOME_LOCK_BAND_HZ) {
                 s_pi_integral = CalClampf(
                     s_pi_integral + CAL_PI_KI * error * TUNING_SAMPLE_TIME_S,
                     -CAL_PI_MAX_TRIM, CAL_PI_MAX_TRIM);
