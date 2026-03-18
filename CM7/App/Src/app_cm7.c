@@ -197,8 +197,7 @@ void App_CM7_Main(void) {
        
 
     MIDI_Parse(g_midi_data,g_midi_len,g_events,256,&g_event_count);
-    printf("[CM7] Song scheduler ready (%lu notes loaded).\r\n",
-       (unsigned long)g_event_count);
+   
 
 printf("Parsed %lu events\n", g_event_count);
 
