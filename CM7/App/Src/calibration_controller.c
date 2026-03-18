@@ -87,8 +87,7 @@
 #include "inter_core_cm7.h"
 #include "shared_memory.h"
 #include "application_config.h"
-#include "stm32h7xx_hal.h"
-#include "stm32h7xx_hal_pwr_ex.h"   /* HAL_PWREx_EnableBkSRAM             */
+#include "stm32h7xx_hal.h"          /* pulls in hal_rcc.h + hal_pwr_ex.h  */
 
 #include <math.h>
 #include <stdio.h>
@@ -102,10 +101,6 @@
 /** Number of frets measured per string (open=0 is the anchor; we measure 1–7). */
 #define CAL_NUM_FRETS               8u
 
-/** Microsteps for one semitone (1/16 step, 200-step motor: 200×16/12 ≈ 267).
- *  Empirically one fret ≈ 1/12 of a full revolution = 1600 microsteps. */
-#define CAL_STEPS_PER_FRET          1600
-
 /** Motor max speed (steps/sec) during the inter-fret transit.
  *  At 3000 steps/sec a 1600-step move takes ≈ 533 ms — well within the
  *  1360 ms burst+wait window before the PI starts. */
@@ -113,6 +108,14 @@
 
 /** Hops to wait after homing before listening for the initial pluck. */
 #define CAL_HOME_SETTLE_HOPS        6u
+
+/** Motor position (steps) within which we consider the string "at home". */
+#define CAL_HOME_POS_THRESHOLD      50
+
+/** Max hops to wait for motor to reach home before proceeding anyway.
+ *  Worst case: D3 at 9000 steps / 3000 steps/sec = 3.0 s → 18 hops.
+ *  Add 12 hops for acceleration/braking margin → 30 hops total. */
+#define CAL_HOME_TIMEOUT_HOPS       30u
 
 /** Max hops to wait for the user to pluck (~4.3 s at 170 ms/hop). */
 #define CAL_PLUCK_TIMEOUT           25u
@@ -175,6 +178,20 @@ static const float s_open_freq[NUM_STRINGS] = {
 };
 
 /**
+ * Hard upper limit on motor position during calibration, per string.
+ * Derived from LUT RUN 1 fret-6 measured steps + 1500-step safety buffer.
+ * Unconfigured motors (B3, E4) use a conservative placeholder.
+ */
+static const int32_t s_cal_steps_max[NUM_STRINGS] = {
+    5000,  /* E2 — LUT max 3385 + 1500 */
+    6500,  /* A2 — LUT max 4887 + 1500 */
+    9000,  /* D3 — LUT max 7082 + 1500 */
+    7000,  /* G3 — LUT max 5447 + 1500 */
+    2200,  /* B3 — placeholder (motor unconfigured) */
+    2200,  /* E4 — placeholder (motor unconfigured) */
+};
+
+/**
  * Theoretical equal-temperament fret frequencies [string][fret 0..7].
  * Derived from the named Hz constants in application_config.h — identical
  * to the values used by the CM4 solenoid controller's ARR table.
@@ -219,8 +236,9 @@ float cal_poly_coeff[NUM_STRINGS][3] = { {0} };
 
 typedef enum {
     CAL_PHASE_IDLE          = 0,
-    CAL_PHASE_STR_INIT,       /**< Enable motor, home, prompt user to pluck  */
-    CAL_PHASE_WAIT_PLUCK,     /**< Wait for FFT pluck detection              */
+    CAL_PHASE_STR_INIT,       /**< Enable motor, prompt user to pluck        */
+    CAL_PHASE_WAIT_PLUCK,     /**< Wait for FFT pluck (any fret)             */
+    CAL_PHASE_WAIT_HOME,      /**< Wait for motor to reach position 0        */
     CAL_PHASE_WAIT,           /**< Generic hop-count wait                    */
     CAL_PHASE_SOL_BURST,      /**< Fire solenoid + start motor transit       */
     CAL_PHASE_BURST_REENABLE, /**< Restore FFT, reset PI                     */
@@ -257,6 +275,8 @@ static uint8_t     s_is_reexciting     = 0u;   /* 0=primary burst, 1=re-excite *
 static uint8_t     s_retry_cnt         = 0u;
 static uint8_t     s_pluck_timeout_cnt = 0u;
 static uint8_t     s_pluck_detected    = 0u;
+static float       s_open_detected_freq = 0.0f; /* Reserved: not used in pluck-first flow */
+static uint8_t     s_home_timeout_cnt   = 0u;   /* Hops waited in WAIT_HOME             */
 
 /* PI state (inline controller, reset per fret) */
 static float       s_pi_integral       = 0.0f;
@@ -331,8 +351,8 @@ static uint32_t CalChecksum(const CalPersist_t *p)
 
 static void Cal_EnableBkpSRAM(void)
 {
-    __HAL_RCC_PWR_CLK_ENABLE();
-    HAL_PWREx_EnableBkSRAM();
+    __HAL_RCC_BKPRAM_CLK_ENABLE();   /* Enable backup SRAM clock on AHB4    */
+    HAL_PWREx_EnableBkUpReg();        /* Enable VBAT backup regulator        */
 }
 
 /* =========================================================================
@@ -600,35 +620,39 @@ void Cal_Hop(void)
     switch (s_phase) {
 
     /* ------------------------------------------------------------------
-     * STR_INIT: enable motor, home to position 0, prompt manual pluck
+     * STR_INIT: enable motor and prompt the user to pluck immediately.
+     * The motor has NOT been homed yet — homing happens AFTER the pluck
+     * is detected so the user doesn't have to wait.
      * ------------------------------------------------------------------ */
     case CAL_PHASE_STR_INIT:
     {
         InterCore_SendMotorEnableMask(1u << s_str);
         InterCore_SendMotorMaxSpeed(s_str, CAL_MOTOR_SPEED_FAST);
-        InterCore_SendMotorGoto(s_str, 0);
 
-        s_fret              = 1u;
-        s_buf_n             = 0u;
-        s_retry_cnt         = 0u;
-        s_is_reexciting     = 0u;
-        s_pluck_timeout_cnt = 0u;
-        s_pluck_detected    = 0u;
-        s_last_valid_freq   = 0.0f;
-        s_pi_integral       = 0.0f;
-        s_pi_cmd_steps      = 0;
-        s_pi_hop_cnt        = 0u;
-        s_pi_lock_consec    = 0u;
-        s_pi_no_sig_cnt     = 0u;
+        s_fret               = 1u;
+        s_buf_n              = 0u;
+        s_retry_cnt          = 0u;
+        s_is_reexciting      = 0u;
+        s_pluck_timeout_cnt  = 0u;
+        s_pluck_detected     = 0u;
+        s_home_timeout_cnt   = 0u;
+        s_open_detected_freq = 0.0f;
+        s_last_valid_freq    = 0.0f;
+        s_pi_integral        = 0.0f;
+        s_pi_cmd_steps       = 0;
+        s_pi_hop_cnt         = 0u;
+        s_pi_lock_consec     = 0u;
+        s_pi_no_sig_cnt      = 0u;
 
         printf("[CAL] -- String %u (%.2f Hz) | fret7 target %.2f Hz\r\n",
                (unsigned)s_str,
                (double)s_open_freq[s_str],
                (double)cal_theoretical_freq[s_str][7u]);
-        printf("[CAL] >>> Pluck string %u now!\r\n", (unsigned)s_str);
+        printf("[CAL] >>> Pluck string %u now (any fret is fine)!\r\n",
+               (unsigned)s_str);
 
-        /* Wait for motor to reach home, then listen for pluck */
-        WaitThen(CAL_HOME_SETTLE_HOPS, CAL_PHASE_WAIT_PLUCK);
+        /* Go straight to pluck detection — motor will home after pluck */
+        s_phase = CAL_PHASE_WAIT_PLUCK;
         break;
     }
 
@@ -646,35 +670,77 @@ void Cal_Hop(void)
     }
 
     /* ------------------------------------------------------------------
-     * WAIT_PLUCK: detect manual pluck near the open-string frequency.
-     * Times out after CAL_PLUCK_TIMEOUT hops so calibration always proceeds.
+     * WAIT_PLUCK: confirm the string is live at ANY fret position.
+     *
+     * The user plucks the string wherever it is.  A wide frequency window
+     * (70%–180% of nominal open) covers the full physical fret range plus
+     * the 2nd harmonic, so the string can be at any fret and still trigger.
+     * After detection (or timeout), the motor is commanded home and we
+     * enter WAIT_HOME to let the motor settle before calibration begins.
      * ------------------------------------------------------------------ */
     case CAL_PHASE_WAIT_PLUCK:
     {
+        /* Wide window: covers full fret range (open → fret 7) + 2nd harmonic.
+         * For A2 (110 Hz): 77–198 Hz — accepts any fret the string could be at.
+         * Magnitude threshold rejects broadband noise.                        */
         float lo = s_open_freq[s_str] * 0.70f;
-        float hi = s_open_freq[s_str] * 1.35f;
+        float hi = s_open_freq[s_str] * 1.80f;
 
         for (uint8_t j = 0u; j < active_string_count; j++) {
-            if (active_frequencies[j] >= lo && active_frequencies[j] <= hi) {
+            if (active_frequencies[j] >= lo && active_frequencies[j] <= hi
+                && active_magnitudes[j] > 50.0f) {
                 s_pluck_detected = 1u;
-                printf("[CAL] str%u: pluck detected at %.2f Hz\r\n",
+                printf("[CAL] str%u: pluck detected at %.2f Hz — homing motor\r\n",
                        (unsigned)s_str, (double)active_frequencies[j]);
                 break;
             }
         }
 
         if (s_pluck_detected) {
-            /* s_fret=1, s_is_reexciting=0 → SOL_BURST will fire at fret 0
-             * and move motor toward fret 1 LUT position.                    */
-            s_phase = CAL_PHASE_SOL_BURST;
+            /* Home the motor NOW that we know the string is alive.
+             * WAIT_HOME will poll position until the motor reaches 0.        */
+            InterCore_SendMotorGoto(s_str, 0);
+            s_home_timeout_cnt = 0u;
+            s_phase            = CAL_PHASE_WAIT_HOME;
             break;
         }
 
         s_pluck_timeout_cnt++;
         if (s_pluck_timeout_cnt >= CAL_PLUCK_TIMEOUT) {
-            printf("[CAL] str%u: no pluck — proceeding without reference\r\n",
+            printf("[CAL] str%u: no pluck — homing and proceeding anyway\r\n",
                    (unsigned)s_str);
+            InterCore_SendMotorGoto(s_str, 0);
+            s_home_timeout_cnt = 0u;
+            s_phase            = CAL_PHASE_WAIT_HOME;
+        }
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * WAIT_HOME: poll motor position until it reaches position 0 (home).
+     *
+     * At CAL_MOTOR_SPEED_FAST = 3000 steps/sec the worst-case travel
+     * (D3 at 9000 steps) takes ~3 s = ~18 hops.  CAL_HOME_TIMEOUT_HOPS
+     * adds margin for acceleration/braking.  If the motor never reports
+     * home (e.g. stall), calibration proceeds from wherever it stopped.
+     * ------------------------------------------------------------------ */
+    case CAL_PHASE_WAIT_HOME:
+    {
+        int32_t pos = g_shared_memory.current_positions[s_str];
+
+        if ((pos >= -CAL_HOME_POS_THRESHOLD && pos <= CAL_HOME_POS_THRESHOLD)
+            || s_home_timeout_cnt >= CAL_HOME_TIMEOUT_HOPS) {
+
+            if (s_home_timeout_cnt >= CAL_HOME_TIMEOUT_HOPS) {
+                printf("[CAL] str%u: home timeout (pos=%ld) — proceeding\r\n",
+                       (unsigned)s_str, (long)pos);
+            } else {
+                printf("[CAL] str%u: at home (pos=%ld) — starting calibration\r\n",
+                       (unsigned)s_str, (long)pos);
+            }
             s_phase = CAL_PHASE_SOL_BURST;
+        } else {
+            s_home_timeout_cnt++;
         }
         break;
     }
@@ -683,12 +749,14 @@ void Cal_Hop(void)
      * SOL_BURST: fire solenoid and (on primary burst) start motor transit.
      *
      * Primary burst (s_is_reexciting == 0):
-     *   – Fires at the PREVIOUS fret's resonant frequency (s_fret − 1).
-     *     This excites the string at its current resonance for maximum
-     *     energy transfer.
-     *   – Immediately commands motor to the NEXT fret's LUT position at
-     *     CAL_MOTOR_SPEED_FAST.  The motor travels during the burst and
-     *     wait so it arrives before the FFT re-opens.
+     *   – Fires at the string's ACTUAL current resonance:
+     *       fret 1: s_open_detected_freq (measured during pluck detection)
+     *       fret N: s_buf[N-2].freq (last recorded calibration measurement)
+     *     Using the measured frequency instead of theoretical maximises
+     *     energy transfer to the string.
+     *   – Motor target is estimated from the calibrated polynomial
+     *     (cal_poly_coeff) clamped to s_cal_steps_max[str], replacing the
+     *     old linear fret*1600 approximation.
      *   – Uses CAL_SOL_DURATION_MS (1 s) and CAL_BURST_WAIT_HOPS (8).
      *
      * Re-excite burst (s_is_reexciting == 1):
@@ -703,23 +771,51 @@ void Cal_Hop(void)
     {
         if (!s_is_reexciting) {
             /* --- Primary burst --- */
-            /* Fire at the fret the string is CURRENTLY AT (s_fret - 1) */
-            s_burst_freq     = cal_theoretical_freq[s_str][s_fret - 1u];
-            s_steps_expected = (int32_t)s_fret * CAL_STEPS_PER_FRET;
 
-            /* Warn if motor is far from expected (possible stall on prev fret) */
-            int32_t actual_pos = g_shared_memory.current_positions[s_str];
-            int32_t pos_err    = actual_pos - (int32_t)((s_fret - 1u) * CAL_STEPS_PER_FRET);
+            /* Fire solenoid at the string's ACTUAL current resonance.
+             * – Fret 1 burst: use the measured open-string frequency from the
+             *   pluck detection step (falls back to nominal if not detected).
+             * – Later frets: use the last recorded calibration measurement so
+             *   the solenoid matches the string's current tension state.      */
+            if (s_buf_n == 0u) {
+                s_burst_freq = (s_open_detected_freq > 0.0f)
+                               ? s_open_detected_freq
+                               : s_open_freq[s_str];
+            } else {
+                s_burst_freq = s_buf[s_buf_n - 1u].freq;
+            }
+
+            /* Estimate target motor position using the calibrated polynomial.
+             * cal_poly_coeff is seeded at boot from the base LUT and updated
+             * after every completed calibration run — estimates improve over
+             * time.  The per-string safety cap prevents over-travel.          */
+            {
+                float _tf   = cal_theoretical_freq[s_str][s_fret];
+                float _a    = cal_poly_coeff[s_str][0];
+                float _b    = cal_poly_coeff[s_str][1];
+                float _c    = cal_poly_coeff[s_str][2];
+                float _poly = _a + _b * _tf + _c * _tf * _tf;
+                if (_poly < 0.0f) _poly = 0.0f;
+                s_steps_expected = (int32_t)CalClampf(_poly, 0.0f,
+                                                      (float)s_cal_steps_max[s_str]);
+            }
+
+            /* Warn if motor is far from where it should be for the previous fret */
+            int32_t actual_pos    = g_shared_memory.current_positions[s_str];
+            int32_t prev_expected = (s_buf_n > 0u)
+                                    ? (int32_t)s_buf[s_buf_n - 1u].steps
+                                    : 0;
+            int32_t pos_err       = actual_pos - prev_expected;
             printf("[CAL] str%u fret%u | burst %.2f Hz, motor pos=%ld err=%ld%s\r\n",
                    (unsigned)s_str, (unsigned)s_fret,
                    (double)s_burst_freq, (long)actual_pos, (long)pos_err,
                    (pos_err > CAL_STALL_WARN_STEPS || pos_err < -CAL_STALL_WARN_STEPS)
                        ? " [STALL?]" : "");
 
-            /* Start motor moving toward next LUT target DURING the burst+wait.
-             * At 3000 steps/sec the 1600-step transit takes ≈ 533 ms;
-             * the wait lasts 8×170 = 1360 ms → motor arrives well before
-             * the FFT window re-opens.  Motor's own braking handles final decel. */
+            /* Start motor moving toward next fret target DURING the burst+wait.
+             * At 3000 steps/sec the wait window of 8×170 ms = 1360 ms gives
+             * the motor time to arrive before the FFT re-opens.
+             * Motor's own braking-distance logic handles the final approach. */
             InterCore_SendMotorMaxSpeed(s_str, CAL_MOTOR_SPEED_FAST);
             InterCore_SendMotorGoto(s_str, s_steps_expected);
 
@@ -823,7 +919,7 @@ void Cal_Hop(void)
                 int32_t cmd = (int32_t)CalClampf(
                     (float)s_steps_expected + trim,
                     (float)TUNING_STEPS_MIN_DEFAULT,
-                    (float)TUNING_STEPS_MAX_DEFAULT);
+                    (float)s_cal_steps_max[s_str]);
 
                 /* Suppress tiny updates (TUNING_MIN_MOVE_STEPS = 2 microsteps)
                  * to prevent motor hunting at steady state. */
