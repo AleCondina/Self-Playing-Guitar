@@ -159,8 +159,8 @@ void App_CM7_Main(void) {
         TuningCtrl_Init();
 
         /* Register song scheduler note count (not started yet – use 'smoke' command) */
-        printf("[CM7] Song scheduler ready (%lu notes loaded).\r\n",
-       (unsigned long)g_event_count);
+    //     printf("[CM7] Song scheduler ready (%lu notes loaded).\r\n",
+    //    (unsigned long)g_event_count);
 
         /* Print CSV log header for offline analysis */
         printf("[TC] timestamp_ms,string_id,target_hz,measured_hz,error_hz,"
@@ -197,6 +197,8 @@ void App_CM7_Main(void) {
        
 
     MIDI_Parse(g_midi_data,g_midi_len,g_events,256,&g_event_count);
+    printf("[CM7] Song scheduler ready (%lu notes loaded).\r\n",
+       (unsigned long)g_event_count);
 
 printf("Parsed %lu events\n", g_event_count);
 
