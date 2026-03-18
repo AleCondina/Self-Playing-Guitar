@@ -82,7 +82,6 @@ static void MX_BDMA_Init(void);
 static void MX_ADC3_Init(void);
 static void MX_TIM1_Init(void);
 /* USER CODE BEGIN PFP */
-static void ConfigureSupplyForSmps(void);
 
 /* USER CODE END PFP */
 

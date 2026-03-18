@@ -160,7 +160,7 @@ int32_t Solenoid_SetFrequency(uint8_t solenoid_id, uint8_t string, uint8_t fret)
     }
 
     /* Get new ARR value from lookup table */
-    uint16_t new_arr = SOLENOID_FREQ_TABLE[string][fret];
+    uint16_t new_arr = SOLENOID_FREQ_TABLE[string][fret] * TIMER_CALIBRATION_FACTOR + 0.5f;
 
     /* Calculate new CCR for current duty cycle */
     uint16_t new_ccr = ((new_arr + 1) * state->duty_cycle) / 100;
@@ -202,9 +202,9 @@ int32_t Solenoid_SetDutyCycle(uint8_t solenoid_id, uint8_t duty_percent)
         return 0;
     }
 
-    /* Recalculate CCR based on current ARR */
+    /* Recalculate CCR based on current ARR (period = ARR + 1 counts) */
     uint16_t current_arr = __HAL_TIM_GET_AUTORELOAD(state->htim);
-    uint16_t new_ccr = (current_arr * duty_percent) / 100;
+    uint16_t new_ccr = ((current_arr + 1) * duty_percent) / 100;
 
     /* Update CCR (will take effect on next timer period) */
     __HAL_TIM_SET_COMPARE(state->htim, state->channel, new_ccr);
@@ -278,7 +278,7 @@ uint8_t Solenoid_GetActiveMask(void)
 /**
  * @brief Get current frequency for a solenoid (diagnostics)
  */
-uint32_t Solenoid_GetFrequency(uint8_t solenoid_id)
+float Solenoid_GetFrequency(uint8_t solenoid_id)
 {
     if (solenoid_id >= SOLENOID_COUNT) {
         return 0;  /* Invalid ID */
@@ -294,8 +294,9 @@ uint32_t Solenoid_GetFrequency(uint8_t solenoid_id)
     /* Get current ARR value */
     uint16_t arr = __HAL_TIM_GET_AUTORELOAD(state->htim);
 
-    /* Calculate frequency: freq = TIM_PRESCALED_CLK_HZ / (ARR + 1) */
-    uint32_t freq_hz = TIM_PRESCALED_CLK_HZ / (arr + 1);
+    /* ARR was set with calibration factor baked in, so the actual output
+     * frequency is the nominal calculation divided by the factor */
+    float freq_hz = ((float)TIM_PRESCALED_CLK_HZ / (arr + 1)) * TIMER_CALIBRATION_FACTOR;
 
     return freq_hz;
 }
@@ -397,7 +398,7 @@ int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, float freq_hz)
         return -1;
     }
 
-    uint16_t new_arr = (uint16_t)((TIM_PRESCALED_CLK_HZ / freq_hz) - 0.5f);
+    uint16_t new_arr = (uint16_t)(((TIM_PRESCALED_CLK_HZ / freq_hz) - 1.0f) * TIMER_CALIBRATION_FACTOR + 0.5f);
     uint16_t new_ccr = (uint16_t)(((new_arr + 1) * state->duty_cycle) / 100);
 
     __HAL_TIM_SET_AUTORELOAD(state->htim, new_arr);

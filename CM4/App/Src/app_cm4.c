@@ -46,30 +46,6 @@ void App_CM4_Main(void)
     /* Initialize motor control system */
     Motor_Init();
 
-    /* Enable motor 0 driver (drive nEN LOW) */
-    Motor_Enable(0);
-
-    /* Zero position */
-    Motor_ZeroPosition(0);
-
-    /* Enable motor 1 driver (drive nEN LOW) */
-    Motor_Enable(1);
-
-    /* Zero position */
-    Motor_ZeroPosition(1);
-
-    /* Enable motor 2 driver - D3 string (drive nEN LOW) */
-    Motor_Enable(2);
-
-    /* Zero position */
-    Motor_ZeroPosition(2);
-
-    /* Enable motor 3 driver - G3 string (drive nEN LOW) */
-    Motor_Enable(3);
-
-    /* Zero position */
-    Motor_ZeroPosition(3);
-
     /* Set all motors to 1/16 microstepping by default */
     Motor_SetMicrostepMode(0, MOTOR_MICROSTEP_16);
     Motor_SetMicrostepMode(1, MOTOR_MICROSTEP_16);
@@ -111,7 +87,7 @@ void App_CM4_Main(void)
     /* DEBUG: Read back all configuration */
     volatile uint32_t debug_arr = __HAL_TIM_GET_AUTORELOAD(&htim2);
     volatile uint32_t debug_ccr = __HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_1);
-    volatile uint32_t debug_freq = Solenoid_GetFrequency(SOLENOID_STRING_D3);
+    volatile float debug_freq = Solenoid_GetFrequency(SOLENOID_STRING_D3);
     volatile uint8_t debug_active = Solenoid_GetActiveMask();
 
     /* Read TIM2 control registers for verification */
@@ -295,6 +271,19 @@ void App_CM4_Main(void)
                     }
                 }
                 InterCore_AckCommand(CMD_MOTOR_ENABLE);
+            }
+
+            /* Process batch motor enable/disable (bitmask) */
+            if (commands & CMD_MOTOR_ENABLE_MASK) {
+                uint8_t mask = g_shared_memory.motor_cmd_enable_mask;
+                for (uint8_t i = 0; i < NUM_MOTORS; i++) {
+                    if (mask & (1u << i)) {
+                        Motor_Enable(i);
+                    } else {
+                        Motor_Disable(i);
+                    }
+                }
+                InterCore_AckCommand(CMD_MOTOR_ENABLE_MASK);
             }
 
             /* Process position zero */

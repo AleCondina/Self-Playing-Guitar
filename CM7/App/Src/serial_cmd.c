@@ -27,6 +27,8 @@
 #include "serial_cmd.h"
 #include "app_cm7.h"
 #include "tuning_controller.h"
+#include "calibration_controller.h"
+#include "fft_processing.h"
 #include "debug_uart.h"
 #include "inter_core_cm7.h"
 #include "shared_memory.h"
@@ -106,6 +108,9 @@ static void Cmd_Calibrate(char *args);
 static void Cmd_MapFrets(char *args);
 static void Cmd_PrintLut(char *args);
 static void Cmd_Smoke(char *args);
+static void Cmd_FftPrint(char *args);
+static void Cmd_Tune(char *args);
+static void Cmd_Debug(char *args);
 static void Demo_Tick(void);
 
 /* Command table entry */
@@ -137,6 +142,9 @@ static const CmdEntry_t command_table[] = {
     { "mapfrets",  Cmd_MapFrets,  "mapfrets [str ...]       Measure fret step positions for LUT (e.g. 'mapfrets 0 1')" },
     { "printlut",  Cmd_PrintLut,  "printlut                 Print current feed-forward LUT values" },
     { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water" },
+    { "tune",      Cmd_Tune,      "tune [str ...]            Tune open strings 0-3 to standard pitch" },
+    { "fftprint",  Cmd_FftPrint,  "fftprint                 Toggle live FFT peak output" },
+    { "debug",     Cmd_Debug,     "debug [hop|nf|all|off]   Toggle debug outputs" },
     { "help",      Cmd_Help,      "help                    Show this help" },
     { "sol",       Cmd_Sol,       "sol <id> <str> <fret> [duty] [time] [cycles]  Trigger solenoid" },
     { "solstop",   Cmd_SolStop,   "solstop <id|all>        Stop solenoid(s)" },
@@ -195,6 +203,9 @@ void SerialCmd_Init(void)
 
 uint8_t SerialCmd_Process(void)
 {
+    /* Flush any pending echo characters from ISR */
+    Debug_UART_FlushEcho();
+
     /* Tick demo state machine every call (runs even when no command pending) */
     Demo_Tick();
 
@@ -631,6 +642,12 @@ static void Cmd_Sol(char *args)
         return;
     }
 
+    /* Warn if solenoid has no timer assigned (E2=0, B3=4, E4=5) */
+    if (id == 0 || id == 4 || id == 5) {
+        printf("  Warning: Solenoid %d has no timer assigned (no PWM output)\r\n", (int)id);
+        return;
+    }
+
     /* Populate shared memory */
     g_shared_memory.solenoid_id = (uint8_t)id;
     g_shared_memory.solenoid_string = (uint8_t)str;
@@ -797,11 +814,80 @@ static void Cmd_PrintLut(char *args)
     printf("==================================================\r\n");
 }
 
+static void Cmd_FftPrint(char *args)
+{
+    (void)args;
+    fft_print_enabled = !fft_print_enabled;
+    printf("  FFT live print: %s\r\n", fft_print_enabled ? "ON" : "OFF");
+}
+
+static void Cmd_Debug(char *args)
+{
+    (void)args;
+    char *tok = strtok(NULL, " \t");
+
+    if (tok == NULL) {
+        /* No arg: print current state */
+        printf("  Debug flags: 0x%02X\r\n", app_debug_flags);
+        printf("    hop   = %s\r\n", (app_debug_flags & DEBUG_FLAG_HOP_TIMER)   ? "ON" : "OFF");
+        printf("    nf    = %s\r\n", (app_debug_flags & DEBUG_FLAG_NOISE_FLOOR) ? "ON" : "OFF");
+        printf("    fft   = %s\r\n", fft_print_enabled ? "ON" : "OFF");
+    } else if (strcmp(tok, "hop") == 0) {
+        app_debug_flags ^= DEBUG_FLAG_HOP_TIMER;
+        printf("  Hop timer: %s\r\n", (app_debug_flags & DEBUG_FLAG_HOP_TIMER) ? "ON" : "OFF");
+    } else if (strcmp(tok, "nf") == 0) {
+        app_debug_flags ^= DEBUG_FLAG_NOISE_FLOOR;
+        printf("  Noise floor: %s\r\n", (app_debug_flags & DEBUG_FLAG_NOISE_FLOOR) ? "ON" : "OFF");
+    } else if (strcmp(tok, "fft") == 0) {
+        fft_print_enabled = !fft_print_enabled;
+        printf("  FFT print: %s\r\n", fft_print_enabled ? "ON" : "OFF");
+    } else if (strcmp(tok, "all") == 0) {
+        app_debug_flags = 0xFF;
+        fft_print_enabled = 1;
+        printf("  All debug ON\r\n");
+    } else if (strcmp(tok, "off") == 0) {
+        app_debug_flags = 0;
+        fft_print_enabled = 0;
+        printf("  All debug OFF\r\n");
+    } else {
+        printf("  Usage: debug [hop|nf|fft|all|off]\r\n");
+    }
+}
+
 static void Cmd_Smoke(char *args)
 {
     (void)args;
     printf("  Starting Smoke on the Water...\r\n");
     App_RequestPlay();
+}
+
+static void Cmd_Tune(char *args)
+{
+    (void)args;
+
+    char *tok = strtok(NULL, " \t");
+
+    if (tok == NULL || strcmp(tok, "all") == 0) {
+        printf("  Requesting open-string tuning (strings 0-3)...\r\n");
+        printf("  Pluck each string when prompted. Watch [TUNE] output.\r\n");
+        App_RequestTune(0x0Fu);
+        return;
+    }
+
+    /* Build a bitmask from the listed string IDs */
+    uint8_t mask = 0u;
+    do {
+        int id = atoi(tok);
+        if (id < 0 || id > 3) {
+            printf("  Error: tune currently supports only strings 0-3 (got %d).\r\n", id);
+            return;
+        }
+        mask |= (uint8_t)(1u << id);
+    } while ((tok = strtok(NULL, " \t")) != NULL);
+
+    printf("  Requesting open-string tuning (mask 0x%02X)...\r\n", (unsigned)mask);
+    printf("  Pluck each string when prompted. Watch [TUNE] output.\r\n");
+    App_RequestTune(mask);
 }
 
 /* ===== Demo Command & State Machine ===== */

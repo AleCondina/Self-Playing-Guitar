@@ -144,6 +144,92 @@ uint16_t Debug_UART_GetLine(char *buffer, uint16_t max_len)
 /**
  * @brief HAL UART RX complete callback (called from ISR context)
  */
+/* Echo ring buffer — ISR stores chars here, main loop drains them via UART TX */
+#define ECHO_BUF_SIZE 64
+static volatile char    echo_buf[ECHO_BUF_SIZE];
+static volatile uint8_t echo_head = 0;
+static volatile uint8_t echo_tail = 0;
+
+static inline void echo_put(char c)
+{
+    uint8_t next = (echo_head + 1) % ECHO_BUF_SIZE;
+    if (next != echo_tail) {          /* drop if full */
+        echo_buf[echo_head] = c;
+        echo_head = next;
+    }
+}
+
+/**
+ * @brief Drain echo buffer from main loop (call from SerialCmd_Process or main)
+ *
+ * Also re-arms the RX interrupt if it was lost.  This happens when
+ * HAL_UART_RxCpltCallback calls HAL_UART_Receive_IT while a blocking
+ * HAL_UART_Transmit (used by printf) holds huart->Lock — the re-arm
+ * returns HAL_BUSY and the UART goes permanently deaf.  Checking
+ * RxState here, outside any TX call, lets us recover.
+ */
+void Debug_UART_FlushEcho(void)
+{
+    /* Re-arm RX if it was lost due to HAL lock conflict with TX */
+    if (hcom_uart[COM1].RxState == HAL_UART_STATE_READY) {
+        HAL_UART_Receive_IT(&hcom_uart[COM1], &rx_byte, 1);
+    }
+
+    while (echo_tail != echo_head) {
+        char c = echo_buf[echo_tail];
+        HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*)&c, 1, 2);
+        echo_tail = (echo_tail + 1) % ECHO_BUF_SIZE;
+    }
+}
+
+/**
+ * @brief Reset UART RX state and re-arm interrupt.
+ *
+ * Call after any long-running operation with heavy printf output (e.g.
+ * calibration) to recover from UART overrun errors that may have left
+ * the HAL RX state machine stuck.
+ */
+void Debug_UART_ResetRx(void)
+{
+    /* Disable UART IRQ to prevent re-entrance while we reset state */
+    HAL_NVIC_DisableIRQ(USART3_IRQn);
+
+    /* Clear all UART error flags at register level */
+    __HAL_UART_CLEAR_FLAG(&hcom_uart[COM1],
+        UART_CLEAR_OREF | UART_CLEAR_NEF | UART_CLEAR_PEF | UART_CLEAR_FEF);
+
+    /* Force HAL RxState to READY — AbortReceive_IT is async and leaves
+     * RxState as BUSY_RX, causing the subsequent Receive_IT to fail.
+     * Directly resetting the internal state is the only reliable way. */
+    hcom_uart[COM1].RxState = HAL_UART_STATE_READY;
+
+    /* Reset application-level buffers */
+    rx_line_pos   = 0;
+    rx_line_ready = 0;
+    echo_head     = 0;
+    echo_tail     = 0;
+
+    /* Re-enable IRQ and re-arm RX */
+    HAL_NVIC_EnableIRQ(USART3_IRQn);
+    HAL_UART_Receive_IT(&hcom_uart[COM1], &rx_byte, 1);
+}
+
+/**
+ * @brief UART error callback — re-arms RX after overrun or framing errors.
+ * @note  Without this, a UART overrun (ORE) during heavy printf output
+ *        permanently disables RX interrupts and the firmware goes deaf.
+ */
+void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
+{
+    if (huart->Instance == USART3) {
+        /* Clear all UART error flags */
+        __HAL_UART_CLEAR_FLAG(huart, UART_CLEAR_OREF | UART_CLEAR_NEF |
+                                     UART_CLEAR_PEF  | UART_CLEAR_FEF);
+        /* Re-arm the RX interrupt so the firmware can receive again */
+        HAL_UART_Receive_IT(huart, &rx_byte, 1);
+    }
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
     if (huart->Instance == USART3) {
@@ -154,20 +240,23 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
                 rx_line_buffer[rx_line_pos] = '\0';
                 rx_line_ready = 1;
             }
-            HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*)"\r\n", 2, 10);
+            echo_put('\r');
+            echo_put('\n');
         }
         else if (c == '\b' || c == 0x7F) {  /* Backspace / DEL */
             if (rx_line_pos > 0) {
                 rx_line_pos--;
-                HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*)"\b \b", 3, 10);
+                echo_put('\b');
+                echo_put(' ');
+                echo_put('\b');
             }
         }
         else if (rx_line_pos < UART_RX_BUFFER_SIZE - 1 && !rx_line_ready) {
             rx_line_buffer[rx_line_pos++] = c;
-            HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*)&c, 1, 10);
+            echo_put(c);
         }
 
-        /* Re-arm for next byte */
+        /* Always re-arm RX — never skip this */
         HAL_UART_Receive_IT(&hcom_uart[COM1], &rx_byte, 1);
     }
 }

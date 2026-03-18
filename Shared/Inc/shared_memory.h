@@ -46,6 +46,7 @@
 #define CMD_MOTOR_ENABLE        (1U << 11)  /* Enable/disable motor -----*/
 #define CMD_MOTOR_ZERO          (1U << 12)  /* Zero motor position -----*/
 #define CMD_TRIGGER_SOLENOID_HZ (1U << 13)  /* Trigger solenoid at exact Hz (tuning controller) */
+#define CMD_MOTOR_ENABLE_MASK   (1U << 14)  /* Batch enable/disable motors via bitmask */
 
 #define CMD_PLAY_NOTE_TUNE   (1U << 6)
 #define CMD_STOP_ALL         (1U << 7)
@@ -87,7 +88,7 @@ typedef struct {
     volatile uint8_t  motor_cmd_id;                    /* Motor ID for current command */
     volatile uint8_t  motor_cmd_microstep_mode;        /* Microstep mode (0-5) */
     volatile uint8_t  motor_cmd_enable;                /* 1=enable, 0=disable */
-    volatile uint8_t  motor_cmd_reserved;              /* Padding for alignment */
+    volatile uint8_t  motor_cmd_enable_mask;            /* Bitmask for CMD_MOTOR_ENABLE_MASK: bit i → motor i */
     volatile int32_t  motor_cmd_position;              /* Target position (absolute or relative) */
     volatile int32_t  motor_cmd_accel;                 /* Acceleration value */
     volatile int32_t  motor_cmd_max_speed;             /* Max speed value */

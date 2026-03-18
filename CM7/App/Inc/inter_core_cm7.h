@@ -124,6 +124,12 @@ void InterCore_SendMotorMicrostep(uint8_t motor_id, uint8_t mode);
 void InterCore_SendMotorEnable(uint8_t motor_id, uint8_t enable);
 
 /**
+ * @brief Batch enable/disable motors via bitmask (atomic, handles chords)
+ * @param enable_mask  Bit i = 1 → enable motor i; bit i = 0 → disable motor i
+ */
+void InterCore_SendMotorEnableMask(uint8_t enable_mask);
+
+/**
  * @brief Send zero position command to CM4
  */
 void InterCore_SendMotorZero(uint8_t motor_id);

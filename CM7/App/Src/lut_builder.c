@@ -60,13 +60,13 @@
 #define LUT_FREQ_NEAR_HZ       2.0f
 
 /** Frequency tolerance to record a fret position (Hz). */
-#define LUT_FREQ_LOCK_HZ       1.0f
+#define LUT_FREQ_LOCK_HZ       5.0f
 
 /** Signal detection — reject peaks below this fraction of open frequency. */
 #define LUT_OPEN_FREQ_MIN_RATIO 0.80f
 
 /** Tolerance for accepting open-string detection (Hz). */
-#define LUT_OPEN_TOLERANCE_HZ   5.0f
+#define LUT_OPEN_TOLERANCE_HZ   1.0f
 
 /** Consecutive hops without signal before UART prompt. */
 #define LUT_NO_SIG_PROMPT_HOPS  20u    /* ~3.4 s */
@@ -78,7 +78,7 @@
 #define LUT_HOME_SETTLE_HOPS    6u     /* ~1.0 s */
 
 /** Far target position — motor sweeps toward this (microsteps). */
-#define LUT_MAX_STEPS           2000
+#define LUT_MAX_STEPS           8000
 
 /** Hops to wait after stopping motor at a fret before resuming. */
 #define LUT_LOCK_SETTLE_HOPS    2u     /* ~340 ms */
@@ -175,9 +175,9 @@ static void FindBestPeak(float *out_freq, float *out_mag)
         float f = active_frequencies[i];
         float m = active_magnitudes[i];
 
-        /* Reject out-of-range or below noise floor */
+        /* Reject out-of-range (SNR already vetted by FFT_ProcessBlock) */
         if (f < min_f || f > max_f) continue;
-        if (m < NOISE_GATE_THRESHOLD) continue;
+        (void)m;  /* magnitude no longer gate-checked here */
 
         float err = fabsf(f - target);
         if (err < best_err) {

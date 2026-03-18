@@ -29,6 +29,8 @@
  */
 
 #include "tuning_controller.h"
+#include "calibration_controller.h"
+//#include "song_scheduler.h"
 #include "song_scheduler_tuning.h"
 #include "fft_processing.h"
 #include "inter_core_cm7.h"
@@ -59,24 +61,23 @@ extern SongScheduler_t g_sched;
  *       Current values assume ~10 microsteps per Hz as a rough linear first-guess.
  * ========================================================================= */
 float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
-    /* Equal temperament: f(n) = f_open * 2^(n/12) for frets 0-6 */
-    /* E2 frets 0-6 */ {  82.41f,  87.31f,  92.50f,  98.00f, 103.83f, 110.00f, 116.54f },
-    /* A2 frets 0-6 */ { 110.00f, 116.54f, 123.47f, 130.81f, 138.59f, 146.83f, 155.56f },
-    /* D3 frets 0-6 */ { 146.83f, 155.56f, 164.81f, 174.61f, 185.00f, 196.00f, 207.65f },
-    /* G3 frets 0-6 */ { 196.00f, 207.65f, 220.00f, 233.08f, 246.94f, 261.63f, 277.18f },
+    /* Measured frequencies from LUT RUN 1 */
+    /* E2 frets 0-6 */ {  82.41f,  82.69f,  89.97f,  96.05f, 100.07f, 106.37f, 112.82f },
+    /* A2 frets 0-6 */ { 110.00f, 115.54f, 121.57f, 127.57f, 139.23f, 145.69f, 151.22f },
+    /* D3 frets 0-6 */ { 146.83f, 160.03f, 170.43f, 179.45f, 188.51f, 197.45f, 205.19f },
+    /* G3 frets 0-6 */ { 196.00f, 207.65f, 233.38f, 248.76f, 262.49f, 277.12f, 292.19f },
     /* B3 frets 0-6 */ { 246.94f, 261.63f, 277.18f, 293.66f, 311.13f, 329.63f, 349.23f },
     /* E4 frets 0-6 */ { 329.63f, 349.23f, 369.99f, 392.00f, 415.30f, 440.00f, 466.16f },
 };
 
 float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
-    /* Placeholder: linear 0..600 microsteps across frets 0-6.
-     * Run the LUT builder ('mapfrets' command) to replace with measured values. */
-    /* E2 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
-    /* A2 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
-    /* D3 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
-    /* G3 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
-    /* B3 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
-    /* E4 */ { 0.0f, 100.0f, 200.0f, 300.0f, 400.0f, 500.0f, 600.0f },
+    /* Measured microsteps from LUT RUN 1 */
+    /* E2 */ {   0.0f, 267.0f, 1080.0f, 1623.0f, 2029.0f, 2706.0f, 3385.0f },
+    /* A2 */ {   0.0f,  751.0f, 1549.0f, 2370.0f, 4103.0f, 5013.0f, 5955.0f },
+    /* D3 */ {   0.0f, 2331.0f, 3363.0f, 4417.0f, 5477.0f, 6533.0f, 7499.0f },
+    /* G3 */ {   0.0f,  910.0f, 2583.0f, 3485.0f, 4480.0f, 5523.0f, 6646.0f },
+    /* B3 */ {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    /* E4 */ {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
 };
 
 /* =========================================================================
@@ -88,6 +89,10 @@ static TuningStringState_t s_state[NUM_STRINGS];
 /* Decimation counter for debug printing (print every N hops) */
 #define DEBUG_DECIM_HOPS    5u
 static uint32_t s_debug_counter = 0u;
+
+/* Bitmask of motors currently enabled by the tuning controller.
+ * Used to detect transitions and avoid redundant enable commands. */
+static uint8_t s_motor_enable_mask = 0u;
 
 /* =========================================================================
  * Private helpers
@@ -124,25 +129,20 @@ static inline float Lerpf(float x0, float y0, float x1, float y1, float x)
  */
 static float FF_Interpolate(uint8_t str, float freq)
 {
-    const float *fbp = tuning_ff_freq_bp[str];
-    const float *sbp = tuning_ff_steps_bp[str];
-    const uint8_t n  = TUNING_FF_NUM_POINTS;
+    /* Evaluate the calibrated quadratic: steps = a + b·f + c·f²
+     * cal_poly_coeff is seeded at boot from the base LUT (Cal_FitFromBaseLUT)
+     * and updated after each calibration run (Cal_FitPolynomial). */
+    float a     = cal_poly_coeff[str][0];
+    float b     = cal_poly_coeff[str][1];
+    float c     = cal_poly_coeff[str][2];
+    float steps = a + b * freq + c * freq * freq;
+    if (steps < 0.0f) steps = 0.0f;
 
-    /* Below first breakpoint: clip */
-    if (freq <= fbp[0]) return sbp[0];
+    /* Apply tune offset — compensates for string being flat or sharp
+     * relative to standard tuning.  Set by the 'tune' command. */
+    steps += (float)Cal_TuneGetOffset(str);
 
-    /* Above last breakpoint: clip */
-    if (freq >= fbp[n - 1u]) return sbp[n - 1u];
-
-    /* Find surrounding interval and interpolate */
-    for (uint8_t i = 0u; i < (n - 1u); i++) {
-        if (freq >= fbp[i] && freq <= fbp[i + 1u]) {
-            return Lerpf(fbp[i], sbp[i], fbp[i + 1u], sbp[i + 1u], freq);
-        }
-    }
-
-    /* Should not reach here, but be safe */
-    return sbp[n - 1u];
+    return steps;
 }
 
 /**
@@ -162,7 +162,7 @@ static void ApplyActuation(uint8_t string_id,
     if (lock_now && !lock_prev) {
         /* Rising edge: start solenoid at the exact target frequency.
          * Uses CMD_TRIGGER_SOLENOID_HZ → Solenoid_SetFrequencyHz() on CM4.
-         * This sets ARR = (2400000 / freq_hz) - 1 directly instead of using
+         * This sets ARR = (2200000 / freq_hz) - 0.5f directly instead of using
          * the coarse string/fret lookup table. */
         float freq = (target_freq >= 40.0f && target_freq <= 800.0f)
                             ? target_freq : 0.0f;       
@@ -170,8 +170,8 @@ static void ApplyActuation(uint8_t string_id,
             InterCore_TriggerSolenoidHz(string_id,
                                         freq,
                                         SOLENOID_DEFAULT_DUTY_CYCLE,
-                                        SOLENOID_MODE_INFINITE,
-                                        0u,
+                                        SOLENOID_MODE_TIMED,
+                                        250u,
                                         0u);
         }
 
@@ -206,6 +206,7 @@ void TuningCtrl_Init(void)
         s->last_valid_freq_hz  =  0.0f;
     }
     s_debug_counter = 0u;
+    s_motor_enable_mask = 0u;
 }
 
 /* -------------------------------------------------------------------------
@@ -254,9 +255,12 @@ void TuningCtrl_Update(uint8_t string_id,
     }
 
     /* ------------------------------------------------------------------ */
-    /* 2. SNR / confidence gate                                             */
+    /* 2. Measurement gate                                                  */
+    /* Peaks in active_frequencies[] are already SNR-vetted by              */
+    /* FFT_ProcessBlock's adaptive per-bin noise floor.  We only need to    */
+    /* check that GetFFTRadarLock returned a valid measurement (non-zero).  */
     /* ------------------------------------------------------------------ */
-    uint8_t measurement_trusted = (confidence >= TUNING_SNR_THRESHOLD);
+    uint8_t measurement_trusted = (measured_freq_hz > 0.0f);
 
     float use_freq;
     if (measurement_trusted) {
@@ -282,16 +286,19 @@ if (fabsf(e) < 0.5f)
 }//Added deadband,Prevents motor hunting/oscillation
 
     /* ------------------------------------------------------------------ */
-    /* 4. Lock-band hysteresis                                              */
+    /* 4. Lock-band hysteresis (cents-based, pitch-relative)                */
+    /*    band_hz = target * (2^(cents/1200) - 1)                           */
     /* ------------------------------------------------------------------ */
     float abs_e = fabsf(e);
+    float lock_in_hz  = target_freq_hz * (powf(2.0f, TUNING_LOCK_BAND_IN_CENTS  / 1200.0f) - 1.0f);
+    float lock_out_hz = target_freq_hz * (powf(2.0f, TUNING_LOCK_BAND_OUT_CENTS / 1200.0f) - 1.0f);
 
     if (s->lock_state) {
-        if (abs_e >= TUNING_LOCK_BAND_OUT_HZ) {
+        if (abs_e >= lock_out_hz) {
             s->lock_state = 0u;
         }
     } else {
-        if (abs_e <= TUNING_LOCK_BAND_IN_HZ) {
+        if (abs_e <= lock_in_hz) {
             s->lock_state = 1u;
         }
     }
@@ -418,16 +425,16 @@ static void GetFFTRadarLock(float target, float* out_measured, float* out_confid
         }
     }
 
-    /* 2. Validate the lock */
+    /* 2. Validate the lock — peaks in active_frequencies[] are already
+     *    SNR-vetted by FFT_ProcessBlock's adaptive noise floor, so we only
+     *    need to check that we found something within the search window. */
     if (active_string_count > 0 && min_error <= TUNE_SEARCH_WINDOW_HZ) {
-        if (best_mag > NOISE_GATE_THRESHOLD) {
-            *out_measured = best_measured;
-            *out_confidence = best_mag;
-            return; /* Successful lock */
-        }
+        *out_measured = best_measured;
+        *out_confidence = best_mag;
+        return; /* Successful lock */
     }
 
-    /* Target is missing, out of bounds, or too quiet */
+    /* Target is missing or out of search window */
     *out_measured = 0.0f;
     *out_confidence = 0.0f;
 }
@@ -439,9 +446,30 @@ static void GetFFTRadarLock(float target, float* out_measured, float* out_confid
  * --------------------------------------------------------------------- */
 void TuningCtrl_RunHop(void)
 {
+    /* ------------------------------------------------------------------ */
+    /* Microstep safeguard: verify all configured motors are in 1/16 mode.  */
+    /* If any motor is wrong, halt the controller and warn over UART.       */
+    /* Running with incorrect microstepping will produce wrong position      */
+    /* commands that can damage the mechanical system.                       */
+    /* ------------------------------------------------------------------ */
+    for (uint8_t m = 0u; m < 4u; m++) {  /* Motors 0-3 are configured */
+        if (g_shared_memory.motor_microstep_status[m] != TUNING_REQUIRED_MICROSTEP_MODE) {
+            printf("[TC] *** HALT: Motor %u microstep mode is %u, expected %u (1/16). "
+                   "Tuning controller disabled to prevent damage. ***\r\n",
+                   (unsigned)m,
+                   (unsigned)g_shared_memory.motor_microstep_status[m],
+                   (unsigned)TUNING_REQUIRED_MICROSTEP_MODE);
+            /* Disable all motors as a safety measure */
+            if (s_motor_enable_mask != 0u) {
+                InterCore_SendMotorEnableMask(0u);
+                s_motor_enable_mask = 0u;
+            }
+            return;
+        }
+    }
+
     /* Get current note from song scheduler */
-    if (g_sched.count == 0)
-    return;
+    if (!SongSched_IsActive()) return;
 
     uint8_t found = 0;
     uint8_t str = 0;
@@ -462,6 +490,16 @@ if (!found)
     return;
 
 
+
+    /* --- Motor power management: enable only active string motors --- */
+    uint8_t needed_mask = (1u << str);
+    if (SongSched_GetStringCount() >= 2u) {
+        needed_mask |= (1u << SongSched_GetStringId2());
+    }
+    if (needed_mask != s_motor_enable_mask) {
+        InterCore_SendMotorEnableMask(needed_mask);
+        s_motor_enable_mask = needed_mask;
+    }
 
     /* --- Primary String FFT Lock --- */
     float measured = 0.0f;
@@ -594,4 +632,5 @@ void TuningCtrl_ResetAll(void)
     for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
         TuningCtrl_ResetString(i);
     }
+    s_motor_enable_mask = 0u;
 }

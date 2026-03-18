@@ -324,6 +324,17 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
             continue;
         }
 
+        /* Skip disabled motors — no stepping, no position drift */
+        if (!motor_enabled_state[i]) {
+            states[i].current_speed = 0;
+            states[i].target_speed  = 0;
+            states[i].is_moving     = 0;
+            step_accumulator[i]     = 0;
+            accel_accumulator[i]    = 0;
+            position_mode[i]        = 0;
+            continue;
+        }
+
         /* Get motor-specific limits (used by position control and accel limiter) */
         int32_t max_speed = motor_configs[i].max_speed > 0 ?
                            motor_configs[i].max_speed : MOTOR_MAX_STEP_FREQ;

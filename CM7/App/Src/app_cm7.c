@@ -62,11 +62,13 @@ typedef enum {
     STATE_IDLE,
     STATE_CALIBRATING,
     STATE_LUT_BUILDING,
+    STATE_TUNING,
     STATE_RUNNING,
     STATE_ERROR
 } AppState_t;
 
 static AppState_t app_state = STATE_INIT;
+uint8_t app_debug_flags = 0;
 
 /* Set by serial commands to request mode changes on the next audio hop */
 static volatile uint8_t s_request_calibrate      = 0u;
@@ -74,12 +76,24 @@ static volatile uint8_t s_request_calibrate_mask = 0x3Fu;
 static volatile uint8_t s_request_play            = 0u;
 static volatile uint8_t s_request_lutbuild       = 0u;
 static volatile uint8_t s_request_lutbuild_mask  = 0x3Fu;
+static volatile uint8_t s_request_tune           = 0u;
+static volatile uint8_t s_request_tune_mask      = 0x0Fu;
 
 /**
  * @brief CM7 application main function
  */
 void App_CM7_Main(void) {
     uint32_t last_debug_time = 0;
+
+    /* DWT cycle counter for microsecond-precision timing */
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+
+    static uint32_t hop_last_cyc       = 0;
+    static uint32_t hop_interval_us    = 0;
+    static uint32_t proc_time_us       = 0;
+    static uint32_t proc_max_us        = 0;
 
     printf("\r\n\r\n");
     printf("=========================================\r\n");
@@ -126,6 +140,19 @@ void App_CM7_Main(void) {
         /* Initialize FFT Processing */
         printf("[CM7] Initializing FFT engine...\r\n");
         FFT_Init();
+
+        /* Restore calibration LUT + polynomial from backup SRAM (VBAT-backed) */
+        if (Cal_LoadFromSRAM()) {
+            printf("[CM7] Calibration restored from backup SRAM.\r\n");
+        } else {
+            Cal_FitFromBaseLUT();
+            printf("[CM7] No SRAM calibration — polynomial seeded from base LUT.\r\n");
+        }
+
+        /* Restore tune offsets from backup SRAM */
+        if (Cal_TuneLoadFromSRAM()) {
+            printf("[CM7] Tune offsets restored from backup SRAM.\r\n");
+        }
 
         /* Initialize tuning controller (depends on home being established) */
         printf("[CM7] Initializing tuning controller...\r\n");
@@ -231,6 +258,10 @@ if (g_event_count > 0)
                 if (Cal_GetStatus() == CAL_STATUS_DONE ||
                     Cal_GetStatus() == CAL_STATUS_ERROR) {
                     app_state = STATE_RUNNING;
+                    /* Reset UART RX to recover from any overrun errors during
+                     * calibration's heavy printf output. */
+                    Debug_UART_ResetRx();
+                    printf("\r\n[CMD] Calibration finished. Ready.\r\n> ");
                 }
                 break;
 
@@ -247,6 +278,25 @@ if (g_event_count > 0)
                 if (LutBuilder_GetStatus() == LUT_STATUS_DONE ||
                     LutBuilder_GetStatus() == LUT_STATUS_ERROR) {
                     app_state = STATE_RUNNING;
+                    Debug_UART_ResetRx();
+                    printf("\r\n[CMD] LUT build finished. Ready.\r\n> ");
+                }
+                break;
+
+            case STATE_TUNING:
+                SerialCmd_Process();
+
+                if (Audio_HasNewSamples()) {
+                    uint16_t *audio_buf = Audio_GetBuffer();
+                    FFT_ProcessBlock(audio_buf);
+                    Audio_MarkProcessed();
+                    Cal_TuneHop();
+                }
+
+                if (Cal_TuneGetStatus() == CAL_STATUS_DONE ||
+                    Cal_TuneGetStatus() == CAL_STATUS_ERROR) {
+                    app_state = STATE_RUNNING;
+                    printf("\r\n[CMD] Tuning finished. Ready.\r\n> ");
                 }
                 break;
 
@@ -259,10 +309,17 @@ if (g_event_count > 0)
                  * Fires every ~170 ms (1024 samples / 6000 Hz sample rate)
                  * ============================================================ */
                 if (Audio_HasNewSamples()) {
+                    /* Measure hop interval (time between consecutive audio-ready events) */
+                    uint32_t cyc_now = DWT->CYCCNT;
+                    hop_interval_us = (cyc_now - hop_last_cyc) / (SYSTEM_CLOCK_MHZ);
+                    hop_last_cyc = cyc_now;
+
+                    /* Measure processing time */
+                    uint32_t proc_start = DWT->CYCCNT;
+
                     uint16_t *audio_buf = Audio_GetBuffer();
 
                     /* --- DSP pipeline --- */
-                    /* FFT: polyphonic peak detection (retained for diagnostics) */
                     FFT_ProcessBlock(audio_buf);
 
                     /* Mark buffer consumed before any blocking work */
@@ -274,7 +331,6 @@ if (g_event_count > 0)
                         s_request_calibrate = 0u;
                         Cal_Start(mask);
                         app_state = STATE_CALIBRATING;
-                        Audio_MarkProcessed();
                         break;
                     }
                     if (s_request_lutbuild) {
@@ -282,6 +338,13 @@ if (g_event_count > 0)
                         s_request_lutbuild = 0u;
                         LutBuilder_Start(mask);
                         app_state = STATE_LUT_BUILDING;
+                        break;
+                    }
+                    if (s_request_tune) {
+                        uint8_t mask = s_request_tune_mask;
+                        s_request_tune = 0u;
+                        Cal_TuneStart(mask);
+                        app_state = STATE_TUNING;
                         Audio_MarkProcessed();
                         break;
                     }
@@ -304,13 +367,27 @@ if (g_event_count > 0)
                      */
                     TuningCtrl_RunHop();
 
-                    /* Diagnostic: print FFT polyphonic results (only during playback) */
-                    if (active_string_count > 0) {
-                        printf("[CM7] FFT %d string(s): ", active_string_count);
+                    /* End processing timer */
+                    proc_time_us = (DWT->CYCCNT - proc_start) / (SYSTEM_CLOCK_MHZ);
+                    if (proc_time_us > proc_max_us) proc_max_us = proc_time_us;
+
+                    /* Debug prints AFTER proc timer so they don't inflate measurement */
+                    if (fft_print_enabled && active_string_count > 0) {
+                        printf("[FFT] %d peak(s): ", active_string_count);
                         for (uint8_t i = 0; i < active_string_count; i++) {
-                            printf("%.2f Hz  ", (double)active_frequencies[i]);
+                            printf("%.2f Hz (%.0f)  ", (double)active_frequencies[i], (double)active_magnitudes[i]);
                         }
                         printf("\r\n");
+                    }
+                    if (app_debug_flags & DEBUG_FLAG_NOISE_FLOOR) {
+                        static uint32_t nf_decim = 0;
+                        if (++nf_decim % 6 == 0) {
+                            printf("[NF] bin28: mag=%.0f nf=%.0f | bin67: mag=%.0f nf=%.0f | bin112: mag=%.0f nf=%.0f | peak=%.0f\r\n",
+                                   (double)fft_dbg_mag[0], (double)fft_dbg_nf[0],
+                                   (double)fft_dbg_mag[1], (double)fft_dbg_nf[1],
+                                   (double)fft_dbg_mag[2], (double)fft_dbg_nf[2],
+                                   (double)fft_dbg_peak);
+                        }
                     }
                 }
 
@@ -338,7 +415,14 @@ if (g_event_count > 0)
         /* Print diagnostics every 5 seconds */
         if (HAL_GetTick() - last_debug_time >= 5000u) {
             last_debug_time = HAL_GetTick();
-            if (app_state == STATE_RUNNING) {
+            if (app_debug_flags & DEBUG_FLAG_HOP_TIMER) {
+                printf("[CM7] hop_interval=%lu us | proc=%lu us | proc_max=%lu us\r\n",
+                       (unsigned long)hop_interval_us,
+                       (unsigned long)proc_time_us,
+                       (unsigned long)proc_max_us);
+                proc_max_us = 0;  /* Reset peak after reporting */
+            }
+            if (app_state == STATE_RUNNING && SongSched_IsActive()) {
                 printf("[CM7] Song note %lu/%lu | CM4 loop %lu Hz\r\n",
                        g_sched.index,
                        g_event_count,
@@ -373,5 +457,13 @@ void App_RequestLutBuild(uint8_t string_mask)
     if (app_state != STATE_LUT_BUILDING) {
         s_request_lutbuild_mask = string_mask;
         s_request_lutbuild      = 1u;
+    }
+}
+
+void App_RequestTune(uint8_t string_mask)
+{
+    if (app_state != STATE_TUNING) {
+        s_request_tune_mask = string_mask;
+        s_request_tune      = 1u;
     }
 }

@@ -57,4 +57,16 @@ uint8_t Debug_UART_IsLineReady(void);
  */
 uint16_t Debug_UART_GetLine(char *buffer, uint16_t max_len);
 
+/**
+ * @brief Drain echo buffer (call frequently from main loop)
+ */
+void Debug_UART_FlushEcho(void);
+
+/**
+ * @brief Reset UART RX state and re-arm interrupt
+ * @note  Call after heavy printf output (calibration, LUT build) to recover
+ *        from any overrun errors that left the HAL RX state machine stuck
+ */
+void Debug_UART_ResetRx(void);
+
 #endif /* DEBUG_UART_H */
