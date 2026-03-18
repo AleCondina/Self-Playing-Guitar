@@ -120,8 +120,21 @@
  *  Add 12 hops for acceleration/braking margin → 30 hops total. */
 #define CAL_HOME_TIMEOUT_HOPS       30u
 
-/** Max hops to wait for the user to pluck (~4.3 s at 170 ms/hop). */
-#define CAL_PLUCK_TIMEOUT           25u
+/** Max hops to wait for the user to pluck + collection window.
+ *  ~4 s for user to pluck (24 hops) + 12 hops collection = 36 hops total. */
+#define CAL_PLUCK_TIMEOUT           36u
+
+/** Hops to collect after first pluck detection before committing (~2 s). */
+#define CAL_PLUCK_CONFIRM_HOPS      12u
+
+/** Minimum readings in collection buffer before an early-exit on decay is allowed. */
+#define CAL_PLUCK_CONFIRM_MIN       3u
+
+/** Consecutive silent hops during collection that trigger early commit. */
+#define CAL_PLUCK_DEAD_HOPS         3u
+
+/** Hz radius for vote clustering — readings within this band count as the same frequency. */
+#define CAL_PLUCK_VOTE_BAND_HZ      5.0f
 
 /** Primary solenoid burst duration (ms): 1 s gives long ring energy. */
 #define CAL_SOL_DURATION_MS         1000u
@@ -310,6 +323,13 @@ static uint8_t     s_retry_cnt         = 0u;
 static uint8_t     s_pluck_timeout_cnt = 0u;
 static uint8_t     s_pluck_detected    = 0u;
 static float       s_open_detected_freq   = 0.0f; /* Hz detected at pluck time            */
+
+/* Pluck confidence collection (WAIT_PLUCK phase) */
+static float       s_pluck_buf[CAL_PLUCK_CONFIRM_HOPS]; /* per-hop frequency readings */
+static uint8_t     s_pluck_buf_n       = 0u;   /* readings stored                 */
+static uint8_t     s_pluck_collecting  = 0u;   /* 1 while collecting post-detect  */
+static uint8_t     s_pluck_collect_cnt = 0u;   /* hops since first detection      */
+static uint8_t     s_pluck_dead_hops   = 0u;   /* consecutive silent hops in coll */
 static uint8_t     s_home_timeout_cnt     = 0u;   /* Hops waited in WAIT_HOME             */
 static int32_t     s_open_position_offset = 0;    /* Measured open-string motor offset    */
 static int32_t     s_open_homing_target   = 0;    /* FF-estimated motor pos for open freq */
@@ -382,6 +402,45 @@ static void CalGetFreq(float target, float search_band, float *out_freq){
             *out_freq = active_frequencies[i];
         }
     }
+}
+
+/**
+ * @brief Find the most consistently occurring frequency in a collection buffer.
+ *
+ * Each candidate reading votes for itself plus any other reading within
+ * CAL_PLUCK_VOTE_BAND_HZ.  The centroid of the winning cluster is returned.
+ * This lets the fundamental (which dominates the sustained ring) beat a
+ * short-lived transient harmonic that may appear in the first hop or two.
+ *
+ * @param buf          Array of frequency readings (Hz)
+ * @param n            Number of valid entries in buf
+ * @param nominal_freq Fallback if buf is empty
+ */
+static float Cal_PluckConsensus(const float *buf, uint8_t n, float nominal_freq)
+{
+    if (n == 0u) return nominal_freq;
+    if (n == 1u) return buf[0];
+
+    uint8_t best_votes = 0u;
+    float   best_sum   = buf[0];
+    uint8_t best_cnt   = 1u;
+
+    for (uint8_t i = 0u; i < n; i++) {
+        uint8_t votes = 0u;
+        float   sum   = 0.0f;
+        for (uint8_t k = 0u; k < n; k++) {
+            if (fabsf(buf[k] - buf[i]) <= CAL_PLUCK_VOTE_BAND_HZ) {
+                votes++;
+                sum += buf[k];
+            }
+        }
+        if (votes > best_votes) {
+            best_votes = votes;
+            best_sum   = sum;
+            best_cnt   = votes;
+        }
+    }
+    return best_sum / (float)best_cnt;
 }
 
 static uint32_t CalChecksum(const CalPersist_t *p){
@@ -681,6 +740,10 @@ void Cal_Hop(void){
         s_is_reexciting      = 0u;
         s_pluck_timeout_cnt  = 0u;
         s_pluck_detected     = 0u;
+        s_pluck_collecting   = 0u;
+        s_pluck_collect_cnt  = 0u;
+        s_pluck_buf_n        = 0u;
+        s_pluck_dead_hops    = 0u;
         s_home_timeout_cnt   = 0u;
         s_open_detected_freq = 0.0f;
         s_open_homing_target  = 0;
@@ -732,24 +795,68 @@ void Cal_Hop(void){
     {
         /* Wide window: covers full fret range (open → fret 7) + 2nd harmonic.
          * For A2 (110 Hz): 77–198 Hz — accepts any fret the string could be at.
-         * Magnitude threshold rejects broadband noise.                        */
+         * Magnitude threshold rejects broadband noise.
+         * active_frequencies[] is magnitude-sorted descending, so the first
+         * qualifying entry is always the strongest peak in the window.        */
         float lo = s_open_freq[s_str] * 0.70f;
         float hi = s_open_freq[s_str] * 1.80f;
 
+        float this_freq = 0.0f;
         for (uint8_t j = 0u; j < active_string_count; j++) {
             if (active_frequencies[j] >= lo && active_frequencies[j] <= hi
-                && active_magnitudes[j] > 50.0f) {
-                s_pluck_detected = 1u;
-                s_open_detected_freq = active_frequencies[j]; /* capture before j goes out of scope */
-                printf("[CAL] str%u: pluck detected at %.2f Hz — computing homing target\r\n",
-                       (unsigned)s_str, (double)s_open_detected_freq);
+                    && active_magnitudes[j] > 50.0f) {
+                this_freq = active_frequencies[j];
                 break;
             }
         }
 
-        if (s_pluck_detected) {
-            /* s_open_detected_freq already captured inside the loop above. */
+        /* ---- Phase 1: waiting for first signal ---- */
+        if (!s_pluck_collecting) {
+            if (this_freq > 0.0f) {
+                s_pluck_collecting  = 1u;
+                s_pluck_collect_cnt = 0u;
+                s_pluck_buf_n       = 0u;
+                s_pluck_dead_hops   = 0u;
+                printf("[CAL] str%u: pluck detected %.2f Hz — collecting (%u hops)...\r\n",
+                       (unsigned)s_str, (double)this_freq,
+                       (unsigned)CAL_PLUCK_CONFIRM_HOPS);
+            }
+        }
 
+        /* ---- Phase 2: collecting readings to build confidence ---- */
+        if (s_pluck_collecting) {
+            if (this_freq > 0.0f) {
+                if (s_pluck_buf_n < CAL_PLUCK_CONFIRM_HOPS) {
+                    s_pluck_buf[s_pluck_buf_n++] = this_freq;
+                }
+                s_pluck_dead_hops = 0u;
+            } else {
+                s_pluck_dead_hops++;
+            }
+
+            s_pluck_collect_cnt++;
+
+            /* Exit collection when: full window elapsed, buffer full, OR
+             * string decayed with enough readings to form a consensus.    */
+            uint8_t done =
+                (s_pluck_collect_cnt >= CAL_PLUCK_CONFIRM_HOPS) ||
+                (s_pluck_buf_n       >= CAL_PLUCK_CONFIRM_HOPS) ||
+                (s_pluck_dead_hops   >= CAL_PLUCK_DEAD_HOPS &&
+                 s_pluck_buf_n       >= CAL_PLUCK_CONFIRM_MIN);
+
+            if (done) {
+                s_open_detected_freq = Cal_PluckConsensus(s_pluck_buf, s_pluck_buf_n,
+                                                           s_open_freq[s_str]);
+                s_pluck_detected = 1u;
+                printf("[CAL] str%u: consensus %.2f Hz (%u/%u readings)\r\n",
+                       (unsigned)s_str, (double)s_open_detected_freq,
+                       (unsigned)s_pluck_buf_n,
+                       (unsigned)CAL_PLUCK_CONFIRM_HOPS);
+            }
+        }
+
+        /* ---- Commit: compute FF homing target and advance ---- */
+        if (s_pluck_detected) {
             /* Compute polynomial feedforward estimate for where the motor
              * needs to be to produce the nominal open-string frequency.
              * delta = poly(open_freq) - poly(detected_freq)
@@ -770,13 +877,9 @@ void Cal_Hop(void){
                     -((float)s_cal_steps_max[s_str]),
                      (float)s_cal_steps_max[s_str]);
             }
-
             printf("[CAL] str%u: pluck=%.2f Hz → FF homing target=%ld steps\r\n",
                    (unsigned)s_str, (double)s_open_detected_freq,
                    (long)s_open_homing_target);
-
-            /* Send motor to FF-estimated open position (not hardcoded 0).
-             * WAIT_HOME will poll until motor reaches s_open_homing_target. */
             InterCore_SendMotorGoto(s_str, s_open_homing_target);
             s_home_timeout_cnt = 0u;
             s_after_home       = CAL_PHASE_OPEN_SOL_BURST;
@@ -784,12 +887,34 @@ void Cal_Hop(void){
             break;
         }
 
+        /* ---- Timeout: use partial data if any, else proceed blind ---- */
         s_pluck_timeout_cnt++;
         if (s_pluck_timeout_cnt >= CAL_PLUCK_TIMEOUT) {
-            printf("[CAL] str%u: no pluck — homing to 0 and proceeding anyway\r\n",
-                   (unsigned)s_str);
-            s_open_homing_target = 0;
-            InterCore_SendMotorGoto(s_str, 0);
+            if (s_pluck_buf_n > 0u) {
+                s_open_detected_freq = Cal_PluckConsensus(s_pluck_buf, s_pluck_buf_n,
+                                                           s_open_freq[s_str]);
+                printf("[CAL] str%u: timeout — partial consensus %.2f Hz (%u readings)\r\n",
+                       (unsigned)s_str, (double)s_open_detected_freq,
+                       (unsigned)s_pluck_buf_n);
+                float _a = cal_poly_coeff[s_str][0];
+                float _b = cal_poly_coeff[s_str][1];
+                float _c = cal_poly_coeff[s_str][2];
+                float _detected_steps = _a + _b * s_open_detected_freq
+                                        + _c * s_open_detected_freq * s_open_detected_freq;
+                float _open_steps     = _a + _b * s_open_freq[s_str]
+                                        + _c * s_open_freq[s_str]   * s_open_freq[s_str];
+                float _delta = _open_steps - _detected_steps;
+                int32_t cur_pos = g_shared_memory.current_positions[s_str];
+                s_open_homing_target = (int32_t)CalClampf(
+                    (float)cur_pos + _delta,
+                    -((float)s_cal_steps_max[s_str]),
+                     (float)s_cal_steps_max[s_str]);
+            } else {
+                printf("[CAL] str%u: no pluck — homing to 0 and proceeding anyway\r\n",
+                       (unsigned)s_str);
+                s_open_homing_target = 0;
+            }
+            InterCore_SendMotorGoto(s_str, s_open_homing_target);
             s_home_timeout_cnt = 0u;
             s_after_home       = CAL_PHASE_OPEN_SOL_BURST;
             s_phase            = CAL_PHASE_WAIT_HOME;
@@ -2078,8 +2203,9 @@ void Cal_TuneHop(void)
         s_tune_no_sig_cnt = 0u;
         s_tune_retry_cnt = 0u;
 
-        /* Use the user's pluck first; solenoid re-excite is only for recovery. */
-        s_tune_phase = TUNE_PHASE_PI_LOCK;
+        /* Gate FFT and wait for pluck harmonics to decay before sensing. */
+        fft_sensing_enabled = 0u;
+        TuneWaitThen(TUNE_REEXCITE_WAIT_HOPS, TUNE_PHASE_BURST_REENABLE);
         break;
     }
 
