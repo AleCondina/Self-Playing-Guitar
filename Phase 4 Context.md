@@ -11,9 +11,10 @@ Last verified against the codebase: 2026-03-18
 - Pitch sensing is live now: `ADC3 + BDMA + TIM1 TRGO + 2048-point FFT`.
 - The active tuning path is FFT-based. Goertzel code still exists on disk but is not part of the runtime build.
 - The active commissioning tools are:
-  - `calibrate`: automatic sweep, RAM-only LUT update, not aligned with all current hardware
+  - `calibrate`: PI lock-in calibration with solenoid burst excitation, per-fret sweep, polynomial + LUT fitting, SRAM-persisted
   - `mapfrets`: manual-pluck LUT builder, restricted to configured motors `0-3`
-- Feed-forward LUTs are runtime RAM data only. Nothing persists across reset.
+  - `tune`: open-string pitch correction — detects frequency via FFT, adjusts motor bidirectionally (forward if flat, backward if sharp), saves offset to SRAM
+- Feed-forward LUTs and polynomial coefficients persist to backup SRAM (0x38800000, VBAT-backed, 4 KB). Tune offsets also persist.
 
 ## What Is Actually Implemented
 
@@ -24,13 +25,14 @@ Last verified against the codebase: 2026-03-18
 | Steppers | 6 logical motor IDs exist | Only motors `0-3` have GPIO assignments in `motor_control.c` |
 | Solenoids | 6 logical solenoid IDs exist | Only solenoids `1-3` have live PWM timers; `0`, `4`, `5` have `htim == NULL` |
 | Pitch sensing | Live ADC capture with FFT peak detection | Trigger timer is `TIM1`, not `TIM6` |
-| Tuning control | Live FF + PI controller on CM7 with automatic motor power management | Uses 7-point LUTs, still placeholder until measured |
+| Tuning control | Live FF + PI controller on CM7 with automatic motor power management, 1/16 microstep safeguard, and cents-based lock bands | Uses 7-point LUTs; all gains/limits calibrated for 1/16 microstepping; controller halts if motors are not in 1/16 mode |
 | Motor safeguard | `Motor_Update()` skips disabled motors — no stepping, no position drift | Software position freezes while disabled; may not match physical position on re-enable |
 | Motor power mgmt | Tuning controller auto-enables motors for active strings, disables when idle | Uses `CMD_MOTOR_ENABLE_MASK` bitmask via `InterCore_SendMotorEnableMask()` |
 | Playback | Hardcoded 12-note "Smoke on the Water" riff | No looping; only two-string D3/G3 chord data exists |
-| Calibration | Active automatic sweep state machine | Real hardware support is incomplete for all 6 strings |
+| Calibration | PI lock-in fret calibration with solenoid burst, polynomial fit, SRAM persistence | Real hardware support is incomplete for all 6 strings |
+| Tune | Open-string pitch correction with bidirectional motor adjustment and SRAM persistence | Only strings with solenoids (1-3) get automatic re-excite; others need manual re-pluck |
 | LUT builder | Active fret-mapping state machine | Only supports configured motors `0-3` |
-| Persistence | None | LUT changes are lost on reset |
+| Persistence | Backup SRAM (VBAT-backed) stores calibration LUT, polynomial, and tune offsets | Survives power cycles; tune offsets cleared on recalibration |
 
 ## Source Of Truth
 
@@ -70,7 +72,7 @@ If this file conflicts with older docs, trust the code below.
 - Audio and pitch path: `CM7/Core/Src/main.c`, `CM7/App/Src/audio_input.c`, `CM7/App/Src/fft_processing.c`
 - Tuning behavior: `CM7/App/Src/tuning_controller.c`
 - Playback behavior: `CM7/App/Src/song_scheduler.c`, `CM7/App/Src/app_cm7.c`
-- Calibration and commissioning: `CM7/App/Src/calibration_controller.c`, `CM7/App/Src/lut_builder.c`
+- Calibration, tuning, and commissioning: `CM7/App/Src/calibration_controller.c` (includes both calibration and tune state machines), `CM7/App/Src/lut_builder.c`
 - Manual commands and workflows: `CM7/App/Src/serial_cmd.c`
 - Stepper hardware/runtime: `CM4/App/Src/motor_control.c`
 - Solenoid hardware/runtime: `CM4/App/Src/solenoid_control.c`, `CM4/Core/Src/main.c`
@@ -108,7 +110,7 @@ If this file conflicts with older docs, trust the code below.
 1. CM7 boots first, zeroes shared memory, configures clocks, configures shared-memory MPU attributes, and releases CM4 from the boot barrier.
 2. CM4 wakes, initializes inter-core support and PWM timers, then `App_CM4_Main()` waits on the secondary boot semaphore before continuing.
 3. CM4 calls `Motor_Init()`, sets motors `0-3` to `1/16` microstepping, initializes the solenoid subsystem, attempts to preload default logical open-string frequencies, and reports `MOTOR_STATUS_READY`.
-4. CM7 waits for `MOTOR_STATUS_READY`, sends `CMD_HOME_MOTORS`, sets motors `0-3` to `1/16` microstepping again, initializes UART RX, FFT, tuning control, and audio capture, then starts `TIM1`.
+4. CM7 waits for `MOTOR_STATUS_READY`, sends `CMD_HOME_MOTORS`, sets motors `0-3` to `1/16` microstepping again, initializes UART RX, FFT, restores calibration from backup SRAM (or seeds polynomial from base LUT), restores tune offsets from backup SRAM, initializes tuning control, and starts audio capture, then starts `TIM1`.
 5. CM7 transitions through `STATE_IDLE` into `STATE_RUNNING`.
 
 ### Important startup reality
@@ -125,6 +127,7 @@ If this file conflicts with older docs, trust the code below.
 - `STATE_IDLE`
 - `STATE_CALIBRATING`
 - `STATE_LUT_BUILDING`
+- `STATE_TUNING`
 - `STATE_RUNNING`
 - `STATE_ERROR`
 
@@ -193,16 +196,25 @@ The active measurement path is `fft_processing.c`.
 
 Current behavior:
 
+- All positions, gains, and limits are in **1/16 microstep** units.
 - Uses 7-point per-string feed-forward LUTs:
   - `tuning_ff_freq_bp[6][7]`
   - `tuning_ff_steps_bp[6][7]`
+- FF lookup uses calibrated quadratic polynomial `steps = a + b·f + c·f²` via `FF_Interpolate()`, plus tune offset from `Cal_TuneGetOffset(str)`.
 - Finds the closest accepted FFT peak to the target frequency (`GetFFTRadarLock`). No secondary magnitude threshold — peaks are already SNR-vetted by the FFT's adaptive noise floor.
 - Measurement trust is now binary: `measured_freq_hz > 0.0f` means a valid lock was found.
 - Applies per-string FF lookup plus discrete PI trim.
-- Uses post-note delay, lock-band hysteresis, minimum-move threshold, slew limit, and default mechanical bounds of `-50` to `2000` steps.
+- Uses post-note delay, **cents-based lock-band hysteresis** (±10 cents in, ±20 cents out — computed at runtime relative to target frequency), minimum-move threshold (`16` microsteps), slew limit (`65000` microsteps/s), and default mechanical bounds of `-800` to `8000` microsteps.
+- PI gains: `Kp = 48.0` microsteps/Hz, `Ki = 24.0` microsteps/Hz/s, trim clamp ±`6400` microsteps.
 - Sends absolute motor targets through `InterCore_SendMotorGoto()`.
 - Starts exact-Hz solenoid drive only on a rising lock edge.
 - Stops the solenoid on a falling lock edge.
+
+Microstep safeguard:
+
+- At the top of every `TuningCtrl_RunHop()`, the controller reads `g_shared_memory.motor_microstep_status[0..3]` and verifies all configured motors are in mode `4` (1/16 step).
+- If any motor is not in 1/16 mode, the controller prints a `*** HALT ***` warning over UART, disables all motors via `InterCore_SendMotorEnableMask(0)`, and returns immediately without issuing any motor commands.
+- This safeguard exists because all controller limits and gains are calibrated for 1/16 microstepping. Running with a different mode would produce incorrect position commands that can damage the mechanical system.
 
 Motor power management:
 
@@ -217,24 +229,45 @@ Important current limitation:
 - The tuning controller only enables solenoid excitation after a string is already considered locked.
 - When a motor is re-enabled after being disabled, physical position may have drifted (no holding torque). The PI loop corrects via FFT feedback, but the first 2-5 hops may show larger pitch error.
 
-### Automatic calibration
+### Automatic calibration (V3 — PI lock-in)
 
 `calibration_controller.c` is active and compiled.
 
 Current behavior:
 
-- Triggered by `calibrate`.
+- Triggered by `calibrate [str ...]`.
 - Uses FFT results, not Goertzel.
-- Sweeps in `20` microstep increments.
-- Stops at `1200` steps max or once fret-7 range is reached.
-- Updates `tuning_ff_*` arrays in RAM only.
+- Per-string flow: prompt pluck → detect pluck → home motor → for each fret 1–7:
+  - Fire solenoid at previous fret's measured frequency (1 s burst) while motor moves toward next fret's polynomial-estimated position.
+  - After burst+wait (8 hops), re-enable FFT and run inline PI controller (KP=3.0, KI=1.5, max trim ±600 microsteps) to lock onto the target fret frequency.
+  - Lock criterion: 2 consecutive hops within 1 Hz deadband.
+  - If string decays (3 consecutive no-signal hops), re-excite at last valid frequency. Up to 3 retries.
+  - Record (actual_motor_steps, measured_freq) on lock or best estimate on failure.
+- After all frets: build 7-point LUT (`Cal_BuildTable`) + fit quadratic polynomial `steps = a + b·f + c·f²` (`Cal_FitPolynomial`).
+- Persist LUT + polynomial to backup SRAM (0x38800000, VBAT-backed, 4 KB) with magic number + XOR checksum.
+- Boot: `Cal_LoadFromSRAM()` restores previous calibration; falls back to `Cal_FitFromBaseLUT()` to seed polynomial from hardcoded LUT.
+- Per-string safety caps prevent motor over-travel: E2=5000, A2=6500, D3=9000, G3=7000.
 
 What it assumes:
 
 - The target motor can physically move.
-- The target solenoid can be driven continuously at exact Hz.
+- The target solenoid can be driven continuously at exact Hz (for re-excitation).
 
 That assumption is only valid today for part of the system.
+
+### Open-string tuning
+
+`calibration_controller.c` also contains the tune controller (added alongside calibration, sharing helpers).
+
+Current behavior:
+
+- Triggered by `tune [str ...]` (default mask 0x0F = motors 0-3).
+- Per-string flow: prompt pluck → detect pluck via FFT → compute initial motor position using polynomial derivative sensitivity → move motor → PI lock to open-string frequency.
+- **Bidirectional**: motor moves forward (positive steps) if string is flat, backward (negative steps) if sharp. Clamped to [TUNING_STEPS_MIN_DEFAULT (-800), s_cal_steps_max[str]].
+- Solenoid re-excite on signal decay for strings 1-3 (have solenoids). Strings 0/4/5 re-prompt the user to pluck.
+- On lock, the motor position is saved as `tune_offset[str]` and applied in `FF_Interpolate()` so all subsequent tuning controller commands are shifted.
+- Tune offsets persist to backup SRAM (separate block after calibration data, own magic + checksum).
+- Tune offsets are cleared when `Cal_Start()` runs (recalibration invalidates offsets).
 
 ### LUT builder
 
@@ -344,7 +377,7 @@ The batch motor enable/disable path is real and active:
 
 - Motor control: `start`, `speed`, `accel`, `maxspeed`, `move`, `goto`, `microstep`, `enable`, `disable`, `zero`, `home`, `stop`, `status`
 - Solenoid control: `sol`, `solstop`, `solstatus`
-- Commissioning: `calibrate`, `mapfrets`, `printlut`, `fftprint`
+- Commissioning: `calibrate`, `tune`, `mapfrets`, `printlut`, `fftprint`
 - Debug: `debug [hop|nf|fft|all|off]` — toggles hop timer, noise floor, FFT peaks, all, or all off
 - Playback/demo: `smoke`, `demo`
 - Presets/help: `save`, `delete`, `presets`, `help`
@@ -483,9 +516,11 @@ The current repo is best understood as:
 - 4 configured stepper channels
 - 3 live timer-backed solenoid channels
 - a real CM7 audio/FFT sensing loop
-- a real CM7 tuning controller
-- a real LUT-builder and calibration framework
+- a real CM7 tuning controller with cents-based lock bands and 1/16 microstep safeguard
+- a real LUT-builder, calibration framework (PI lock-in + polynomial fit), and open-string tune controller
+- calibration LUT, polynomial, and tune offsets persisted to backup SRAM (VBAT-backed)
 - motor safeguard preventing disabled motors from stepping or drifting position
+- microstep safeguard preventing the tuning controller from running if motors are not in 1/16 mode
 - automatic motor power management driven by the tuning controller and song scheduler
 - a partially commissioned hardware path with several stale comments and a few remaining behavioral notes
 
@@ -494,4 +529,4 @@ If a future session needs bench-realistic assumptions, use this stricter model:
 - Motors that exist in code and are wired enough to target: `0-3`
 - Solenoids that exist in code and can actually generate PWM: `1-3`
 - Playback path that best matches current commissioned strings: the D3/G3 `smoke` workflow
-- Commissioning path that best matches current hardware: `mapfrets` on strings `0-3`
+- Commissioning path that best matches current hardware: `mapfrets` on strings `0-3`, `calibrate` on strings `1-3` (solenoid-backed), `tune` on strings `0-3`

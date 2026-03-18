@@ -161,9 +161,20 @@ static inline void echo_put(char c)
 
 /**
  * @brief Drain echo buffer from main loop (call from SerialCmd_Process or main)
+ *
+ * Also re-arms the RX interrupt if it was lost.  This happens when
+ * HAL_UART_RxCpltCallback calls HAL_UART_Receive_IT while a blocking
+ * HAL_UART_Transmit (used by printf) holds huart->Lock — the re-arm
+ * returns HAL_BUSY and the UART goes permanently deaf.  Checking
+ * RxState here, outside any TX call, lets us recover.
  */
 void Debug_UART_FlushEcho(void)
 {
+    /* Re-arm RX if it was lost due to HAL lock conflict with TX */
+    if (hcom_uart[COM1].RxState == HAL_UART_STATE_READY) {
+        HAL_UART_Receive_IT(&hcom_uart[COM1], &rx_byte, 1);
+    }
+
     while (echo_tail != echo_head) {
         char c = echo_buf[echo_tail];
         HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*)&c, 1, 2);

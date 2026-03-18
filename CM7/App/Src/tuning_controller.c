@@ -135,6 +135,11 @@ static float FF_Interpolate(uint8_t str, float freq)
     float c     = cal_poly_coeff[str][2];
     float steps = a + b * freq + c * freq * freq;
     if (steps < 0.0f) steps = 0.0f;
+
+    /* Apply tune offset — compensates for string being flat or sharp
+     * relative to standard tuning.  Set by the 'tune' command. */
+    steps += (float)Cal_TuneGetOffset(str);
+
     return steps;
 }
 
@@ -270,16 +275,19 @@ void TuningCtrl_Update(uint8_t string_id,
     float e = target_freq_hz - use_freq;
 
     /* ------------------------------------------------------------------ */
-    /* 4. Lock-band hysteresis                                              */
+    /* 4. Lock-band hysteresis (cents-based, pitch-relative)                */
+    /*    band_hz = target * (2^(cents/1200) - 1)                           */
     /* ------------------------------------------------------------------ */
     float abs_e = fabsf(e);
+    float lock_in_hz  = target_freq_hz * (powf(2.0f, TUNING_LOCK_BAND_IN_CENTS  / 1200.0f) - 1.0f);
+    float lock_out_hz = target_freq_hz * (powf(2.0f, TUNING_LOCK_BAND_OUT_CENTS / 1200.0f) - 1.0f);
 
     if (s->lock_state) {
-        if (abs_e >= TUNING_LOCK_BAND_OUT_HZ) {
+        if (abs_e >= lock_out_hz) {
             s->lock_state = 0u;
         }
     } else {
-        if (abs_e <= TUNING_LOCK_BAND_IN_HZ) {
+        if (abs_e <= lock_in_hz) {
             s->lock_state = 1u;
         }
     }
@@ -427,6 +435,28 @@ static void GetFFTRadarLock(float target, float* out_measured, float* out_confid
  * --------------------------------------------------------------------- */
 void TuningCtrl_RunHop(void)
 {
+    /* ------------------------------------------------------------------ */
+    /* Microstep safeguard: verify all configured motors are in 1/16 mode.  */
+    /* If any motor is wrong, halt the controller and warn over UART.       */
+    /* Running with incorrect microstepping will produce wrong position      */
+    /* commands that can damage the mechanical system.                       */
+    /* ------------------------------------------------------------------ */
+    for (uint8_t m = 0u; m < 4u; m++) {  /* Motors 0-3 are configured */
+        if (g_shared_memory.motor_microstep_status[m] != TUNING_REQUIRED_MICROSTEP_MODE) {
+            printf("[TC] *** HALT: Motor %u microstep mode is %u, expected %u (1/16). "
+                   "Tuning controller disabled to prevent damage. ***\r\n",
+                   (unsigned)m,
+                   (unsigned)g_shared_memory.motor_microstep_status[m],
+                   (unsigned)TUNING_REQUIRED_MICROSTEP_MODE);
+            /* Disable all motors as a safety measure */
+            if (s_motor_enable_mask != 0u) {
+                InterCore_SendMotorEnableMask(0u);
+                s_motor_enable_mask = 0u;
+            }
+            return;
+        }
+    }
+
     /* Get current note from song scheduler */
     if (!SongSched_IsActive()) {
         /* Song stopped: disable all motors the tuning controller enabled */

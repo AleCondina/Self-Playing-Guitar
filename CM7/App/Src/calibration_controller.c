@@ -30,7 +30,7 @@
  *    the string is still ringing.  The motor should already be near the LUT
  *    target; the PI corrects the remaining error.
  *
- *    Lock-band leeway: the PI only accumulates outside TUNING_LOCK_BAND_IN_HZ
+ *    Lock-band leeway: the PI only accumulates outside CAL_LOCK_BAND_HZ
  *    (1 Hz), and motor commands are suppressed below TUNING_MIN_MOVE_STEPS
  *    (2 microsteps) to prevent hunting — both constants from tuning_controller.h.
  *
@@ -108,6 +108,10 @@
 
 /** Hops to wait after homing before listening for the initial pluck. */
 #define CAL_HOME_SETTLE_HOPS        6u
+
+/** Lock-band deadband (Hz).  PI only accumulates outside this band.
+ *  Replaces the removed CAL_LOCK_BAND_HZ constant. */
+#define CAL_LOCK_BAND_HZ            1.0f
 
 /** Motor position (steps) within which we consider the string "at home". */
 #define CAL_HOME_POS_THRESHOLD      50
@@ -222,6 +226,9 @@ static const float cal_theoretical_freq[NUM_STRINGS][CAL_NUM_FRETS] = {
     /* String 5: E4  frets 0-7 */
     { E4_HZ,  F4_HZ,  Fs4_HZ, G4_HZ,  Gs4_HZ, A4_HZ,  As4_HZ, B4_HZ  },
 };
+
+/* Forward declaration: calibration invalidates tune offsets for reworked strings. */
+static uint8_t Tune_ClearOffsetsMask(uint8_t string_mask);
 
 /* =========================================================================
  * Persistent storage layout
@@ -608,6 +615,13 @@ void Cal_Start(uint8_t string_mask){
     s_string_mask = string_mask & 0x3Fu;
     s_str = 0u;
     while (s_str < NUM_STRINGS && !((s_string_mask >> s_str) & 1u)) s_str++;
+
+    /* A fresh calibration changes the FF/LUT basis for these strings, so any
+     * previously stored open-string tune offsets for the same strings are stale. */
+    if (Tune_ClearOffsetsMask(s_string_mask)) {
+        printf("[CAL] Cleared stale tune offsets for mask 0x%02X\r\n",
+               (unsigned)s_string_mask);
+    }
 
     s_buf_n         = 0u;
     s_fret          = 1u;
@@ -1209,8 +1223,8 @@ void Cal_Hop(void){
             float error = target_freq - meas_f;
 
             /* Deadband: only move motor outside the lock band.
-             * TUNING_LOCK_BAND_IN_HZ (1 Hz) effectively acts as the deadband. */
-            if (fabsf(error) > TUNING_LOCK_BAND_IN_HZ) {
+             * CAL_LOCK_BAND_HZ (1 Hz) effectively acts as the deadband. */
+            if (fabsf(error) > CAL_LOCK_BAND_HZ) {
                 s_pi_integral = CalClampf(
                     s_pi_integral + CAL_PI_KI * error * TUNING_SAMPLE_TIME_S,
                     -CAL_PI_MAX_TRIM, CAL_PI_MAX_TRIM);
@@ -1612,6 +1626,692 @@ void Cal_Hop(void){
     case CAL_PHASE_IDLE:
     case CAL_PHASE_DONE:
     case CAL_PHASE_ERROR:
+    default:
+        break;
+    }
+}
+
+/* =========================================================================
+ * Tune controller — open-string pitch correction (bidirectional)
+ *
+ * Detects the current open-string frequency via FFT, then adjusts the
+ * motor forward (if flat) or backward (if sharp) using a PI controller
+ * until the string plays at the standard tuning frequency.  The resulting
+ * motor offset is stored and applied by the tuning controller's
+ * FF_Interpolate() so all subsequent song playback is compensated.
+ *
+ * State machine phases (per string):
+ *   TUNE_STR_INIT → TUNE_WAIT_HOME → TUNE_WAIT_PLUCK
+ *   → TUNE_MOTOR_MOVE → TUNE_WAIT_MOTOR → TUNE_SOL_BURST
+ *   → TUNE_BURST_REENABLE → TUNE_PI_LOCK
+ *   → TUNE_RECORD → (next string or TUNE_DONE)
+ *
+ * Reuses existing helpers: CalGetFreq(), CalClampf(), WaitThen(),
+ *                          StopSolenoid(), InterCore_* API.
+ * ========================================================================= */
+
+/* ---- Tune parameters ---- */
+
+/** Tune proportional gain for incremental open-string correction. */
+#define TUNE_PI_KP                  16.0f
+
+/** Tune integral gain (microsteps / Hz / s), used mainly near lock. */
+#define TUNE_PI_KI                  4.0f
+
+/** Maximum tune PI trim authority (±microsteps). */
+#define TUNE_PI_MAX_TRIM            600.0f
+
+/** Maximum commanded step change for large tune errors. */
+#define TUNE_MAX_STEP_DELTA         800.0f
+
+/** Minimum move threshold for the tune controller. */
+#define TUNE_MIN_MOVE_STEPS         4.0f
+
+/** Tune lock-band deadband (Hz). */
+#define TUNE_LOCK_BAND_HZ           0.6f
+
+/** Only integrate once the string is already close to target. */
+#define TUNE_INTEGRAL_ENABLE_BAND_HZ  4.0f
+
+/** Consecutive locked hops to confirm convergence. */
+#define TUNE_LOCK_CONSEC_HOPS       2u
+
+/** Max PI_LOCK hops before triggering re-excite or giving up. */
+#define TUNE_PI_LOCK_TIMEOUT        40u
+
+/** Consecutive hops with no FFT signal before re-excite. */
+#define TUNE_DEAD_HOPS              3u
+
+/** Max re-excite retries per string. */
+#define TUNE_MAX_RETRIES            3u
+
+/** Solenoid re-excite burst duration (ms). */
+#define TUNE_REEXCITE_DURATION_MS   300u
+
+/** Hops to wait after re-excite burst. */
+#define TUNE_REEXCITE_WAIT_HOPS     4u
+
+/** Motor speed during tune moves. */
+#define TUNE_MOTOR_SPEED            3000
+
+/** Max hops to wait for the user to pluck. */
+#define TUNE_PLUCK_TIMEOUT          25u
+
+/** Max hops to wait for home or tuning travel to settle. */
+#define TUNE_MOTOR_WAIT_HOPS        20u
+
+/** Strings with commissioned steppers for the tune workflow. */
+#define TUNE_SUPPORTED_STRING_MASK  0x0Fu
+
+/** Wide frequency search limits while grossly out of tune. */
+#define TUNE_TRACK_MIN_RATIO        0.50f
+#define TUNE_TRACK_MAX_RATIO        2.00f
+
+/** Solenoid duty cycle for tune. */
+#define TUNE_SOLENOID_DUTY          50u
+
+/* ---- Tune state machine phases ---- */
+
+typedef enum {
+    TUNE_PHASE_IDLE = 0,
+    TUNE_PHASE_STR_INIT,
+    TUNE_PHASE_WAIT_HOME,
+    TUNE_PHASE_WAIT_PLUCK,
+    TUNE_PHASE_MOTOR_MOVE,
+    TUNE_PHASE_WAIT_MOTOR,
+    TUNE_PHASE_WAIT,          /**< Generic hop-count wait             */
+    TUNE_PHASE_SOL_BURST,
+    TUNE_PHASE_BURST_REENABLE,
+    TUNE_PHASE_PI_LOCK,
+    TUNE_PHASE_RECORD,
+    TUNE_PHASE_DONE,
+    TUNE_PHASE_ERROR
+} TunePhase_t;
+
+/* ---- Tune private state ---- */
+
+static TunePhase_t s_tune_phase       = TUNE_PHASE_IDLE;
+static CalStatus_t s_tune_status      = CAL_STATUS_IDLE;
+static uint8_t     s_tune_str         = 0u;
+static uint8_t     s_tune_mask        = 0x0Fu;
+
+static int32_t     s_tune_offset[NUM_STRINGS] = {0};
+
+/* Pluck detection */
+static uint8_t     s_tune_pluck_cnt   = 0u;
+static float       s_tune_detected_f  = 0.0f;
+
+/* Motor move */
+static int32_t     s_tune_target_steps = 0;
+static uint8_t     s_tune_motor_cnt   = 0u;
+
+/* PI state */
+static float       s_tune_pi_integral    = 0.0f;
+static int32_t     s_tune_pi_cmd_steps   = 0;
+static uint8_t     s_tune_pi_hop_cnt     = 0u;
+static uint8_t     s_tune_pi_lock_consec = 0u;
+static float       s_tune_last_valid_f   = 0.0f;
+static uint8_t     s_tune_no_sig_cnt     = 0u;
+static uint8_t     s_tune_retry_cnt      = 0u;
+static uint8_t     s_tune_locked         = 0u;
+
+/* Generic wait */
+static uint16_t    s_tune_wait_cnt       = 0u;
+static TunePhase_t s_tune_after_wait     = TUNE_PHASE_IDLE;
+
+/* ---- Tune helpers ---- */
+
+static void TuneWaitThen(uint16_t hops, TunePhase_t next)
+{
+    s_tune_wait_cnt   = hops;
+    s_tune_after_wait = next;
+    s_tune_phase      = TUNE_PHASE_WAIT;
+}
+
+static void TuneGetTrackedFreq(float center_freq,
+                               float min_freq,
+                               float max_freq,
+                               float *out_freq)
+{
+    float best_freq = 0.0f;
+    float best_mag  = 0.0f;
+    float best_err  = 1.0e9f;
+
+    for (uint8_t i = 0u; i < active_string_count; i++) {
+        float freq = active_frequencies[i];
+        float mag  = active_magnitudes[i];
+
+        if (freq < min_freq || freq > max_freq || mag <= 50.0f) {
+            continue;
+        }
+
+        float err = fabsf(freq - center_freq);
+        if (best_freq == 0.0f || err < best_err
+            || (fabsf(err - best_err) < 0.01f && mag > best_mag)) {
+            best_freq = freq;
+            best_mag  = mag;
+            best_err  = err;
+        }
+    }
+
+    *out_freq = best_freq;
+}
+
+static float TuneStepCapForError(float abs_error_hz)
+{
+    if (abs_error_hz > 40.0f) return TUNE_MAX_STEP_DELTA;
+    if (abs_error_hz > 15.0f) return 400.0f;
+    if (abs_error_hz > 5.0f)  return 160.0f;
+    return 80.0f;
+}
+
+static uint8_t Tune_ClearOffsetsMask(uint8_t string_mask)
+{
+    uint8_t changed = 0u;
+
+    for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
+        if (((string_mask >> i) & 1u) && s_tune_offset[i] != 0) {
+            s_tune_offset[i] = 0;
+            changed = 1u;
+        }
+    }
+
+    return changed;
+}
+
+/* ---- Tune public API ---- */
+
+void Cal_TuneStart(uint8_t string_mask)
+{
+    uint8_t requested_mask = string_mask & 0x3Fu;
+    uint8_t supported_mask = requested_mask & TUNE_SUPPORTED_STRING_MASK;
+
+    if (requested_mask == 0u) {
+        printf("[TUNE] ERROR: empty string mask.\r\n");
+        s_tune_status = CAL_STATUS_ERROR;
+        return;
+    }
+
+    if (supported_mask == 0u) {
+        printf("[TUNE] ERROR: tune currently supports only strings 0-3.\r\n");
+        s_tune_status = CAL_STATUS_ERROR;
+        return;
+    }
+
+    if (supported_mask != requested_mask) {
+        printf("[TUNE] WARNING: strings 4-5 are not commissioned; using mask 0x%02X\r\n",
+               (unsigned)supported_mask);
+    }
+
+    s_tune_mask = supported_mask;
+    s_tune_str  = 0u;
+    while (s_tune_str < NUM_STRINGS && !((s_tune_mask >> s_tune_str) & 1u))
+        s_tune_str++;
+
+    s_tune_phase  = TUNE_PHASE_STR_INIT;
+    s_tune_status = CAL_STATUS_RUNNING;
+
+    printf("[TUNE] ================================================\r\n");
+    printf("[TUNE] Open-string tuning started — mask 0x%02X\r\n",
+           (unsigned)s_tune_mask);
+    printf("[TUNE] ================================================\r\n");
+}
+
+CalStatus_t Cal_TuneGetStatus(void) { return s_tune_status; }
+
+int32_t Cal_TuneGetOffset(uint8_t str)
+{
+    if (str >= NUM_STRINGS) return 0;
+    return s_tune_offset[str];
+}
+
+void Cal_TuneClearOffsets(void)
+{
+    memset(s_tune_offset, 0, sizeof(s_tune_offset));
+    printf("[TUNE] Offsets cleared.\r\n");
+}
+
+uint8_t Cal_TuneLoadFromSRAM(void)
+{
+    memset(s_tune_offset, 0, sizeof(s_tune_offset));
+    printf("[TUNE] Tune-offset persistence disabled — starting with zero offsets.\r\n");
+    return 0u;
+}
+
+/* ---- Tune state machine ---- */
+
+void Cal_TuneHop(void)
+{
+    switch (s_tune_phase) {
+
+    /* ------------------------------------------------------------------
+     * STR_INIT: enable motor and send it to open-string home
+     * ------------------------------------------------------------------ */
+    case TUNE_PHASE_STR_INIT:
+    {
+        InterCore_SendMotorEnableMask(1u << s_tune_str);
+        InterCore_SendMotorMaxSpeed(s_tune_str, TUNE_MOTOR_SPEED);
+        InterCore_SendMotorGoto(s_tune_str, 0);
+
+        s_tune_pluck_cnt     = 0u;
+        s_tune_detected_f    = 0.0f;
+        s_tune_motor_cnt     = 0u;
+        s_tune_pi_integral   = 0.0f;
+        s_tune_pi_cmd_steps  = 0;
+        s_tune_pi_hop_cnt    = 0u;
+        s_tune_pi_lock_consec = 0u;
+        s_tune_last_valid_f  = 0.0f;
+        s_tune_no_sig_cnt    = 0u;
+        s_tune_retry_cnt     = 0u;
+        s_tune_target_steps  = 0;
+        s_tune_locked        = 0u;
+
+        printf("[TUNE] -- String %u (target %.2f Hz)\r\n",
+               (unsigned)s_tune_str,
+               (double)s_open_freq[s_tune_str]);
+
+        s_tune_phase = TUNE_PHASE_WAIT_HOME;
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * WAIT_HOME: do not start sensing until the string is back at home
+     * ------------------------------------------------------------------ */
+    case TUNE_PHASE_WAIT_HOME:
+    {
+        uint8_t arrived = !g_shared_memory.motor_is_moving[s_tune_str];
+        s_tune_motor_cnt++;
+
+        if (arrived || s_tune_motor_cnt >= TUNE_MOTOR_WAIT_HOPS) {
+            if (!arrived) {
+                printf("[TUNE] str%u: home wait timeout — continuing from pos=%ld\r\n",
+                       (unsigned)s_tune_str,
+                       (long)g_shared_memory.current_positions[s_tune_str]);
+            }
+
+            printf("[TUNE] >>> Pluck string %u now!\r\n",
+                   (unsigned)s_tune_str);
+            s_tune_pluck_cnt = 0u;
+            s_tune_phase = TUNE_PHASE_WAIT_PLUCK;
+        }
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * WAIT: generic hop-count decrement
+     * ------------------------------------------------------------------ */
+    case TUNE_PHASE_WAIT:
+    {
+        if (s_tune_wait_cnt > 0u) {
+            s_tune_wait_cnt--;
+        } else {
+            s_tune_phase = s_tune_after_wait;
+        }
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * WAIT_PLUCK: detect a pluck near the target open-string frequency
+     * ------------------------------------------------------------------ */
+    case TUNE_PHASE_WAIT_PLUCK:
+    {
+        float open_f = s_open_freq[s_tune_str];
+        float lo = open_f * 0.70f;
+        float hi = open_f * 1.80f;
+        float best_freq = 0.0f;
+        float best_mag  = 0.0f;
+        float best_err  = hi - lo + 1.0f;
+
+        for (uint8_t j = 0u; j < active_string_count; j++) {
+            float freq = active_frequencies[j];
+            float mag  = active_magnitudes[j];
+
+            if (freq < lo || freq > hi || mag <= 50.0f) {
+                continue;
+            }
+
+            float err = fabsf(freq - open_f);
+            if (best_freq == 0.0f || err < best_err
+                || (fabsf(err - best_err) < 0.01f && mag > best_mag)) {
+                best_freq = freq;
+                best_mag  = mag;
+                best_err  = err;
+            }
+        }
+
+        if (best_freq > 0.0f) {
+            s_tune_detected_f = best_freq;
+            printf("[TUNE] str%u: pluck detected at %.2f Hz\r\n",
+                   (unsigned)s_tune_str,
+                   (double)s_tune_detected_f);
+            s_tune_phase = TUNE_PHASE_MOTOR_MOVE;
+        }
+
+        if (s_tune_phase == TUNE_PHASE_WAIT_PLUCK) {
+            s_tune_pluck_cnt++;
+            if (s_tune_pluck_cnt >= TUNE_PLUCK_TIMEOUT) {
+                printf("[TUNE] str%u: no pluck detected — skipping\r\n",
+                       (unsigned)s_tune_str);
+                s_tune_phase = TUNE_PHASE_RECORD;
+            }
+        }
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * MOTOR_MOVE: initialize the controller state from the pluck reading.
+     *
+     * Tune runs as a pure FFT-driven closed loop. There is no LUT or
+     * polynomial-based ballistic move here; PI_LOCK will generate the first
+     * motor correction from the measured Hz error on the next hop.
+     * ------------------------------------------------------------------ */
+    case TUNE_PHASE_MOTOR_MOVE:
+    {
+        float target   = s_open_freq[s_tune_str];
+        float measured = s_tune_detected_f;
+        float delta_f  = target - measured;
+        int32_t current_pos = g_shared_memory.current_positions[s_tune_str];
+
+        printf("[TUNE] str%u: measured=%.2f Hz target=%.2f Hz delta=%.2f Hz "
+               "→ closed-loop engage at %ld steps\r\n",
+               (unsigned)s_tune_str,
+               (double)measured, (double)target, (double)delta_f,
+               (long)current_pos);
+
+        if (fabsf(delta_f) < TUNE_LOCK_BAND_HZ) {
+            /* Already in tune — skip to record */
+            s_tune_last_valid_f = measured;
+            s_tune_locked       = 1u;
+            printf("[TUNE] str%u: already in tune!\r\n",
+                   (unsigned)s_tune_str);
+            s_tune_phase = TUNE_PHASE_RECORD;
+            break;
+        }
+
+        s_tune_last_valid_f = measured;
+        s_tune_pi_cmd_steps = current_pos;
+        s_tune_target_steps = current_pos;
+        s_tune_pi_integral = 0.0f;
+        s_tune_pi_hop_cnt = 0u;
+        s_tune_no_sig_cnt = 0u;
+        s_tune_retry_cnt = 0u;
+
+        /* Use the user's pluck first; solenoid re-excite is only for recovery. */
+        s_tune_phase = TUNE_PHASE_PI_LOCK;
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * WAIT_MOTOR: wait for motor to finish moving
+     * ------------------------------------------------------------------ */
+    case TUNE_PHASE_WAIT_MOTOR:
+    {
+        uint8_t arrived = !g_shared_memory.motor_is_moving[s_tune_str];
+        s_tune_motor_cnt++;
+
+        if (arrived || s_tune_motor_cnt >= TUNE_MOTOR_WAIT_HOPS) {
+            /* Decide whether to fire solenoid or go straight to PI */
+            uint8_t has_solenoid = (s_tune_str >= 1u && s_tune_str <= 3u);
+            if (has_solenoid) {
+                s_tune_phase = TUNE_PHASE_SOL_BURST;
+            } else {
+                /* No solenoid — rely on remaining ring from pluck.
+                 * Skip a couple of hops for motor vibration to settle. */
+                TuneWaitThen(2u, TUNE_PHASE_PI_LOCK);
+            }
+        }
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * SOL_BURST: re-excite at the tracked resonance when available
+     * ------------------------------------------------------------------ */
+    case TUNE_PHASE_SOL_BURST:
+    {
+        float burst_freq = (s_tune_last_valid_f > 0.0f)
+                         ? s_tune_last_valid_f
+                         : ((s_tune_detected_f > 0.0f)
+                              ? s_tune_detected_f
+                              : s_open_freq[s_tune_str]);
+
+        /* Gate FFT */
+        fft_sensing_enabled = 0u;
+
+        if (burst_freq >= 40.0f && burst_freq <= 800.0f) {
+            InterCore_TriggerSolenoidHz(s_tune_str,
+                                         burst_freq,
+                                         TUNE_SOLENOID_DUTY,
+                                         SOLENOID_MODE_TIMED,
+                                         TUNE_REEXCITE_DURATION_MS, 0u);
+        }
+
+        /* Reset PI for upcoming lock phase */
+        s_tune_pi_integral    = 0.0f;
+        s_tune_pi_cmd_steps   = g_shared_memory.current_positions[s_tune_str];
+        s_tune_pi_hop_cnt     = 0u;
+        s_tune_pi_lock_consec = 0u;
+        s_tune_no_sig_cnt     = 0u;
+
+        TuneWaitThen(TUNE_REEXCITE_WAIT_HOPS, TUNE_PHASE_BURST_REENABLE);
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * BURST_REENABLE: restore FFT sensing
+     * ------------------------------------------------------------------ */
+    case TUNE_PHASE_BURST_REENABLE:
+    {
+        fft_sensing_enabled = 1u;
+        s_tune_phase = TUNE_PHASE_PI_LOCK;
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * PI_LOCK: PI controller targets the open-string frequency.
+     * Motor adjusts in BOTH directions (positive and negative steps).
+     * ------------------------------------------------------------------ */
+    case TUNE_PHASE_PI_LOCK:
+    {
+        float target_freq = s_open_freq[s_tune_str];
+        float center_freq = (s_tune_last_valid_f > 0.0f)
+                          ? s_tune_last_valid_f
+                          : ((s_tune_detected_f > 0.0f)
+                               ? s_tune_detected_f
+                               : target_freq);
+        float min_freq = target_freq * TUNE_TRACK_MIN_RATIO;
+        float max_freq = target_freq * TUNE_TRACK_MAX_RATIO;
+        float meas_f = 0.0f;
+        uint8_t motor_busy = g_shared_memory.motor_is_moving[s_tune_str];
+        TuneGetTrackedFreq(center_freq, min_freq, max_freq, &meas_f);
+
+        /* ----- Valid FFT reading ----- */
+        if (meas_f > 0.0f) {
+            s_tune_last_valid_f = meas_f;
+            s_tune_no_sig_cnt   = 0u;
+
+            float error = target_freq - meas_f;
+
+            if (fabsf(error) > TUNE_LOCK_BAND_HZ) {
+                if (fabsf(error) <= TUNE_INTEGRAL_ENABLE_BAND_HZ) {
+                    s_tune_pi_integral = CalClampf(
+                        s_tune_pi_integral + TUNE_PI_KI * error * TUNING_SAMPLE_TIME_S,
+                        -TUNE_PI_MAX_TRIM, TUNE_PI_MAX_TRIM);
+                } else {
+                    s_tune_pi_integral = 0.0f;
+                }
+
+                if (!motor_busy) {
+                    float step_cap = TuneStepCapForError(fabsf(error));
+                    float delta_cmd = CalClampf(TUNE_PI_KP * error + s_tune_pi_integral,
+                                                -step_cap, step_cap);
+                    int32_t cmd = (int32_t)CalClampf(
+                        (float)s_tune_pi_cmd_steps + delta_cmd,
+                        (float)(-s_cal_steps_max[s_tune_str]),
+                        (float)s_cal_steps_max[s_tune_str]);
+
+                    int32_t delta = cmd - s_tune_pi_cmd_steps;
+                    if ((delta < 0 ? -delta : delta) >= (int32_t)TUNE_MIN_MOVE_STEPS) {
+                        s_tune_pi_cmd_steps = cmd;
+                        s_tune_target_steps = cmd;
+                        InterCore_SendMotorGoto(s_tune_str, s_tune_pi_cmd_steps);
+                    }
+                }
+                s_tune_pi_lock_consec = 0u;
+            } else {
+                s_tune_pi_lock_consec++;
+            }
+
+            if (s_tune_pi_lock_consec >= TUNE_LOCK_CONSEC_HOPS) {
+                s_tune_locked = 1u;
+                printf("[TUNE] str%u: LOCKED at %.2f Hz (err %.3f Hz) pos=%ld\r\n",
+                       (unsigned)s_tune_str,
+                       (double)meas_f, (double)(target_freq - meas_f),
+                       (long)g_shared_memory.current_positions[s_tune_str]);
+                s_tune_phase = TUNE_PHASE_RECORD;
+                break;
+            }
+        } else {
+            /* ----- No FFT signal ----- */
+            if (!motor_busy) {
+                s_tune_no_sig_cnt++;
+            }
+
+            if (s_tune_no_sig_cnt >= TUNE_DEAD_HOPS) {
+                s_tune_retry_cnt++;
+
+                if (s_tune_retry_cnt < TUNE_MAX_RETRIES) {
+                    uint8_t has_solenoid = (s_tune_str >= 1u && s_tune_str <= 3u);
+                    if (has_solenoid) {
+                        printf("[TUNE] str%u: signal lost — re-excite (retry %u/%u)\r\n",
+                               (unsigned)s_tune_str,
+                               (unsigned)s_tune_retry_cnt,
+                               (unsigned)TUNE_MAX_RETRIES);
+                        s_tune_phase = TUNE_PHASE_SOL_BURST;
+                    } else {
+                        printf("[TUNE] str%u: signal lost — pluck again! (retry %u/%u)\r\n",
+                               (unsigned)s_tune_str,
+                               (unsigned)s_tune_retry_cnt,
+                               (unsigned)TUNE_MAX_RETRIES);
+                        s_tune_pluck_cnt = 0u;
+                        s_tune_phase = TUNE_PHASE_WAIT_PLUCK;
+                    }
+                } else {
+                    printf("[TUNE] str%u: max retries reached — leaving offset unchanged\r\n",
+                           (unsigned)s_tune_str);
+                    s_tune_phase = TUNE_PHASE_RECORD;
+                }
+                break;
+            }
+        }
+
+        /* ----- Timeout ----- */
+        if (!motor_busy) {
+            s_tune_pi_hop_cnt++;
+        }
+        if (s_tune_pi_hop_cnt >= TUNE_PI_LOCK_TIMEOUT
+            && s_tune_pi_lock_consec == 0u) {
+            s_tune_retry_cnt++;
+
+            if (s_tune_retry_cnt < TUNE_MAX_RETRIES) {
+                uint8_t has_solenoid = (s_tune_str >= 1u && s_tune_str <= 3u);
+                if (has_solenoid) {
+                    printf("[TUNE] str%u: lock timeout — re-excite (retry %u/%u)\r\n",
+                           (unsigned)s_tune_str,
+                           (unsigned)s_tune_retry_cnt,
+                           (unsigned)TUNE_MAX_RETRIES);
+                    s_tune_phase = TUNE_PHASE_SOL_BURST;
+                } else {
+                    printf("[TUNE] str%u: lock timeout — pluck again! (retry %u/%u)\r\n",
+                           (unsigned)s_tune_str,
+                           (unsigned)s_tune_retry_cnt,
+                           (unsigned)TUNE_MAX_RETRIES);
+                    s_tune_pluck_cnt = 0u;
+                    s_tune_phase = TUNE_PHASE_WAIT_PLUCK;
+                }
+            } else {
+                printf("[TUNE] str%u: timeout after %u retries — leaving offset unchanged\r\n",
+                       (unsigned)s_tune_str,
+                       (unsigned)TUNE_MAX_RETRIES);
+                s_tune_phase = TUNE_PHASE_RECORD;
+            }
+        }
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * RECORD: save only a confirmed in-tune offset, then advance
+     * ------------------------------------------------------------------ */
+    case TUNE_PHASE_RECORD:
+    {
+        int32_t actual_pos = g_shared_memory.current_positions[s_tune_str];
+
+        /* Persist only a confirmed in-tune position. */
+        if (s_tune_locked) {
+            s_tune_offset[s_tune_str] = actual_pos;
+            printf("[TUNE] str%u: offset = %ld steps (pos=%ld)\r\n",
+                   (unsigned)s_tune_str,
+                   (long)s_tune_offset[s_tune_str],
+                   (long)actual_pos);
+        } else {
+            printf("[TUNE] str%u: no confirmed lock — offset unchanged (%ld)\r\n",
+                   (unsigned)s_tune_str,
+                   (long)s_tune_offset[s_tune_str]);
+        }
+
+        /* Advance to next string in mask */
+        do { s_tune_str++; }
+        while (s_tune_str < NUM_STRINGS && !((s_tune_mask >> s_tune_str) & 1u));
+
+        if (s_tune_str >= NUM_STRINGS) {
+            /* All strings done — complete immediately (same hop) so we
+             * don't depend on an extra audio hop that may never arrive. */
+            fft_sensing_enabled = 1u;
+
+            printf("[TUNE] ================================================\r\n");
+            printf("[TUNE] Tuning complete. Offsets:");
+            for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
+                if ((s_tune_mask >> i) & 1u) {
+                    printf(" str%u=%ld", (unsigned)i, (long)s_tune_offset[i]);
+                }
+            }
+            printf("\r\n");
+            printf("[TUNE] ================================================\r\n");
+
+            s_tune_status = CAL_STATUS_DONE;
+            s_tune_phase  = TUNE_PHASE_IDLE;
+        } else {
+            s_tune_phase = TUNE_PHASE_STR_INIT;
+        }
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * DONE: (kept for safety — normally reached via RECORD above)
+     * ------------------------------------------------------------------ */
+    case TUNE_PHASE_DONE:
+    {
+        fft_sensing_enabled = 1u;
+
+        printf("[TUNE] ================================================\r\n");
+        printf("[TUNE] Tuning complete (via DONE phase). Offsets:");
+        for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
+            if ((s_tune_mask >> i) & 1u) {
+                printf(" str%u=%ld", (unsigned)i, (long)s_tune_offset[i]);
+            }
+        }
+        printf("\r\n");
+        printf("[TUNE] ================================================\r\n");
+
+        s_tune_status = CAL_STATUS_DONE;
+        s_tune_phase  = TUNE_PHASE_IDLE;
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * Terminal / idle
+     * ------------------------------------------------------------------ */
+    case TUNE_PHASE_IDLE:
+    case TUNE_PHASE_ERROR:
     default:
         break;
     }

@@ -27,6 +27,7 @@
 #include "serial_cmd.h"
 #include "app_cm7.h"
 #include "tuning_controller.h"
+#include "calibration_controller.h"
 #include "fft_processing.h"
 #include "debug_uart.h"
 #include "inter_core_cm7.h"
@@ -108,6 +109,7 @@ static void Cmd_MapFrets(char *args);
 static void Cmd_PrintLut(char *args);
 static void Cmd_Smoke(char *args);
 static void Cmd_FftPrint(char *args);
+static void Cmd_Tune(char *args);
 static void Cmd_Debug(char *args);
 static void Demo_Tick(void);
 
@@ -140,6 +142,7 @@ static const CmdEntry_t command_table[] = {
     { "mapfrets",  Cmd_MapFrets,  "mapfrets [str ...]       Measure fret step positions for LUT (e.g. 'mapfrets 0 1')" },
     { "printlut",  Cmd_PrintLut,  "printlut                 Print current feed-forward LUT values" },
     { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water" },
+    { "tune",      Cmd_Tune,      "tune [str ...]            Tune open strings 0-3 to standard pitch" },
     { "fftprint",  Cmd_FftPrint,  "fftprint                 Toggle live FFT peak output" },
     { "debug",     Cmd_Debug,     "debug [hop|nf|all|off]   Toggle debug outputs" },
     { "help",      Cmd_Help,      "help                    Show this help" },
@@ -856,6 +859,35 @@ static void Cmd_Smoke(char *args)
     (void)args;
     printf("  Starting Smoke on the Water...\r\n");
     App_RequestPlay();
+}
+
+static void Cmd_Tune(char *args)
+{
+    (void)args;
+
+    char *tok = strtok(NULL, " \t");
+
+    if (tok == NULL || strcmp(tok, "all") == 0) {
+        printf("  Requesting open-string tuning (strings 0-3)...\r\n");
+        printf("  Pluck each string when prompted. Watch [TUNE] output.\r\n");
+        App_RequestTune(0x0Fu);
+        return;
+    }
+
+    /* Build a bitmask from the listed string IDs */
+    uint8_t mask = 0u;
+    do {
+        int id = atoi(tok);
+        if (id < 0 || id > 3) {
+            printf("  Error: tune currently supports only strings 0-3 (got %d).\r\n", id);
+            return;
+        }
+        mask |= (uint8_t)(1u << id);
+    } while ((tok = strtok(NULL, " \t")) != NULL);
+
+    printf("  Requesting open-string tuning (mask 0x%02X)...\r\n", (unsigned)mask);
+    printf("  Pluck each string when prompted. Watch [TUNE] output.\r\n");
+    App_RequestTune(mask);
 }
 
 /* ===== Demo Command & State Machine ===== */
