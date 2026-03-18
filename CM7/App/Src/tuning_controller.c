@@ -155,7 +155,7 @@ static void ApplyActuation(uint8_t string_id,
     if (lock_now && !lock_prev) {
         /* Rising edge: start solenoid at the exact target frequency.
          * Uses CMD_TRIGGER_SOLENOID_HZ → Solenoid_SetFrequencyHz() on CM4.
-         * This sets ARR = (2400000 / freq_hz) - 1 directly instead of using
+         * This sets ARR = (2200000 / freq_hz) - 0.5f directly instead of using
          * the coarse string/fret lookup table. */
         float freq = (target_freq >= 40.0f && target_freq <= 800.0f)
                             ? target_freq : 0.0f;       
