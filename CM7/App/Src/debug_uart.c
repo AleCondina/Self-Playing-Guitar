@@ -172,6 +172,38 @@ void Debug_UART_FlushEcho(void)
 }
 
 /**
+ * @brief Reset UART RX state and re-arm interrupt.
+ *
+ * Call after any long-running operation with heavy printf output (e.g.
+ * calibration) to recover from UART overrun errors that may have left
+ * the HAL RX state machine stuck.
+ */
+void Debug_UART_ResetRx(void)
+{
+    /* Disable UART IRQ to prevent re-entrance while we reset state */
+    HAL_NVIC_DisableIRQ(USART3_IRQn);
+
+    /* Clear all UART error flags at register level */
+    __HAL_UART_CLEAR_FLAG(&hcom_uart[COM1],
+        UART_CLEAR_OREF | UART_CLEAR_NEF | UART_CLEAR_PEF | UART_CLEAR_FEF);
+
+    /* Force HAL RxState to READY — AbortReceive_IT is async and leaves
+     * RxState as BUSY_RX, causing the subsequent Receive_IT to fail.
+     * Directly resetting the internal state is the only reliable way. */
+    hcom_uart[COM1].RxState = HAL_UART_STATE_READY;
+
+    /* Reset application-level buffers */
+    rx_line_pos   = 0;
+    rx_line_ready = 0;
+    echo_head     = 0;
+    echo_tail     = 0;
+
+    /* Re-enable IRQ and re-arm RX */
+    HAL_NVIC_EnableIRQ(USART3_IRQn);
+    HAL_UART_Receive_IT(&hcom_uart[COM1], &rx_byte, 1);
+}
+
+/**
  * @brief UART error callback — re-arms RX after overrun or framing errors.
  * @note  Without this, a UART overrun (ORE) during heavy printf output
  *        permanently disables RX interrupts and the firmware goes deaf.
