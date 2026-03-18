@@ -2203,8 +2203,9 @@ void Cal_TuneHop(void)
         s_tune_no_sig_cnt = 0u;
         s_tune_retry_cnt = 0u;
 
-        /* Use the user's pluck first; solenoid re-excite is only for recovery. */
-        s_tune_phase = TUNE_PHASE_PI_LOCK;
+        /* Gate FFT and wait for pluck harmonics to decay before sensing. */
+        fft_sensing_enabled = 0u;
+        TuneWaitThen(TUNE_REEXCITE_WAIT_HOPS, TUNE_PHASE_BURST_REENABLE);
         break;
     }
 
