@@ -300,22 +300,19 @@ static uint16_t    s_buf_n             = 0u;
  * Private helpers
  * ========================================================================= */
 
-static inline float CalClampf(float v, float lo, float hi)
-{
+static inline float CalClampf(float v, float lo, float hi){
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
 }
 
-static void WaitThen(uint16_t hops, CalPhase_t next)
-{
+static void WaitThen(uint16_t hops, CalPhase_t next){
     s_wait_cnt   = hops;
     s_after_wait = next;
     s_phase      = CAL_PHASE_WAIT;
 }
 
-static void StopSolenoid(uint8_t str_id)
-{
+static void StopSolenoid(uint8_t str_id){
     g_shared_memory.solenoid_id          = str_id;
     g_shared_memory.motor_command_flags |= CMD_STOP_SOLENOID;
     InterCore_NotifyCM4();
@@ -327,8 +324,7 @@ static void StopSolenoid(uint8_t str_id)
  * @param search_band Accept if |measured − target| ≤ search_band
  * @param out_freq    Best match; 0.0f if nothing within band
  */
-static void CalGetFreq(float target, float search_band, float *out_freq)
-{
+static void CalGetFreq(float target, float search_band, float *out_freq){
     *out_freq = 0.0f;
     float best_err = search_band + 1.0f;
     for (uint8_t i = 0u; i < active_string_count; i++) {
@@ -340,8 +336,7 @@ static void CalGetFreq(float target, float search_band, float *out_freq)
     }
 }
 
-static uint32_t CalChecksum(const CalPersist_t *p)
-{
+static uint32_t CalChecksum(const CalPersist_t *p){
     const uint32_t *w         = (const uint32_t *)p;
     uint32_t        size_words = (sizeof(CalPersist_t) / sizeof(uint32_t)) - 2u;
     uint32_t        csum       = 0u;
@@ -349,11 +344,15 @@ static uint32_t CalChecksum(const CalPersist_t *p)
     return csum;
 }
 
-static void Cal_EnableBkpSRAM(void)
-{
-    __HAL_RCC_BKPRAM_CLK_ENABLE();   /* Enable backup SRAM clock on AHB4    */
-    HAL_PWREx_EnableBkUpReg();        /* Enable VBAT backup regulator        */
+static void Cal_EnableBkpSRAM(void){
+    HAL_PWR_EnableBkUpAccess();          /* unlock backup domain write protection */
+    __HAL_RCC_BKPRAM_CLK_ENABLE();      /* enable backup SRAM clock on AHB4     */
+
+    if (HAL_PWREx_EnableBkUpReg() != HAL_OK) {
+        printf("[CAL] ERROR: backup regulator timeout to write \r\n");
+    }
 }
+
 
 /* =========================================================================
  * LUT and polynomial builders
@@ -366,8 +365,7 @@ static void Cal_EnableBkpSRAM(void)
  * Remaining breakpoints are distributed evenly across the measured
  * frequency range using nearest-neighbour selection.
  */
-static void Cal_BuildTable(uint8_t str)
-{
+static void Cal_BuildTable(uint8_t str){
     float open_f = s_open_freq[str];
 
     if (s_buf_n < CAL_MIN_SAMPLES) {
@@ -420,8 +418,7 @@ static void Cal_BuildTable(uint8_t str)
  * in double precision.  Falls back to a linear estimate if fewer than 3
  * valid samples are present or the system is singular.
  */
-static void Cal_FitPolynomial(uint8_t str)
-{
+static void Cal_FitPolynomial(uint8_t str){
     if (s_buf_n < 3u) {
         cal_poly_coeff[str][0] = 0.0f;
         cal_poly_coeff[str][1] = 10.0f;
@@ -490,8 +487,7 @@ static void Cal_FitPolynomial(uint8_t str)
  * Persistent storage
  * ========================================================================= */
 
-static void Cal_SaveToSRAM(void)
-{
+static void Cal_SaveToSRAM(void){
     Cal_EnableBkpSRAM();
 
     CalPersist_t *p = (CalPersist_t *)CAL_BKPSRAM_BASE;
@@ -513,8 +509,7 @@ static void Cal_SaveToSRAM(void)
            (unsigned long)CAL_BKPSRAM_BASE, (unsigned)sizeof(CalPersist_t));
 }
 
-uint8_t Cal_LoadFromSRAM(void)
-{
+uint8_t Cal_LoadFromSRAM(void){
     Cal_EnableBkpSRAM();
 
     const CalPersist_t *p = (const CalPersist_t *)CAL_BKPSRAM_BASE;
@@ -557,8 +552,7 @@ uint8_t Cal_LoadFromSRAM(void)
  * using the existing tuning_ff_freq_bp / tuning_ff_steps_bp breakpoints so
  * the tuning controller has a reasonable feedforward curve from first boot.
  */
-void Cal_FitFromBaseLUT(void)
-{
+void Cal_FitFromBaseLUT(void){
     for (uint8_t str = 0u; str < NUM_STRINGS; str++) {
         s_buf_n = TUNING_FF_NUM_POINTS;
         for (uint8_t i = 0u; i < TUNING_FF_NUM_POINTS; i++) {
@@ -570,8 +564,7 @@ void Cal_FitFromBaseLUT(void)
     s_buf_n = 0u;
 }
 
-void Cal_Start(uint8_t string_mask)
-{
+void Cal_Start(uint8_t string_mask){
     if ((string_mask & 0x3Fu) == 0u) {
         printf("[CAL] ERROR: empty string mask.\r\n");
         s_status = CAL_STATUS_ERROR;
@@ -598,8 +591,7 @@ void Cal_Start(uint8_t string_mask)
     printf("[CAL] ================================================\r\n");
 }
 
-void Cal_StartStr(uint8_t str_id)
-{
+void Cal_StartStr(uint8_t str_id){
     if (str_id >= NUM_STRINGS) {
         printf("[CAL] ERROR: invalid string ID %u\r\n", (unsigned)str_id);
         return;
@@ -615,8 +607,7 @@ CalStatus_t Cal_GetStatus(void) { return s_status; }
  * Cal_Hop — state machine (called once per FFT hop ≈ every 170 ms)
  * ========================================================================= */
 
-void Cal_Hop(void)
-{
+void Cal_Hop(void){
     switch (s_phase) {
 
     /* ------------------------------------------------------------------

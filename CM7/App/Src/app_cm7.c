@@ -233,7 +233,6 @@ void App_CM7_Main(void) {
                         s_request_calibrate = 0u;
                         Cal_Start(mask);
                         app_state = STATE_CALIBRATING;
-                        Audio_MarkProcessed();
                         break;
                     }
                     if (s_request_lutbuild) {
@@ -241,7 +240,6 @@ void App_CM7_Main(void) {
                         s_request_lutbuild = 0u;
                         LutBuilder_Start(mask);
                         app_state = STATE_LUT_BUILDING;
-                        Audio_MarkProcessed();
                         break;
                     }
                     if (s_request_play) {
