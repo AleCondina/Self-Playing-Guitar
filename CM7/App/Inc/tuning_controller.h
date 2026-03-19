@@ -195,6 +195,9 @@ typedef struct {
     uint8_t  pi_enable;             /**< 1 = PI accumulating this hop     */
     uint16_t delay_hold_counter;    /**< Hops remaining in post-note hold */
 
+    /* Pluck scheduling */
+    uint8_t  pluck_pending;         /**< 1 = initial pluck needed for this note */
+
     /* Fault / diagnostics */
     uint8_t  fault_flags;           /**< Bit field: TUNING_FAULT_*        */
     uint32_t stall_counter;         /**< Consecutive hops above stall thr */

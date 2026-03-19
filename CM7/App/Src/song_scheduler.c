@@ -11,8 +11,8 @@
  *   E2 = 82.41   A2 = 110.00   D3 = 146.83
  *   G3 = 196.00  B3 = 246.94   E4 = 329.63
  *
- * Chord fields: { string_id, freq_hz, duration_ms, num_strings, string_id2, freq_hz2 }
- * Set num_strings = 1 for a single note, 2 for a two-string chord.
+ * Note fields: { string_id, freq_hz, duration_ms, num_strings, string_id2, freq_hz2 }
+ * Currently using single notes on A2 (string 1) at 80 BPM.
  ******************************************************************************
  */
 
@@ -23,48 +23,43 @@
  * Song data  ── edit here to change the song
  * =========================================================================
  * Smoke on the Water – Deep Purple (main riff, intro)
- * Tempo: 112 BPM  |  Time: 4/4
+ * Tempo: 80 BPM  |  Time: 4/4  |  A2 string only (single-note)
  *
  * String mapping:
  *   0 = E2  (low)    1 = A2    2 = D3
  *   3 = G3           4 = B3    5 = E4 (high)
  *
- * All chords are played on G (idx 3) + D (idx 2) strings simultaneously.
+ * Fret frequencies – A2 string (110.00 Hz open):
+ *   fret 0 = 110.00 Hz   fret 3 = 130.81 Hz
+ *   fret 5 = 146.83 Hz   fret 6 = 155.56 Hz
  *
- * Fret frequencies – G3 string (196.00 Hz open):
- *   fret 0 = 196.00 Hz   fret 3 = 233.08 Hz
- *   fret 5 = 261.63 Hz   fret 6 = 277.18 Hz
- *
- * Fret frequencies – D3 string (146.83 Hz open):
- *   fret 0 = 146.83 Hz   fret 3 = 174.61 Hz
- *   fret 5 = 196.00 Hz   fret 6 = 207.65 Hz
- *
- * At 112 BPM:  quarter = 536 ms  |  eighth = 268 ms
+ * At 80 BPM:  quarter = 750 ms  |  eighth = 375 ms
+ *             half = 1500 ms    |  dotted quarter = 1125 ms
  * ========================================================================= */
 
-/* Convenience macro for a two-string chord entry */
-#define CHORD(g_hz, d_hz, dur_ms) \
-    { 3u, (g_hz), (dur_ms), 2u, 2u, (d_hz) }
+/* Convenience macro for a single-note entry on A2 (string index 1) */
+#define NOTE(freq_hz, dur_ms) \
+    { 1u, (freq_hz), (dur_ms), 1u, 0u, 0.0f }
 
 static const SongNote_t song_notes[] = {
 
-    /* ── Phrase 1: G5 – Bb5 – C5  (one bar, 4 beats) ─────────────────── */
-    CHORD(196.00f, 146.83f,  536u),   /* G(0)D(0)  – open power chord   */
-    CHORD(233.08f, 174.61f,  536u),   /* G(3)D(3)  – Bb5 power chord    */
-    CHORD(261.63f, 196.00f, 1072u),   /* G(5)D(5)  – C5  power chord (held + rest) */
+    /* ── Phrase 1: G – Bb – C  (one bar, 4 beats) ─────────────────── */
+    NOTE(110.00f,  750u),   /* A(0)  – open, quarter       */
+    NOTE(130.81f,  750u),   /* A(3)  – Bb,   quarter       */
+    NOTE(146.83f, 1500u),   /* A(5)  – C,    half (held)   */
 
-    /* ── Phrase 2: G5 – Bb5 – Db5 – C5  (one bar, 4 beats) ───────────── */
-    CHORD(196.00f, 146.83f,  536u),   /* G(0)D(0)  – open power chord   */
-    CHORD(233.08f, 174.61f,  536u),   /* G(3)D(3)  – Bb5 power chord    */
-    CHORD(277.18f, 207.65f,  268u),   /* G(6)D(6)  – Db5 power chord    */
-    CHORD(261.63f, 196.00f,  804u),   /* G(5)D(5)  – C5  (dotted quarter + rest) */
+    /* ── Phrase 2: G – Bb – Db – C  (one bar, 4 beats) ───────────── */
+    NOTE(110.00f,  750u),   /* A(0)  – open, quarter       */
+    NOTE(130.81f,  750u),   /* A(3)  – Bb,   quarter       */
+    NOTE(155.56f,  375u),   /* A(6)  – Db,   eighth        */
+    NOTE(146.83f, 1125u),   /* A(5)  – C,    dotted quarter */
 
-    /* ── Phrase 3: G5 – Bb5 – C5 – Bb5 – G5  (one bar, 4 beats) ──────── */
-    CHORD(196.00f, 146.83f,  536u),   /* G(0)D(0)  – open power chord   */
-    CHORD(233.08f, 174.61f,  536u),   /* G(3)D(3)  – Bb5 power chord    */
-    CHORD(261.63f, 196.00f,  268u),   /* G(5)D(5)  – C5  power chord    */
-    CHORD(233.08f, 174.61f,  268u),   /* G(3)D(3)  – Bb5 power chord    */
-    CHORD(196.00f, 146.83f,  536u),   /* G(0)D(0)  – return to open (held + rest) */
+    /* ── Phrase 3: G – Bb – C – Bb – G  (one bar, 4 beats) ──────── */
+    NOTE(110.00f,  750u),   /* A(0)  – open, quarter       */
+    NOTE(130.81f,  750u),   /* A(3)  – Bb,   quarter       */
+    NOTE(146.83f,  375u),   /* A(5)  – C,    eighth        */
+    NOTE(130.81f,  375u),   /* A(3)  – Bb,   eighth        */
+    NOTE(110.00f,  750u),   /* A(0)  – open, quarter       */
 };
 
 #define SONG_NOTE_COUNT  ((uint32_t)(sizeof(song_notes) / sizeof(song_notes[0])))
@@ -76,6 +71,7 @@ static uint32_t s_note_index   = 0u;
 static uint32_t s_note_start_ms = 0u;
 static uint8_t  s_active        = 0u;
 static uint8_t  s_initialised   = 0u;
+static uint8_t  s_first_tick    = 1u;
 
 /* =========================================================================
  * API implementation
@@ -87,6 +83,7 @@ void SongSched_Init(void)
     s_note_start_ms = 0u;   /* will be set on first Tick call */
     s_active        = (SONG_NOTE_COUNT > 0u) ? 1u : 0u;
     s_initialised   = 1u;
+    s_first_tick    = 1u;
 }
 
 void SongSched_Tick(uint32_t now_ms)
@@ -94,10 +91,9 @@ void SongSched_Tick(uint32_t now_ms)
     if (!s_initialised || !s_active) return;
 
     /* First tick: latch the song start time */
-    static uint8_t first_tick = 1u;
-    if (first_tick) {
+    if (s_first_tick) {
         s_note_start_ms = now_ms;
-        first_tick = 0u;
+        s_first_tick = 0u;
     }
 
     /* Check if the current note has expired */
@@ -155,11 +151,16 @@ uint8_t SongSched_IsActive(void)
 
 void SongSched_Restart(void)
 {
-    s_note_index    = 0u;
-    s_note_start_ms = 0u;
-    /* Reset first_tick flag (static local) is not directly accessible;
-     * re-init via SongSched_Init() achieves the same effect. */
     SongSched_Init();
+}
+
+void SongSched_Stop(void)
+{
+    s_active      = 0u;
+    s_first_tick  = 1u;
+    s_note_index  = 0u;
+    s_note_start_ms = 0u;
+    s_initialised = 1u;
 }
 
 uint32_t SongSched_GetNoteCount(void)

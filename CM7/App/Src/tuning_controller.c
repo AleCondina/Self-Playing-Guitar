@@ -13,7 +13,7 @@
  *                          InterCore_SendCommand (solenoid stop)
  *  shared_memory        – g_shared_memory.current_positions[] (motor feedback)
  *
- * Feed-forward LUT calibration (TODO)
+ * 
  * ------------------------------------
  * The tables below contain PLACEHOLDER values derived from standard guitar
  * tuning.  They assume:
@@ -83,14 +83,57 @@ float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
  * ========================================================================= */
 
 static TuningStringState_t s_state[NUM_STRINGS];
+static TuningPIParams_t    s_pi_params[NUM_STRINGS];
 
 /* Decimation counter for debug printing (print every N hops) */
 #define DEBUG_DECIM_HOPS    5u
 static uint32_t s_debug_counter = 0u;
 
+/* PI test timing */
+#define TUNING_PITEST_SEGMENT_HOLD_MS   3000u
+#define TUNING_PITEST_DEFAULT_REPS      5u
+#define TUNING_PITEST_NAME_LEN          48u
+#define TUNING_PITEST_SETTLE_TOL_STEPS  32
+
 /* Bitmask of motors currently enabled by the tuning controller.
  * Used to detect transitions and avoid redundant enable commands. */
 static uint8_t s_motor_enable_mask = 0u;
+
+static const float s_open_freq[NUM_STRINGS] = {
+    E2_HZ, A2_HZ, D3_HZ, G3_HZ, B3_HZ, E4_HZ
+};
+
+typedef struct {
+    const char    *name;
+    const uint8_t *frets;
+    uint8_t        length;
+} TuningPITestProfileDef_t;
+
+typedef struct {
+    uint8_t               active;
+    uint8_t               pi_enabled;
+    uint8_t               string_id;
+    uint8_t               reps_total;
+    uint8_t               rep_index;
+    uint8_t               segment_index;
+    TuningPITestProfile_t profile;
+    uint32_t              segment_start_ms;
+    char                  test_name[TUNING_PITEST_NAME_LEN];
+} TuningPITestState_t;
+
+static const uint8_t s_pitest_small_frets[]  = {0u, 2u, 0u};
+static const uint8_t s_pitest_medium_frets[] = {0u, 4u, 0u};
+static const uint8_t s_pitest_large_frets[]  = {0u, 6u, 0u};
+static const uint8_t s_pitest_ladder_frets[] = {0u, 2u, 4u, 6u, 4u, 2u, 0u};
+
+static const TuningPITestProfileDef_t s_pitest_profiles[] = {
+    { "small",  s_pitest_small_frets,  (uint8_t)(sizeof(s_pitest_small_frets)  / sizeof(s_pitest_small_frets[0]))  },
+    { "medium", s_pitest_medium_frets, (uint8_t)(sizeof(s_pitest_medium_frets) / sizeof(s_pitest_medium_frets[0])) },
+    { "large",  s_pitest_large_frets,  (uint8_t)(sizeof(s_pitest_large_frets)  / sizeof(s_pitest_large_frets[0]))  },
+    { "ladder", s_pitest_ladder_frets, (uint8_t)(sizeof(s_pitest_ladder_frets) / sizeof(s_pitest_ladder_frets[0])) }
+};
+
+static TuningPITestState_t s_pitest = {0};
 
 /* =========================================================================
  * Private helpers
@@ -113,6 +156,161 @@ static inline float Lerpf(float x0, float y0, float x1, float y1, float x)
 {
     if (x1 == x0) return y0;
     return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
+}
+
+static const TuningPITestProfileDef_t *GetPITestProfileDef(TuningPITestProfile_t profile)
+{
+    if ((uint32_t)profile >= (uint32_t)(sizeof(s_pitest_profiles) / sizeof(s_pitest_profiles[0]))) {
+        return NULL;
+    }
+    return &s_pitest_profiles[(uint32_t)profile];
+}
+
+static float GetFretTargetHz(uint8_t string_id, uint8_t fret)
+{
+    if (string_id >= NUM_STRINGS) return 0.0f;
+    return s_open_freq[string_id] * powf(2.0f, ((float)fret / 12.0f));
+}
+
+static float GetPITestTargetHz(uint8_t string_id,
+                               TuningPITestProfile_t profile,
+                               uint8_t segment_index)
+{
+    const TuningPITestProfileDef_t *def = GetPITestProfileDef(profile);
+    if (def == NULL || segment_index >= def->length) {
+        return 0.0f;
+    }
+    return GetFretTargetHz(string_id, def->frets[segment_index]);
+}
+
+static void StopAllSolenoids(void)
+{
+    g_shared_memory.solenoid_id = 0xFFu;
+    g_shared_memory.motor_command_flags |= CMD_STOP_SOLENOID;
+    InterCore_NotifyCM4();
+}
+
+static void StopAllActuation(void)
+{
+    if (s_motor_enable_mask != 0u) {
+        InterCore_SendMotorEnableMask(0u);
+        s_motor_enable_mask = 0u;
+    }
+    StopAllSolenoids();
+}
+
+static void ForceNextTargetAsNewNote(uint8_t string_id)
+{
+    if (string_id >= NUM_STRINGS) return;
+
+    TuningStringState_t *s = &s_state[string_id];
+    s->last_target_freq_hz = -1.0f;
+    s->last_valid_freq_hz  = 0.0f;
+    s->integral_state      = 0.0f;
+    s->trim_steps          = 0.0f;
+    s->lock_state          = 0u;
+    s->prev_lock_state     = 0u;
+    s->delay_hold_counter  = (uint16_t)TUNING_DELAY_FRAMES;
+    s->pi_enable           = 0u;
+    s->pluck_pending       = 1u;
+    s->stall_counter       = 0u;
+    s->fault_flags         = 0u;
+}
+
+static void StopPITestInternal(const char *reason)
+{
+    if (!s_pitest.active) {
+        return;
+    }
+
+    StopAllActuation();
+    TuningCtrl_ResetAll();
+
+    printf("[PIT] DONE,%s,%s\r\n", s_pitest.test_name, reason);
+
+    memset(&s_pitest, 0, sizeof(s_pitest));
+}
+
+static void PITestTick(uint32_t now_ms)
+{
+    if (!s_pitest.active) {
+        return;
+    }
+
+    const TuningPITestProfileDef_t *def = GetPITestProfileDef(s_pitest.profile);
+    if (def == NULL || def->length == 0u) {
+        StopPITestInternal("invalid-profile");
+        return;
+    }
+
+    while ((now_ms - s_pitest.segment_start_ms) >= TUNING_PITEST_SEGMENT_HOLD_MS) {
+        s_pitest.segment_start_ms += TUNING_PITEST_SEGMENT_HOLD_MS;
+        s_pitest.segment_index++;
+
+        if (s_pitest.segment_index >= def->length) {
+            s_pitest.rep_index++;
+            if (s_pitest.rep_index >= s_pitest.reps_total) {
+                StopPITestInternal("complete");
+                return;
+            }
+            s_pitest.segment_index = 0u;
+        }
+
+        ForceNextTargetAsNewNote(s_pitest.string_id);
+    }
+}
+
+static float ErrorCents(float target_hz, float measured_hz)
+{
+    if (target_hz <= 0.0f || measured_hz <= 0.0f) {
+        return 0.0f;
+    }
+    return 1200.0f * log2f(target_hz / measured_hz);
+}
+
+static void LogPITestRow(const TuningStringState_t *s,
+                         uint8_t                    string_id,
+                         float                      target_hz,
+                         float                      measured_hz,
+                         float                      confidence)
+{
+    float error_hz = (measured_hz > 0.0f) ? (target_hz - measured_hz) : 0.0f;
+    float error_cents = ErrorCents(target_hz, measured_hz);
+
+    printf("[PIT] %lu,%s,%u,%u,%u,%.2f,%.2f,%.3f,%.3f,%.1f,%.1f,%ld,%ld,%u,%u,%.0f,%u\r\n",
+           (unsigned long)HAL_GetTick(),
+           s_pitest.test_name,
+           (unsigned)(s_pitest.rep_index + 1u),
+           (unsigned)s_pitest.segment_index,
+           (unsigned)string_id,
+           (double)target_hz,
+           (double)measured_hz,
+           (double)error_hz,
+           (double)error_cents,
+           (double)s->ff_steps_abs,
+           (double)s->trim_steps,
+           (long)s->cmd_steps_abs,
+           (long)s->current_abs_steps,
+           (unsigned)s->lock_state,
+           (unsigned)s->pi_enable,
+           (double)confidence,
+	           (unsigned)s->fault_flags);
+}
+
+static uint8_t IsStringSettled(uint8_t string_id, int32_t cmd_steps_abs)
+{
+    if (string_id >= NUM_STRINGS) {
+        return 0u;
+    }
+
+    int32_t current_pos = g_shared_memory.current_positions[string_id];
+    int32_t pos_err = current_pos - cmd_steps_abs;
+    if (pos_err < 0) {
+        pos_err = -pos_err;
+    }
+
+    return (g_shared_memory.motor_is_moving[string_id] == 0u
+         && pos_err <= TUNING_PITEST_SETTLE_TOL_STEPS) ? 1u : 0u;
 }
 
 /**
@@ -203,6 +401,8 @@ void TuningCtrl_Init(void)
         s->last_target_freq_hz = -1.0f;
         s->last_valid_freq_hz  =  0.0f;
     }
+    TuningCtrl_ResetPIToDefaults();
+    memset(&s_pitest, 0, sizeof(s_pitest));
     s_debug_counter = 0u;
     s_motor_enable_mask = 0u;
 }
@@ -220,6 +420,15 @@ void TuningCtrl_Update(uint8_t string_id,
     if (string_id >= NUM_STRINGS) return;
 
     TuningStringState_t *s = &s_state[string_id];
+    float prev_valid_freq_hz = s->last_valid_freq_hz;
+    float kp = s_pi_params[string_id].kp;
+    float ki = s_pi_params[string_id].ki;
+    uint8_t ff_only_test = (s_pitest.active
+                         && s_pitest.string_id == string_id
+                         && !s_pitest.pi_enabled);
+    uint8_t waiting_for_segment_pluck = (s_pitest.active
+                                      && s_pitest.string_id == string_id
+                                      && s->pluck_pending);
 
     /* ------------------------------------------------------------------ */
     /* 1. Note-change detection                                             */
@@ -237,6 +446,7 @@ void TuningCtrl_Update(uint8_t string_id,
         s->pi_enable         = 0u;
         s->stall_counter     = 0u;
         s->fault_flags       = 0u;
+        s->pluck_pending     = 1u;
 
         /* Update FF position immediately so motor starts moving */
         s->ff_steps_abs      = FF_Interpolate(string_id, target_freq_hz);
@@ -252,13 +462,20 @@ void TuningCtrl_Update(uint8_t string_id,
         s->pi_enable = 1u;
     }
 
+    if (ff_only_test) {
+        s->pi_enable       = 0u;
+        s->integral_state  = 0.0f;
+        s->trim_steps      = 0.0f;
+        s->fault_flags    &= (uint8_t)~TUNING_FAULT_SATURATED;
+    }
+
     /* ------------------------------------------------------------------ */
     /* 2. Measurement gate                                                  */
     /* Peaks in active_frequencies[] are already SNR-vetted by              */
     /* FFT_ProcessBlock's adaptive per-bin noise floor.  We only need to    */
     /* check that GetFFTRadarLock returned a valid measurement (non-zero).  */
     /* ------------------------------------------------------------------ */
-    uint8_t measurement_trusted = (measured_freq_hz > 0.0f);
+    uint8_t measurement_trusted = (measured_freq_hz > 0.0f) && !waiting_for_segment_pluck;
 
     float use_freq;
     if (measurement_trusted) {
@@ -282,14 +499,22 @@ void TuningCtrl_Update(uint8_t string_id,
     float lock_in_hz  = target_freq_hz * (powf(2.0f, TUNING_LOCK_BAND_IN_CENTS  / 1200.0f) - 1.0f);
     float lock_out_hz = target_freq_hz * (powf(2.0f, TUNING_LOCK_BAND_OUT_CENTS / 1200.0f) - 1.0f);
 
-    if (s->lock_state) {
-        if (abs_e >= lock_out_hz) {
-            s->lock_state = 0u;
-        }
+    if (waiting_for_segment_pluck) {
+        s->lock_state = 0u;
     } else {
-        if (abs_e <= lock_in_hz) {
-            s->lock_state = 1u;
+        if (s->lock_state) {
+            if (abs_e >= lock_out_hz) {
+                s->lock_state = 0u;
+            }
+        } else {
+            if (abs_e <= lock_in_hz) {
+                s->lock_state = 1u;
+            }
         }
+    }
+
+    if (waiting_for_segment_pluck) {
+        s->prev_lock_state = 0u;
     }
 
     /* ------------------------------------------------------------------ */
@@ -298,10 +523,10 @@ void TuningCtrl_Update(uint8_t string_id,
     /* ------------------------------------------------------------------ */
     if (s->pi_enable && measurement_trusted) {
         /* Accumulate integral */
-        s->integral_state += TUNING_KI * e * TUNING_SAMPLE_TIME_S;
+        s->integral_state += ki * e * TUNING_SAMPLE_TIME_S;
 
         /* Compute raw PI output */
-        float raw_trim = TUNING_KP * e + s->integral_state;
+        float raw_trim = kp * e + s->integral_state;
 
         /* Clamp output */
         float clamped_trim = Clampf(raw_trim,
@@ -366,7 +591,7 @@ void TuningCtrl_Update(uint8_t string_id,
     /* ------------------------------------------------------------------ */
     if (!s->lock_state && s->pi_enable && measurement_trusted) {
         float abs_trim = fabsf(s->trim_steps);
-        float freq_delta = fabsf(measured_freq_hz - s->last_valid_freq_hz);
+        float freq_delta = fabsf(measured_freq_hz - prev_valid_freq_hz);
 
         if ((abs_trim > (TUNING_OUT_LIMIT_STEPS * 0.5f)) &&
             (freq_delta < TUNING_STALL_MIN_FREQ_DELTA_HZ)) {
@@ -457,8 +682,15 @@ void TuningCtrl_RunHop(void)
         }
     }
 
-    /* Get current note from song scheduler */
-    if (!SongSched_IsActive()) {
+    uint32_t now_ms = HAL_GetTick();
+    uint8_t use_pitest = s_pitest.active;
+
+    if (use_pitest) {
+        PITestTick(now_ms);
+        use_pitest = s_pitest.active;
+    }
+
+    if (!use_pitest && !SongSched_IsActive()) {
         /* Song stopped: disable all motors the tuning controller enabled */
         if (s_motor_enable_mask != 0u) {
             InterCore_SendMotorEnableMask(0u);
@@ -467,12 +699,26 @@ void TuningCtrl_RunHop(void)
         return;
     }
 
-    uint8_t  str    = SongSched_GetStringId();
-    float    target = SongSched_GetTargetFreq();
+    uint8_t  str = 0u;
+    float    target = 0.0f;
+    uint8_t  string_count = 1u;
+
+    if (use_pitest) {
+        str    = s_pitest.string_id;
+        target = GetPITestTargetHz(str, s_pitest.profile, s_pitest.segment_index);
+        if (target <= 0.0f) {
+            StopPITestInternal("invalid-target");
+            return;
+        }
+    } else {
+        str          = SongSched_GetStringId();
+        target       = SongSched_GetTargetFreq();
+        string_count = SongSched_GetStringCount();
+    }
 
     /* --- Motor power management: enable only active string motors --- */
     uint8_t needed_mask = (1u << str);
-    if (SongSched_GetStringCount() >= 2u) {
+    if (!use_pitest && string_count >= 2u) {
         needed_mask |= (1u << SongSched_GetStringId2());
     }
     if (needed_mask != s_motor_enable_mask) {
@@ -501,14 +747,38 @@ void TuningCtrl_RunHop(void)
     }
 
     /* ------------------------------------------------------------------ */
+    /* Initial pluck: fire solenoid on note change so the string vibrates  */
+    /* and the FFT can measure pitch.  Without this the lock detector      */
+    /* never sees a frequency → solenoid never triggers (chicken-and-egg). */
+    /* ------------------------------------------------------------------ */
+    if (s_state[str].pluck_pending
+        && (!use_pitest || IsStringSettled(str, s_state[str].cmd_steps_abs))) {
+        s_state[str].pluck_pending = 0u;
+        float freq = (target >= 40.0f && target <= 800.0f) ? target : 0.0f;
+        if (freq > 1e-6f) {
+            InterCore_TriggerSolenoidHz(str, freq,
+                                        SOLENOID_DEFAULT_DUTY_CYCLE,
+                                        SOLENOID_MODE_TIMED,
+                                        250u, 0u);
+        }
+    }
+
+    /* ------------------------------------------------------------------ */
     /* Coordinate solenoid actuation based on lock-state transitions        */
     /* ------------------------------------------------------------------ */
-    ApplyActuation(str, target, curr_lock, prev_lock);
+    if (!use_pitest) {
+        ApplyActuation(str, target, curr_lock, prev_lock);
+    }
+
+    if (use_pitest) {
+        LogPITestRow(&s_state[str], str, target, measured, confidence);
+        return;
+    }
 
     /* ------------------------------------------------------------------ */
     /* Second string (chord support)                                        */
     /* ------------------------------------------------------------------ */
-    if (SongSched_GetStringCount() >= 2u) {
+    if (string_count >= 2u) {
         uint8_t str2     = SongSched_GetStringId2();
         float   target2  = SongSched_GetTargetFreq2();
 
@@ -516,7 +786,7 @@ void TuningCtrl_RunHop(void)
         float measured2 = 0.0f;
         float confidence2 = 0.0f;
         GetFFTRadarLock(target2, &measured2, &confidence2);
-        
+
         uint8_t prev_lock2 = s_state[str2].lock_state;
         TuningCtrl_Update(str2, target2, measured2, confidence2);
         uint8_t curr_lock2 = s_state[str2].lock_state;
@@ -524,6 +794,19 @@ void TuningCtrl_RunHop(void)
         if (s_state[str2].cmd_steps_abs != s_state[str2].prev_cmd_steps_abs) {
             InterCore_SendMotorGoto(str2, s_state[str2].cmd_steps_abs);
         }
+
+        /* Initial pluck for second string */
+        if (s_state[str2].pluck_pending) {
+            s_state[str2].pluck_pending = 0u;
+            float freq2 = (target2 >= 40.0f && target2 <= 800.0f) ? target2 : 0.0f;
+            if (freq2 > 1e-6f) {
+                InterCore_TriggerSolenoidHz(str2, freq2,
+                                            SOLENOID_DEFAULT_DUTY_CYCLE,
+                                            SOLENOID_MODE_TIMED,
+                                            250u, 0u);
+            }
+        }
+
         ApplyActuation(str2, target2, curr_lock2, prev_lock2);
     }
 
@@ -559,6 +842,116 @@ void TuningCtrl_RunHop(void)
 }
 
 /* =========================================================================
+ * PI parameter and test-control API
+ * ========================================================================= */
+
+int32_t TuningCtrl_SetPI(uint8_t string_id, float kp, float ki)
+{
+    if (string_id >= NUM_STRINGS || !isfinite(kp) || !isfinite(ki)
+        || kp < 0.0f || ki < 0.0f) {
+        return -1;
+    }
+
+    s_pi_params[string_id].kp = kp;
+    s_pi_params[string_id].ki = ki;
+    return 0;
+}
+
+int32_t TuningCtrl_GetPI(uint8_t string_id, float *kp, float *ki)
+{
+    if (string_id >= NUM_STRINGS || kp == NULL || ki == NULL) {
+        return -1;
+    }
+
+    *kp = s_pi_params[string_id].kp;
+    *ki = s_pi_params[string_id].ki;
+    return 0;
+}
+
+void TuningCtrl_ResetPIToDefaults(void)
+{
+    for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
+        s_pi_params[i].kp = TUNING_KP;
+        s_pi_params[i].ki = TUNING_KI;
+    }
+}
+
+int32_t TuningCtrl_StartPITest(uint8_t                string_id,
+                               TuningPITestProfile_t  profile,
+                               uint8_t                reps,
+                               uint8_t                pi_enabled,
+                               float                  kp,
+                               float                  ki)
+{
+    const TuningPITestProfileDef_t *def = GetPITestProfileDef(profile);
+    uint32_t start_ms = HAL_GetTick();
+    float meta_kp = 0.0f;
+    float meta_ki = 0.0f;
+
+    if (string_id < 1u || string_id > 3u || def == NULL || reps == 0u) {
+        return -1;
+    }
+
+    if (pi_enabled) {
+        if (TuningCtrl_SetPI(string_id, kp, ki) != 0) {
+            return -1;
+        }
+        meta_kp = kp;
+        meta_ki = ki;
+    }
+
+    if (s_pitest.active) {
+        StopPITestInternal("replaced");
+    } else {
+        StopAllActuation();
+        TuningCtrl_ResetAll();
+    }
+
+    SongSched_Stop();
+    ForceNextTargetAsNewNote(string_id);
+
+    memset(&s_pitest, 0, sizeof(s_pitest));
+    s_pitest.active           = 1u;
+    s_pitest.pi_enabled       = pi_enabled ? 1u : 0u;
+    s_pitest.string_id        = string_id;
+    s_pitest.reps_total       = reps;
+    s_pitest.rep_index        = 0u;
+    s_pitest.segment_index    = 0u;
+    s_pitest.profile          = profile;
+    s_pitest.segment_start_ms = start_ms;
+
+    snprintf(s_pitest.test_name, sizeof(s_pitest.test_name),
+             "%s_%s_kp%ld_ki%ld_%lu",
+             pi_enabled ? "pi" : "ff",
+             def->name,
+             (long)lroundf(meta_kp * 100.0f),
+             (long)lroundf(meta_ki * 100.0f),
+             (unsigned long)start_ms);
+
+    printf("[PIT] META,test_name=%s,string_id=%u,profile=%s,reps=%u,kp=%.3f,ki=%.3f,pi_enabled=%u\r\n",
+           s_pitest.test_name,
+           (unsigned)string_id,
+           def->name,
+           (unsigned)reps,
+           (double)meta_kp,
+           (double)meta_ki,
+           (unsigned)s_pitest.pi_enabled);
+    printf("[PIT] timestamp_ms,test_name,rep,segment_idx,string_id,target_hz,measured_hz,error_hz,error_cents,ff_steps,trim_steps,cmd_steps,cur_steps,lock,pi_en,confidence,faults\r\n");
+
+    return 0;
+}
+
+void TuningCtrl_StopPITest(void)
+{
+    StopPITestInternal("stopped");
+}
+
+uint8_t TuningCtrl_IsPITestActive(void)
+{
+    return s_pitest.active;
+}
+
+/* =========================================================================
  * Getters
  * ========================================================================= */
 
@@ -589,6 +982,7 @@ void TuningCtrl_ResetString(uint8_t string_id)
     if (string_id >= NUM_STRINGS) return;
 
     TuningStringState_t *s = &s_state[string_id];
+    int32_t current_pos = g_shared_memory.current_positions[string_id];
 
     s->integral_state     = 0.0f;
     s->trim_steps         = 0.0f;
@@ -596,12 +990,19 @@ void TuningCtrl_ResetString(uint8_t string_id)
     s->prev_lock_state    = 0u;
     s->delay_hold_counter = (uint16_t)TUNING_DELAY_FRAMES;
     s->pi_enable          = 0u;
+    s->pluck_pending      = 0u;
     s->fault_flags        = 0u;
     s->stall_counter      = 0u;
+    s->last_valid_freq_hz = 0.0f;
+    s->current_abs_steps  = current_pos;
+    s->cmd_steps_abs      = current_pos;
+    s->prev_cmd_steps_abs = current_pos;
 
     /* Re-compute FF for the last known target */
     if (s->last_target_freq_hz > 0.0f) {
         s->ff_steps_abs = FF_Interpolate(string_id, s->last_target_freq_hz);
+    } else {
+        s->ff_steps_abs = (float)current_pos;
     }
 }
 

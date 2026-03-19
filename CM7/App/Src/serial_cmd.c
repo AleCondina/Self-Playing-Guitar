@@ -28,6 +28,7 @@
 #include "app_cm7.h"
 #include "tuning_controller.h"
 #include "calibration_controller.h"
+#include "song_scheduler.h"
 #include "fft_processing.h"
 #include "debug_uart.h"
 #include "inter_core_cm7.h"
@@ -39,6 +40,7 @@
 #include <stdlib.h>
 
 #define CMD_BUFFER_SIZE  128
+#define PITEST_DEFAULT_REPS 5u
 
 /* Preset storage */
 #define MAX_PRESETS      16
@@ -110,7 +112,10 @@ static void Cmd_PrintLut(char *args);
 static void Cmd_Smoke(char *args);
 static void Cmd_FftPrint(char *args);
 static void Cmd_Tune(char *args);
+static void Cmd_PITest(char *args);
 static void Cmd_Debug(char *args);
+static void StopPlaybackActivity(void);
+static int ParsePITestProfile(const char *name, TuningPITestProfile_t *profile_out);
 static void Demo_Tick(void);
 
 /* Command table entry */
@@ -143,6 +148,7 @@ static const CmdEntry_t command_table[] = {
     { "printlut",  Cmd_PrintLut,  "printlut                 Print current feed-forward LUT values" },
     { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water" },
     { "tune",      Cmd_Tune,      "tune [str ...]            Tune open strings 0-3 to standard pitch" },
+    { "pitest",    Cmd_PITest,    "pitest <ff|pi|stop|defaults> ...  Playback PI tuning harness" },
     { "fftprint",  Cmd_FftPrint,  "fftprint                 Toggle live FFT peak output" },
     { "debug",     Cmd_Debug,     "debug [hop|nf|all|off]   Toggle debug outputs" },
     { "help",      Cmd_Help,      "help                    Show this help" },
@@ -176,6 +182,24 @@ static int parse_int32(char *token, int32_t *val_out, const char *param_name)
         return -1;
     }
     *val_out = (int32_t)strtol(token, NULL, 10);
+    return 0;
+}
+
+static int parse_float(char *token, float *val_out, const char *param_name)
+{
+    if (token == NULL) {
+        printf("  Error: missing %s\r\n", param_name);
+        return -1;
+    }
+
+    char *endptr = NULL;
+    float value = strtof(token, &endptr);
+    if (endptr == token || (endptr != NULL && *endptr != '\0')) {
+        printf("  Error: invalid %s '%s'\r\n", param_name, token);
+        return -1;
+    }
+
+    *val_out = value;
     return 0;
 }
 
@@ -418,6 +442,7 @@ static void Cmd_HomeCmd(char *args)
         printf("  Error: system not started. Type 'start' first.\r\n");
         return;
     }
+    StopPlaybackActivity();
     InterCore_HomeMotors();
     printf("  All motors returning to home (position 0).\r\n");
 }
@@ -529,6 +554,7 @@ static void Cmd_Stop(char *args)
         demo_state = DEMO_IDLE;
         printf("  Demo cancelled.\r\n");
     }
+    StopPlaybackActivity();
     InterCore_EmergencyStop();
     printf("  EMERGENCY STOP - all motors stopped\r\n");
 }
@@ -730,6 +756,7 @@ static void Cmd_SolStatus(char *args)
 static void Cmd_Calibrate(char *args)
 {
     (void)args;
+    StopPlaybackActivity();
 
     /* Parse optional string-ID list: "calibrate", "calibrate all",
      * "calibrate 2", "calibrate 2 3", etc. */
@@ -762,6 +789,7 @@ static void Cmd_Calibrate(char *args)
 static void Cmd_MapFrets(char *args)
 {
     (void)args;
+    StopPlaybackActivity();
 
     char *tok = strtok(NULL, " \t");
 
@@ -854,9 +882,44 @@ static void Cmd_Debug(char *args)
     }
 }
 
+static void StopPlaybackActivity(void)
+{
+    demo_state = DEMO_IDLE;
+    SongSched_Stop();
+    TuningCtrl_StopPITest();
+    TuningCtrl_ResetAll();
+}
+
+static int ParsePITestProfile(const char *name, TuningPITestProfile_t *profile_out)
+{
+    if (name == NULL || profile_out == NULL) {
+        return -1;
+    }
+
+    if (strcmp(name, "small") == 0) {
+        *profile_out = TUNING_PITEST_PROFILE_SMALL;
+        return 0;
+    }
+    if (strcmp(name, "medium") == 0) {
+        *profile_out = TUNING_PITEST_PROFILE_MEDIUM;
+        return 0;
+    }
+    if (strcmp(name, "large") == 0) {
+        *profile_out = TUNING_PITEST_PROFILE_LARGE;
+        return 0;
+    }
+    if (strcmp(name, "ladder") == 0) {
+        *profile_out = TUNING_PITEST_PROFILE_LADDER;
+        return 0;
+    }
+
+    return -1;
+}
+
 static void Cmd_Smoke(char *args)
 {
     (void)args;
+    StopPlaybackActivity();
     printf("  Starting Smoke on the Water...\r\n");
     App_RequestPlay();
 }
@@ -864,6 +927,7 @@ static void Cmd_Smoke(char *args)
 static void Cmd_Tune(char *args)
 {
     (void)args;
+    StopPlaybackActivity();
 
     char *tok = strtok(NULL, " \t");
 
@@ -888,6 +952,114 @@ static void Cmd_Tune(char *args)
     printf("  Requesting open-string tuning (mask 0x%02X)...\r\n", (unsigned)mask);
     printf("  Pluck each string when prompted. Watch [TUNE] output.\r\n");
     App_RequestTune(mask);
+}
+
+static void Cmd_PITest(char *args)
+{
+    (void)args;
+
+    char *mode = strtok(NULL, " \t");
+    if (mode == NULL) {
+        printf("  Usage:\r\n");
+        printf("    pitest ff <str> <small|medium|large|ladder> [reps]\r\n");
+        printf("    pitest pi <str> <small|medium|large|ladder> [reps] <kp> <ki>\r\n");
+        printf("    pitest stop\r\n");
+        printf("    pitest defaults\r\n");
+        return;
+    }
+
+    if (strcmp(mode, "stop") == 0) {
+        if (!TuningCtrl_IsPITestActive()) {
+            printf("  No PI test is currently active.\r\n");
+            return;
+        }
+        StopPlaybackActivity();
+        printf("  PI test stopped.\r\n");
+        return;
+    }
+
+    if (strcmp(mode, "defaults") == 0) {
+        StopPlaybackActivity();
+        TuningCtrl_ResetPIToDefaults();
+        printf("  Playback PI gains reset to defaults for all strings.\r\n");
+        return;
+    }
+
+    if (strcmp(mode, "ff") != 0 && strcmp(mode, "pi") != 0) {
+        printf("  Error: pitest mode must be 'ff', 'pi', 'stop', or 'defaults'.\r\n");
+        return;
+    }
+
+    char *tok = strtok(NULL, " \t");
+    if (tok == NULL) {
+        printf("  Error: missing string ID.\r\n");
+        return;
+    }
+    int str = atoi(tok);
+    if (str < 1 || str > 3) {
+        printf("  Error: pitest currently supports strings 1-3 only.\r\n");
+        return;
+    }
+
+    tok = strtok(NULL, " \t");
+    TuningPITestProfile_t profile;
+    const char *profile_name = tok;
+    if (ParsePITestProfile(tok, &profile) != 0) {
+        printf("  Error: profile must be one of small, medium, large, ladder.\r\n");
+        return;
+    }
+
+    uint8_t reps = PITEST_DEFAULT_REPS;
+    float kp = 0.0f;
+    float ki = 0.0f;
+    uint8_t pi_enabled = (strcmp(mode, "pi") == 0) ? 1u : 0u;
+
+    if (!pi_enabled) {
+        tok = strtok(NULL, " \t");
+        if (tok != NULL) {
+            int reps_in = atoi(tok);
+            if (reps_in <= 0 || reps_in > 100) {
+                printf("  Error: reps must be 1-100.\r\n");
+                return;
+            }
+            reps = (uint8_t)reps_in;
+        }
+    } else {
+        char *arg1 = strtok(NULL, " \t");
+        char *arg2 = strtok(NULL, " \t");
+        char *arg3 = strtok(NULL, " \t");
+
+        if (arg1 == NULL || arg2 == NULL) {
+            printf("  Error: pitest pi requires <kp> <ki> or <reps> <kp> <ki>.\r\n");
+            return;
+        }
+
+        if (arg3 == NULL) {
+            if (parse_float(arg1, &kp, "kp") != 0) return;
+            if (parse_float(arg2, &ki, "ki") != 0) return;
+        } else {
+            int reps_in = atoi(arg1);
+            if (reps_in <= 0 || reps_in > 100) {
+                printf("  Error: reps must be 1-100.\r\n");
+                return;
+            }
+            reps = (uint8_t)reps_in;
+            if (parse_float(arg2, &kp, "kp") != 0) return;
+            if (parse_float(arg3, &ki, "ki") != 0) return;
+        }
+    }
+
+    StopPlaybackActivity();
+
+    if (TuningCtrl_StartPITest((uint8_t)str, profile, reps, pi_enabled, kp, ki) != 0) {
+        printf("  Error: unable to start PI test. Check string/profile/gain values.\r\n");
+        return;
+    }
+
+    printf("  PI test started on string %d (%s, reps=%u, PI=%s).\r\n",
+           str, profile_name,
+           (unsigned)reps,
+           pi_enabled ? "ON" : "OFF");
 }
 
 /* ===== Demo Command & State Machine ===== */
@@ -917,6 +1089,8 @@ static void Cmd_Demo(char *args)
         printf("  Demo already running. Type 'stop' to cancel.\r\n");
         return;
     }
+
+    StopPlaybackActivity();
 
     /* Auto-start system if not started */
     if (!system_started) {
