@@ -148,6 +148,29 @@ void SongSched_HoldNote(uint8_t hold);
  */
 const SongNote_t *SongSched_GetNoteAt(uint32_t idx);
 
+/**
+ * @brief Explicitly advance to the next note (used by song_player).
+ *
+ * Increments the note index.  If the last note is reached, restarts the
+ * song when looping is enabled, otherwise marks the schedule inactive.
+ */
+void SongSched_Advance(void);
+
+/**
+ * @brief Peek at the next note without advancing.
+ *
+ * Returns a read-only pointer to the note that would play after the current
+ * one.  Used by song_player for look-ahead motor pre-positioning.
+ * Returns NULL at end-of-song (unless looping, in which case wraps to note 0).
+ */
+const SongNote_t *SongSched_PeekNextNote(void);
+
+/**
+ * @brief Return the BPM-scaled duration for a given note index (ms).
+ * Returns 0 if idx is out of range.
+ */
+uint32_t SongSched_GetScaledDurationMs(uint32_t idx);
+
 #ifdef __cplusplus
 }
 #endif

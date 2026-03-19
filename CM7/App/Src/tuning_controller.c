@@ -92,6 +92,11 @@ static uint32_t s_debug_counter = 0u;
  * Used to detect transitions and avoid redundant enable commands. */
 static uint8_t s_motor_enable_mask = 0u;
 
+/* FFT blanking: when set, PI treats all measurements as untrusted.
+ * Used by song_player during solenoid bursts to prevent EMI-contaminated
+ * FFT readings from corrupting PI corrections. */
+static uint8_t s_fft_blanked = 0u;
+
 /* Flag: 1 = the very first note of the song has not yet been plucked.
  * Set by TuningCtrl_Init() / song start, cleared after the initial burst. */
 static uint8_t s_song_first_note = 1u;
@@ -288,7 +293,7 @@ void TuningCtrl_Update(uint8_t string_id,
     /* FFT_ProcessBlock's adaptive per-bin noise floor.  We only need to    */
     /* check that GetFFTRadarLock returned a valid measurement (non-zero).  */
     /* ------------------------------------------------------------------ */
-    uint8_t measurement_trusted = (measured_freq_hz > 0.0f);
+    uint8_t measurement_trusted = (measured_freq_hz > 0.0f) && !s_fft_blanked;
 
     float use_freq;
     if (measurement_trusted) {
@@ -862,4 +867,29 @@ void TuningCtrl_ResetAll(void)
     s_motor_enable_mask  = 0u;
     s_song_first_note    = 1u;
     s_cold_start_pending = 0u;
+    s_fft_blanked        = 0u;
+}
+
+/* =========================================================================
+ * Song-player support functions
+ * ========================================================================= */
+
+void TuningCtrl_RunString(uint8_t string_id, float target_freq_hz)
+{
+    if (string_id >= NUM_STRINGS) return;
+    float measured = 0.0f, confidence = 0.0f;
+    GetFFTRadarLock(string_id, s_state[string_id].expected_freq_hz,
+                    target_freq_hz, &measured, &confidence);
+    TuningCtrl_Update(string_id, target_freq_hz, measured, confidence);
+}
+
+float TuningCtrl_GetFFSteps(uint8_t string_id, float freq_hz)
+{
+    if (string_id >= NUM_STRINGS) return 0.0f;
+    return FF_Interpolate(string_id, freq_hz);
+}
+
+void TuningCtrl_SetBlanking(uint8_t blanked)
+{
+    s_fft_blanked = blanked;
 }

@@ -24,6 +24,7 @@
 #include "calibration_controller.h"
 #include "lut_builder.h"
 #include "song_scheduler.h"
+#include "song_player.h"
 #include "shared_memory.h"
 #include "stm32h755xx.h"
 #include "stm32h7xx_hal.h"
@@ -296,40 +297,15 @@ void App_CM7_Main(void) {
                     if (s_request_play) {
                         uint8_t sid = s_request_play_song_id;
                         s_request_play = 0u;
-                        TuningCtrl_ResetAll();
-                        SongSched_InitSong(sid);
+                        SongPlayer_Start(sid);
                     }
 
-                    /* --- Lock-wait mode (optional) ---
-                     * When SONG_LOCK_WAIT_MODE=1 the scheduler is held on the
-                     * current note until ALL active strings have achieved PI lock.
-                     * This guarantees every note sounds accurately in tune before
-                     * advancing, at the cost of strict rhythmic timing.
-                     *
-                     * Set to 0 for target BPM playback (notes advance on schedule).
-                     * Set to 1 if timing can be relaxed for guaranteed accuracy.
-                     * Combine with a lower SONG_BPM value for the best of both.
+                    /* --- Song player hop ---
+                     * Event-driven state machine: PREPARE -> CONVERGE -> FIRE -> SUSTAIN
+                     * Handles FFT search, PI control, motor commands, solenoid firing,
+                     * FFT blanking, and look-ahead motor pre-positioning.
                      */
-#define SONG_LOCK_WAIT_MODE  0u
-#if SONG_LOCK_WAIT_MODE
-                    if (SongSched_IsActive()) {
-                        uint8_t all_locked = TuningCtrl_GetLockState(SongSched_GetStringId());
-                        if (SongSched_GetStringCount() >= 2u) {
-                            all_locked &= TuningCtrl_GetLockState(SongSched_GetStringId2());
-                        }
-                        SongSched_HoldNote(!all_locked);
-                    }
-#endif
-
-                    /* --- Song scheduler tick --- */
-                    SongSched_Tick(HAL_GetTick());
-
-                    /* --- Tuning control hop ---
-                     * Reads FFT results and song scheduler state,
-                     * computes PI + FF commands, pushes to CM4 via
-                     * InterCore_SendMotorGoto() / solenoid commands.
-                     */
-                    TuningCtrl_RunHop();
+                    SongPlayer_Hop();
 
                     /* End processing timer */
                     proc_time_us = (DWT->CYCCNT - proc_start) / (SYSTEM_CLOCK_MHZ);
@@ -384,10 +360,11 @@ void App_CM7_Main(void) {
                        (unsigned long)proc_max_us);
                 proc_max_us = 0;  /* Reset peak after reporting */
             }
-            if (app_state == STATE_RUNNING && SongSched_IsActive()) {
-                printf("[CM7] Song note %lu/%lu | CM4 loop %lu Hz\r\n",
+            if (app_state == STATE_RUNNING && SongPlayer_IsPlaying()) {
+                printf("[CM7] Song note %lu/%lu phase=%u | CM4 loop %lu Hz\r\n",
                        (unsigned long)SongSched_GetNoteIndex(),
                        (unsigned long)SongSched_GetNoteCount(),
+                       (unsigned)SongPlayer_GetPhase(),
                        (unsigned long)g_shared_memory.cm4_loop_hz);
             }
         }

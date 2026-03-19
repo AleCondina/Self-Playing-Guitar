@@ -373,6 +373,41 @@ void TuningCtrl_ResetString(uint8_t string_id);
  */
 void TuningCtrl_ResetAll(void);
 
+/**
+ * @brief  Run one PI hop for a single string (FFT search + PI update).
+ *
+ * Performs the same per-string work as the internal loop of TuningCtrl_RunHop()
+ * but without motor/solenoid side-effects.  The caller (song_player) is
+ * responsible for issuing InterCore commands based on the updated state.
+ *
+ * @param  string_id      String index 0–5
+ * @param  target_freq_hz Desired pitch in Hz
+ */
+void TuningCtrl_RunString(uint8_t string_id, float target_freq_hz);
+
+/**
+ * @brief  Get the feed-forward step position for a given frequency.
+ *
+ * Exposes the internal FF_Interpolate() polynomial for look-ahead travel
+ * estimation in song_player.
+ *
+ * @param  string_id  String index 0–5
+ * @param  freq_hz    Target frequency in Hz
+ * @return Interpolated absolute step position (float microsteps)
+ */
+float TuningCtrl_GetFFSteps(uint8_t string_id, float freq_hz);
+
+/**
+ * @brief  Set or clear the FFT blanking flag.
+ *
+ * When blanked (blanked=1) the measurement gate in TuningCtrl_Update()
+ * treats all FFT readings as untrusted, preventing PI from correcting
+ * based on solenoid-EMI-contaminated measurements.
+ *
+ * @param  blanked  1 = blank (hold position), 0 = normal operation
+ */
+void TuningCtrl_SetBlanking(uint8_t blanked);
+
 #ifdef __cplusplus
 }
 #endif

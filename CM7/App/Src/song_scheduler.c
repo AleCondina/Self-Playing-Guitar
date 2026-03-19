@@ -290,3 +290,36 @@ const SongNote_t *SongSched_GetNoteAt(uint32_t idx)
     if (idx >= s_song_count) return NULL;
     return &s_song_ptr[idx];
 }
+
+void SongSched_Advance(void)
+{
+    if (!s_initialised || !s_active) return;
+    s_note_index++;
+    if (s_note_index >= s_song_count) {
+#if SONG_LOOP_ENABLED
+        SongSched_Init();
+#else
+        s_active = 0u;
+#endif
+    }
+}
+
+const SongNote_t *SongSched_PeekNextNote(void)
+{
+    if (!s_active) return NULL;
+    uint32_t next = s_note_index + 1u;
+    if (next >= s_song_count) {
+#if SONG_LOOP_ENABLED
+        return &s_song_ptr[0];
+#else
+        return NULL;
+#endif
+    }
+    return &s_song_ptr[next];
+}
+
+uint32_t SongSched_GetScaledDurationMs(uint32_t idx)
+{
+    if (idx >= s_song_count || idx >= SONG_MAX_NOTES) return 0u;
+    return s_scaled_durations[idx];
+}
