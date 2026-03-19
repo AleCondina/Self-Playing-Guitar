@@ -82,10 +82,11 @@ extern "C" {
 /**
  * @brief PI hold hops when string is COLD (at rest / first note).
  *
- * A solenoid burst fires first to excite the string; PI holds for 3 hops
- * while the FFT acquires the resonance — same as the calibration approach.
+ * A solenoid burst fires first to excite the string; PI holds for 1 hop
+ * while the FFT acquires the resonance.  Reduced from 2 to match warm
+ * delay — with good feedforward the motor is already near the target.
  */
-#define SONG_COLD_DELAY_FRAMES   2u
+#define SONG_COLD_DELAY_FRAMES   1u
 
 /**
  * @brief Consecutive silent hops before a string is declared cold.
@@ -189,7 +190,7 @@ extern "C" {
  * error is already small — prevents windup from large initial errors.
  * Inspired by TUNE_INTEGRAL_ENABLE_BAND_HZ in calibration_controller.
  */
-#define TUNING_INTEGRAL_ENABLE_HZ   2.0f
+#define TUNING_INTEGRAL_ENABLE_HZ   5.0f
 
 /**
  * @brief Number of hops with a large unresolved error before a stall is flagged.

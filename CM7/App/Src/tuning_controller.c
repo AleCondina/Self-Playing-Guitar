@@ -348,14 +348,15 @@ void TuningCtrl_Update(uint8_t string_id,
         /* Compute raw PI output */
         float raw_trim = TUNING_KP * e + s->integral_state;
 
-        /* Step-cap: scale maximum correction with error size (like tune).
-         * Small moves when close prevents overshoot; big moves when far. */
+        /* Step-cap: scale maximum correction with error size.
+         * More aggressive in the medium-error range to converge faster
+         * while still preventing overshoot when close to target. */
         float step_cap;
         if (abs_e > 40.0f)      step_cap = TUNING_OUT_LIMIT_STEPS;
-        else if (abs_e > 15.0f) step_cap = 800.0f;
-        else if (abs_e > 5.0f)  step_cap = 320.0f;
-        else if (abs_e > 1.0f)  step_cap = 160.0f;
-        else                    step_cap = 80.0f;
+        else if (abs_e > 15.0f) step_cap = 1600.0f;
+        else if (abs_e > 5.0f)  step_cap = 640.0f;
+        else if (abs_e > 1.0f)  step_cap = 240.0f;
+        else                    step_cap = 120.0f;
 
         /* Clamp output with adaptive step cap */
         float clamped_trim = Clampf(raw_trim, -step_cap, step_cap);
