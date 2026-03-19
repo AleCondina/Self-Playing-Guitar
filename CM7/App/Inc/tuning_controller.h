@@ -85,7 +85,7 @@ extern "C" {
  * A solenoid burst fires first to excite the string; PI holds for 3 hops
  * while the FFT acquires the resonance — same as the calibration approach.
  */
-#define SONG_COLD_DELAY_FRAMES   3u
+#define SONG_COLD_DELAY_FRAMES   2u
 
 /**
  * @brief Consecutive silent hops before a string is declared cold.
@@ -148,15 +148,15 @@ extern "C" {
  * 1.0 Hz enter / 2.0 Hz exit gives comfortable hysteresis across
  * all commissioned strings (E2 82 Hz – G3 296 Hz).
  */
-#define TUNING_LOCK_BAND_IN_HZ     1.0f    /**< Enter lock when |error| ≤ 1.0 Hz */
-#define TUNING_LOCK_BAND_OUT_HZ    2.0f    /**< Exit  lock when |error| ≥ 2.0 Hz */
+#define TUNING_LOCK_BAND_IN_HZ     0.2f    /**< Enter lock when |error| ≤ 0.2 Hz */
+#define TUNING_LOCK_BAND_OUT_HZ    0.5f    /**< Exit  lock when |error| ≥ 0.5 Hz */
 
 /**
  * @brief Minimum change in trim_steps to apply (defeats backlash dither).
  * If |new_trim - old_trim| < this, the trim is not updated this hop.
  * Units: microsteps.  TUNE FOR HARDWARE.
  */
-#define TUNING_MIN_MOVE_STEPS   16.0f
+#define TUNING_MIN_MOVE_STEPS   4.0f
 
 /** PI trim output clamp (±microsteps).  TUNE FOR HARDWARE. */
 #define TUNING_OUT_LIMIT_STEPS  6400.0f
@@ -171,18 +171,25 @@ extern "C" {
 /**
  * @brief Proportional gain (microsteps per Hz of frequency error).
  *
- * Rough estimate: if the relationship is ~10 steps/Hz, start with 3-5 and
- * increase until oscillation, then halve.  TUNE FOR HARDWARE.
+ * Matched to calibration tune controller (KP=16) but scaled up because
+ * the song PI runs every hop without motor-busy gating.  TUNE FOR HARDWARE.
  */
-#define TUNING_KP   48.0f
+#define TUNING_KP   32.0f
 
 /**
  * @brief Integral gain (microsteps per Hz per second).
  *
  * Discrete integral:  integral += TUNING_KI * e * TUNING_SAMPLE_TIME_S
- * Start at 1/3 of Kp / Ti where Ti ≈ 2-5 s.  TUNE FOR HARDWARE.
+ * Only accumulates when |error| < TUNING_INTEGRAL_ENABLE_HZ (like tune).
  */
-#define TUNING_KI   24.0f
+#define TUNING_KI   12.0f
+
+/**
+ * @brief Integral enable band (Hz).  Only accumulate integral when the
+ * error is already small — prevents windup from large initial errors.
+ * Inspired by TUNE_INTEGRAL_ENABLE_BAND_HZ in calibration_controller.
+ */
+#define TUNING_INTEGRAL_ENABLE_HZ   2.0f
 
 /**
  * @brief Number of hops with a large unresolved error before a stall is flagged.

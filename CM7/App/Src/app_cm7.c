@@ -296,6 +296,7 @@ void App_CM7_Main(void) {
                     if (s_request_play) {
                         uint8_t sid = s_request_play_song_id;
                         s_request_play = 0u;
+                        TuningCtrl_ResetAll();
                         SongSched_InitSong(sid);
                     }
 

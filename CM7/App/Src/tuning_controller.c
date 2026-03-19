@@ -96,6 +96,13 @@ static uint8_t s_motor_enable_mask = 0u;
  * Set by TuningCtrl_Init() / song start, cleared after the initial burst. */
 static uint8_t s_song_first_note = 1u;
 
+/* Deferred cold-start burst: count down hops before firing the initial burst.
+ * 0 = not pending.  Set to COLD_START_DEFER_HOPS on first note detection,
+ * decremented each hop, burst fires when it reaches 1.  This gives CM4
+ * time to process the motor-enable command before the solenoid fires. */
+#define COLD_START_DEFER_HOPS  2u
+static uint8_t s_cold_start_pending = 0u;
+
 /* =========================================================================
  * Private helpers
  * ========================================================================= */
@@ -209,9 +216,10 @@ void TuningCtrl_Init(void)
         s->pi_hop_count     = 0u;
         s->note_actuated    = 0u;
     }
-    s_debug_counter     = 0u;
-    s_motor_enable_mask = 0u;
-    s_song_first_note   = 1u;
+    s_debug_counter      = 0u;
+    s_motor_enable_mask  = 0u;
+    s_song_first_note    = 1u;
+    s_cold_start_pending = 0u;
 }
 
 /* -------------------------------------------------------------------------
@@ -328,16 +336,29 @@ void TuningCtrl_Update(uint8_t string_id,
     /* Integrator only accumulates when PI enabled AND measurement trusted  */
     /* ------------------------------------------------------------------ */
     if (s->pi_enable && measurement_trusted) {
-        /* Accumulate integral */
-        s->integral_state += TUNING_KI * e * TUNING_SAMPLE_TIME_S;
+        /* Only accumulate integral when error is already small (like tune).
+         * This prevents windup from large transient errors. */
+        if (abs_e <= TUNING_INTEGRAL_ENABLE_HZ) {
+            s->integral_state += TUNING_KI * e * TUNING_SAMPLE_TIME_S;
+        } else {
+            /* Reset integrator when far from target — start fresh */
+            s->integral_state = 0.0f;
+        }
 
         /* Compute raw PI output */
         float raw_trim = TUNING_KP * e + s->integral_state;
 
-        /* Clamp output */
-        float clamped_trim = Clampf(raw_trim,
-                                    -TUNING_OUT_LIMIT_STEPS,
-                                     TUNING_OUT_LIMIT_STEPS);
+        /* Step-cap: scale maximum correction with error size (like tune).
+         * Small moves when close prevents overshoot; big moves when far. */
+        float step_cap;
+        if (abs_e > 40.0f)      step_cap = TUNING_OUT_LIMIT_STEPS;
+        else if (abs_e > 15.0f) step_cap = 800.0f;
+        else if (abs_e > 5.0f)  step_cap = 320.0f;
+        else if (abs_e > 1.0f)  step_cap = 160.0f;
+        else                    step_cap = 80.0f;
+
+        /* Clamp output with adaptive step cap */
+        float clamped_trim = Clampf(raw_trim, -step_cap, step_cap);
 
         /* Back-calculate anti-windup: reduce integrator by the clamped amount */
         if (raw_trim != clamped_trim) {
@@ -608,48 +629,57 @@ void TuningCtrl_RunHop(void)
     /* ------------------------------------------------------------------ */
     /* Cold-start burst — ONLY for the very first note of the song.        */
     /*                                                                      */
-    /* Note 0 is the open string (already tuned).  We fire a long burst    */
-    /* (1000 ms) to get the string vibrating strongly.  The string then    */
-    /* carries this energy through subsequent notes — no burst needed on   */
-    /* later note changes because the string is still warm.                */
-    /*                                                                      */
-    /* All subsequent notes get their solenoid fire at the 1.5 s mark      */
-    /* (SONG_ACTUATE_DELAY_MS) after PI converges on the target pitch.     */
+    /* DEFERRED by COLD_START_DEFER_HOPS to give CM4 time to process the   */
+    /* motor-enable command before the solenoid fires.  On hop 0 we just   */
+    /* arm the counter; the actual burst fires on hop COLD_START_DEFER_HOPS */
+    /* when CM4 has had several 1ms ticks to enable the motors and settle.  */
     /* ------------------------------------------------------------------ */
+
+    /* Arm the deferred burst on the first note detection */
     if (s_song_first_note && (new_note_primary || new_note_secondary)) {
-        s_song_first_note = 0u;
-        uint16_t burst_ms = (uint16_t)SONG_INITIAL_PLUCK_MS;  /* 1000 ms */
+        s_song_first_note    = 0u;
+        s_cold_start_pending = COLD_START_DEFER_HOPS;
+    }
 
-        float ef1 = s_state[str].expected_freq_hz;
-        float f   = (ef1 >= 40.0f && ef1 <= 800.0f) ? ef1 : 0.0f;
+    /* Count down and fire when ready */
+    if (s_cold_start_pending > 0u) {
+        s_cold_start_pending--;
 
-        if (chord) {
-            uint8_t burst_mask  = 0u;
-            float   burst_freqs[6] = {0.0f};
-            float ef2 = s_state[str2].expected_freq_hz;
-            float f2  = (ef2 >= 40.0f && ef2 <= 800.0f) ? ef2 : 0.0f;
-            if (f  > 1e-6f) { burst_mask |= (1u << str);  burst_freqs[str]  = f;  }
-            if (f2 > 1e-6f) { burst_mask |= (1u << str2); burst_freqs[str2] = f2; }
-            if (burst_mask) {
-                InterCore_TriggerSolenoidHzBatch(burst_mask, burst_freqs,
-                                                 SOLENOID_DEFAULT_DUTY_CYCLE,
-                                                 SOLENOID_MODE_TIMED, burst_ms);
+        if (s_cold_start_pending == 0u) {
+            /* Actually fire the burst NOW */
+            uint16_t burst_ms = (uint16_t)SONG_INITIAL_PLUCK_MS;  /* 1000 ms */
+
+            float ef1 = s_state[str].expected_freq_hz;
+            float f   = (ef1 >= 40.0f && ef1 <= 800.0f) ? ef1 : 0.0f;
+
+            if (chord) {
+                uint8_t burst_mask  = 0u;
+                float   burst_freqs[6] = {0.0f};
+                float ef2 = s_state[str2].expected_freq_hz;
+                float f2  = (ef2 >= 40.0f && ef2 <= 800.0f) ? ef2 : 0.0f;
+                if (f  > 1e-6f) { burst_mask |= (1u << str);  burst_freqs[str]  = f;  }
+                if (f2 > 1e-6f) { burst_mask |= (1u << str2); burst_freqs[str2] = f2; }
+                if (burst_mask) {
+                    InterCore_TriggerSolenoidHzBatch(burst_mask, burst_freqs,
+                                                     SOLENOID_DEFAULT_DUTY_CYCLE,
+                                                     SOLENOID_MODE_TIMED, burst_ms);
+                }
+            } else {
+                if (f > 1e-6f) {
+                    InterCore_TriggerSolenoidHz(str, f, SOLENOID_DEFAULT_DUTY_CYCLE,
+                                                SOLENOID_MODE_TIMED, burst_ms, 0u);
+                }
             }
-        } else {
-            if (f > 1e-6f) {
-                InterCore_TriggerSolenoidHz(str, f, SOLENOID_DEFAULT_DUTY_CYCLE,
-                                            SOLENOID_MODE_TIMED, burst_ms, 0u);
+            /* Mark note 0 as already actuated — no second fire at 1.5 s */
+            s_state[str].note_actuated = 1u;
+            s_state[str].note_plucked  = 1u;
+            if (chord) {
+                s_state[str2].note_actuated = 1u;
+                s_state[str2].note_plucked  = 1u;
             }
+            printf("[TC] Cold-start burst: %u ms at %.1f Hz (deferred %u hops)\r\n",
+                   (unsigned)burst_ms, (double)f, (unsigned)COLD_START_DEFER_HOPS);
         }
-        /* Mark note 0 as already actuated — no second fire at 1.5 s */
-        s_state[str].note_actuated = 1u;
-        s_state[str].note_plucked  = 1u;
-        if (chord) {
-            s_state[str2].note_actuated = 1u;
-            s_state[str2].note_plucked  = 1u;
-        }
-        printf("[TC] Cold-start burst: %u ms at %.1f Hz\r\n",
-               (unsigned)burst_ms, (double)f);
     }
 
     /* ------------------------------------------------------------------ */
@@ -813,11 +843,15 @@ void TuningCtrl_ResetString(uint8_t string_id)
     s->pi_enable          = 0u;
     s->fault_flags        = 0u;
     s->stall_counter      = 0u;
+    s->note_actuated      = 0u;
+    s->note_plucked       = 0u;
+    s->pi_hop_count       = 0u;
+    s->string_warm        = 0u;
+    s->silent_hop_count   = 0u;
 
-    /* Re-compute FF for the last known target */
-    if (s->last_target_freq_hz > 0.0f) {
-        s->ff_steps_abs = FF_Interpolate(string_id, s->last_target_freq_hz);
-    }
+    /* Reset target sentinel so new-note detection triggers on song restart */
+    s->last_target_freq_hz = -1.0f;
+    s->last_valid_freq_hz  =  0.0f;
 }
 
 void TuningCtrl_ResetAll(void)
@@ -825,6 +859,7 @@ void TuningCtrl_ResetAll(void)
     for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
         TuningCtrl_ResetString(i);
     }
-    s_motor_enable_mask = 0u;
-    s_song_first_note   = 1u;
+    s_motor_enable_mask  = 0u;
+    s_song_first_note    = 1u;
+    s_cold_start_pending = 0u;
 }
