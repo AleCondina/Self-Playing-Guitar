@@ -61,7 +61,7 @@
 float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     /* Measured frequencies from LUT RUN 1 */
     /* E2 frets 0-6 */ {  82.41f,  82.69f,  89.97f,  96.05f, 100.07f, 106.37f, 112.82f },
-    /* A2 frets 0-6 */ { 110.00f, 115.54f, 121.57f, 127.57f, 139.23f, 145.69f, 151.22f },
+    /* A2 frets 0-6 */ { 110.00f, 115.93f, 133.53f, 142.10f, 152.15f, 161.63f, 167.5f },
     /* D3 frets 0-6 */ { 146.83f, 160.03f, 170.43f, 179.45f, 188.51f, 197.45f, 205.19f },
     /* G3 frets 0-6 */ { 196.00f, 207.65f, 233.38f, 248.76f, 262.49f, 277.12f, 292.19f },
     /* B3 frets 0-6 */ { 246.94f, 261.63f, 277.18f, 293.66f, 311.13f, 329.63f, 349.23f },
@@ -71,7 +71,7 @@ float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
 float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     /* Measured microsteps from LUT RUN 1 */
     /* E2 */ {   0.0f, 267.0f, 1080.0f, 1623.0f, 2029.0f, 2706.0f, 3385.0f },
-    /* A2 */ {   0.0f,  751.0f, 1549.0f, 2370.0f, 4103.0f, 5013.0f, 5955.0f },
+    /* A2 */ {    0.0f, 866.0f, 2817.0f, 3947.0f, 5192.0f,  6570.0f,  7476.0f  },
     /* D3 */ {   0.0f, 2331.0f, 3363.0f, 4417.0f, 5477.0f, 6533.0f, 7499.0f },
     /* G3 */ {   0.0f,  910.0f, 2583.0f, 3485.0f, 4480.0f, 5523.0f, 6646.0f },
     /* B3 */ {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
