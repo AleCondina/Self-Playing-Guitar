@@ -221,14 +221,26 @@ extern "C" {
 #define TUNING_FF_NUM_POINTS    7u
 
 /**
- * @brief Mechanical step limits per string.
+ * @brief Mechanical step limits — relative to the ACTUAL fret-0 position.
  *
- * Home (position 0) = open string.  Positive steps tighten = higher pitch.
- * Negative steps allowed as a small margin below home.
- * TODO: measure per-string physical travel and replace these defaults.
+ * At startup the string may not be at fret 0.  The system uses the FFT
+ * and the calibrated polynomial to discover how far the motor's software
+ * home (position 0) is from physical fret 0, then offsets the bounds by
+ * that amount.  These constants define the allowed travel AROUND fret 0.
+ *
+ * TUNING_STEPS_MAX_DEFAULT — max steps above fret 0 (toward higher frets).
+ * TUNING_STEPS_MIN_DEFAULT — max steps below fret 0 (generous: the motor
+ *   may need to travel far backward if the string starts sharp).
  */
 #define TUNING_STEPS_MAX_DEFAULT    8000
-#define TUNING_STEPS_MIN_DEFAULT   -800
+#define TUNING_STEPS_MIN_DEFAULT   -5000
+
+/**
+ * Per-string upper frequency ceiling (Hz).
+ * Defined in tuning_controller.c from the FREQ_CEILING_* macros.
+ * Motor must not drive a string beyond this pitch.
+ */
+extern const float tuning_freq_ceiling[NUM_STRINGS];
 
 /* =========================================================================
  * Feed-forward LUT tables

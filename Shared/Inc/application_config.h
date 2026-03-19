@@ -105,4 +105,15 @@
 #define As4_HZ  466.16f /* A#4 / Bb4 */
 #define B4_HZ   493.88f
 
+/* Per-string maximum safe frequency (Hz).
+ * Strings 0-3 (thicker): fret 7 frequency.
+ * Strings 4-5 (thinner): fret 6 frequency.
+ * Motor must stop before exceeding these pitches. */
+#define FREQ_CEILING_E2  B2_HZ    /* 123.47 Hz — E2 fret 7 */
+#define FREQ_CEILING_A2  E3_HZ    /* 164.81 Hz — A2 fret 7 */
+#define FREQ_CEILING_D3  A3_HZ    /* 220.00 Hz — D3 fret 7 */
+#define FREQ_CEILING_G3  D4_HZ    /* 293.66 Hz — G3 fret 7 */
+#define FREQ_CEILING_B3  F4_HZ    /* 349.23 Hz — B3 fret 6 */
+#define FREQ_CEILING_E4  As4_HZ   /* 466.16 Hz — E4 fret 6 */
+
 #endif /* APPLICATION_CONFIG_H */

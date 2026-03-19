@@ -374,6 +374,28 @@ static inline float CalClampf(float v, float lo, float hi){
     return v;
 }
 
+/**
+ * @brief Convert the per-string frequency ceiling to a step limit via polynomial.
+ *
+ * Falls back to s_cal_steps_max[str] if the polynomial is uncalibrated.
+ * Returns RAW polynomial steps (no tune offset or open-position offset) —
+ * the caller adds the appropriate offset for the current calibration phase.
+ */
+static float CalFreqCeilingSteps(uint8_t str) {
+    float a = cal_poly_coeff[str][0];
+    float b = cal_poly_coeff[str][1];
+    float c = cal_poly_coeff[str][2];
+
+    if (fabsf(a) < 1e-9f && fabsf(b) < 1e-9f && fabsf(c) < 1e-9f)
+        return (float)s_cal_steps_max[str];   /* uncalibrated fallback */
+
+    float f     = tuning_freq_ceiling[str];
+    float steps = a + b * f + c * f * f;
+    if (steps < 0.0f) steps = 0.0f;
+
+    return steps;
+}
+
 static void WaitThen(uint16_t hops, CalPhase_t next){
     s_wait_cnt   = hops;
     s_after_wait = next;
@@ -874,8 +896,8 @@ void Cal_Hop(void){
                 int32_t cur_pos = g_shared_memory.current_positions[s_str];
                 s_open_homing_target = (int32_t)CalClampf(
                     (float)cur_pos + _delta,
-                    -((float)s_cal_steps_max[s_str]),
-                     (float)s_cal_steps_max[s_str]);
+                    -CalFreqCeilingSteps(s_str),
+                     CalFreqCeilingSteps(s_str));
             }
             printf("[CAL] str%u: pluck=%.2f Hz → FF homing target=%ld steps\r\n",
                    (unsigned)s_str, (double)s_open_detected_freq,
@@ -907,8 +929,8 @@ void Cal_Hop(void){
                 int32_t cur_pos = g_shared_memory.current_positions[s_str];
                 s_open_homing_target = (int32_t)CalClampf(
                     (float)cur_pos + _delta,
-                    -((float)s_cal_steps_max[s_str]),
-                     (float)s_cal_steps_max[s_str]);
+                    -CalFreqCeilingSteps(s_str),
+                     CalFreqCeilingSteps(s_str));
             } else {
                 printf("[CAL] str%u: no pluck — homing to 0 and proceeding anyway\r\n",
                        (unsigned)s_str);
@@ -1055,7 +1077,7 @@ void Cal_Hop(void){
             s_pi_last_abs_error = abs_error;
 
             float trim_cap = (s_pi_stall_cnt < CAL_OPEN_STALL_HOPS)
-                             ? (float)s_cal_steps_max[s_str]  /* converging: full range  */
+                             ? CalFreqCeilingSteps(s_str)     /* converging: full range  */
                              : CAL_PI_MAX_TRIM;               /* stalled:    hard cap    */
 
             if (abs_error > CAL_LOCK_BAND_HZ) {
@@ -1067,8 +1089,8 @@ void Cal_Hop(void){
                                        -trim_cap, trim_cap);
                 int32_t cmd = (int32_t)CalClampf(
                     (float)s_open_homing_target + trim,
-                    -(float)s_cal_steps_max[s_str],
-                     (float)s_cal_steps_max[s_str]);
+                    -CalFreqCeilingSteps(s_str),
+                     CalFreqCeilingSteps(s_str));
 
                 int32_t delta = cmd - s_pi_cmd_steps;
                 if ((delta < 0 ? -delta : delta) >= (int32_t)TUNING_MIN_MOVE_STEPS) {
@@ -1208,7 +1230,7 @@ void Cal_Hop(void){
      *     Using the measured frequency instead of theoretical maximises
      *     energy transfer to the string.
      *   – Motor target is estimated from the calibrated polynomial
-     *     (cal_poly_coeff) clamped to s_cal_steps_max[str], replacing the
+     *     (cal_poly_coeff) clamped to CalFreqCeilingSteps(), replacing the
      *     old linear fret*1600 approximation.
      *   – Uses CAL_SOL_DURATION_MS (1 s) and CAL_BURST_WAIT_HOPS (8).
      *
@@ -1222,6 +1244,18 @@ void Cal_Hop(void){
      * ------------------------------------------------------------------ */
     case CAL_PHASE_SOL_BURST:
     {
+        /* Skip frets whose theoretical frequency exceeds the per-string ceiling.
+         * Only applies to primary bursts (not re-excite retries). */
+        if (!s_is_reexciting &&
+            cal_theoretical_freq[s_str][s_fret] > tuning_freq_ceiling[s_str]) {
+            printf("[CAL] str%u fret%u: SKIPPED — %.1f Hz exceeds ceiling %.1f Hz\r\n",
+                   (unsigned)s_str, (unsigned)s_fret,
+                   (double)cal_theoretical_freq[s_str][s_fret],
+                   (double)tuning_freq_ceiling[s_str]);
+            s_phase = CAL_PHASE_RECORD;  /* skip with fallback data */
+            break;
+        }
+
         if (!s_is_reexciting) {
             /* --- Primary burst --- */
 
@@ -1251,7 +1285,7 @@ void Cal_Hop(void){
                 if (_poly < 0.0f) _poly = 0.0f;
                 _poly += (float)s_open_position_offset;
                 s_steps_expected = (int32_t)CalClampf(_poly, 0.0f,
-                                                      (float)s_cal_steps_max[s_str]);
+                                                      CalFreqCeilingSteps(s_str) + (float)s_open_position_offset);
             }
 
             /* Warn if motor is far from where it should be for the previous fret */
@@ -1387,7 +1421,7 @@ void Cal_Hop(void){
                 int32_t cmd = (int32_t)CalClampf(
                     (float)s_steps_expected + trim,
                     (float)TUNING_STEPS_MIN_DEFAULT,
-                    (float)s_cal_steps_max[s_str]);
+                    CalFreqCeilingSteps(s_str) + (float)s_open_position_offset);
 
                 /* Suppress tiny updates (TUNING_MIN_MOVE_STEPS = 2 microsteps)
                  * to prevent motor hunting at steady state. */
@@ -1655,7 +1689,7 @@ void Cal_Hop(void){
                 int32_t cmd = (int32_t)CalClampf(
                     (float)s_open_position_offset + trim,   /* target is measured open position */
                     (float)TUNING_STEPS_MIN_DEFAULT,
-                    (float)s_cal_steps_max[s_str]);
+                    CalFreqCeilingSteps(s_str) + (float)s_open_position_offset);
 
                 int32_t delta = cmd - s_pi_cmd_steps;
                 if ((delta < 0 ? -delta : delta) >= (int32_t)TUNING_MIN_MOVE_STEPS) {
@@ -2314,8 +2348,8 @@ void Cal_TuneHop(void)
                                                 -step_cap, step_cap);
                     int32_t cmd = (int32_t)CalClampf(
                         (float)s_tune_pi_cmd_steps + delta_cmd,
-                        (float)(-s_cal_steps_max[s_tune_str]),
-                        (float)s_cal_steps_max[s_tune_str]);
+                        -CalFreqCeilingSteps(s_tune_str),
+                         CalFreqCeilingSteps(s_tune_str));
 
                     int32_t delta = cmd - s_tune_pi_cmd_steps;
                     if ((delta < 0 ? -delta : delta) >= (int32_t)TUNE_MIN_MOVE_STEPS) {

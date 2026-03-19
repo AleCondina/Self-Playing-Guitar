@@ -78,6 +78,15 @@ float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     /* E4 */ {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
 };
 
+/* Per-string maximum safe frequency (Hz).
+ * Strings 0-3 (thicker): fret 7 frequency.
+ * Strings 4-5 (thinner): fret 6 frequency.
+ * Defined from FREQ_CEILING_* macros in application_config.h. */
+const float tuning_freq_ceiling[NUM_STRINGS] = {
+    FREQ_CEILING_E2, FREQ_CEILING_A2, FREQ_CEILING_D3,
+    FREQ_CEILING_G3, FREQ_CEILING_B3, FREQ_CEILING_E4,
+};
+
 /* =========================================================================
  * Private state
  * ========================================================================= */
@@ -189,6 +198,39 @@ static float FF_InverseInterpolate(uint8_t str, float steps)
     return f;
 }
 
+/**
+ * @brief Convert the per-string frequency ceiling to an absolute step limit
+ *        using the calibrated polynomial.
+ *
+ * Falls back to TUNING_STEPS_MAX_DEFAULT if the polynomial is not yet
+ * calibrated (all coefficients ≈ 0).
+ *
+ * NOTE: does NOT add Cal_TuneGetOffset() — the ceiling is a physical
+ * frequency limit, not a relative position target.
+ *
+ * @param  str  String index 0–5
+ * @return Maximum allowed absolute step position for this string.
+ */
+static float FreqCeilingToSteps(uint8_t str)
+{
+    float a = cal_poly_coeff[str][0];
+    float b = cal_poly_coeff[str][1];
+    float c = cal_poly_coeff[str][2];
+
+    /* Uncalibrated fallback — polynomial is all zeros */
+    if (fabsf(a) < 1e-9f && fabsf(b) < 1e-9f && fabsf(c) < 1e-9f)
+        return (float)TUNING_STEPS_MAX_DEFAULT;
+
+    float f     = tuning_freq_ceiling[str];
+    float steps = a + b * f + c * f * f;
+
+    if (steps < 0.0f) steps = 0.0f;
+    if (steps > (float)TUNING_STEPS_MAX_DEFAULT)
+        steps = (float)TUNING_STEPS_MAX_DEFAULT;
+
+    return steps;
+}
+
 /* =========================================================================
  * Public API implementation
  * ========================================================================= */
@@ -233,6 +275,12 @@ void TuningCtrl_Update(uint8_t string_id,
                        float   confidence)
 {
     if (string_id >= NUM_STRINGS) return;
+
+    /* Pre-clamp: never target a frequency beyond the per-string ceiling.
+     * This prevents FF_Interpolate from computing a step position that
+     * would over-travel the string mechanically. */
+    if (target_freq_hz > tuning_freq_ceiling[string_id])
+        target_freq_hz = tuning_freq_ceiling[string_id];
 
     TuningStringState_t *s = &s_state[string_id];
 
@@ -402,10 +450,20 @@ void TuningCtrl_Update(uint8_t string_id,
 
     /* ------------------------------------------------------------------ */
     /* 8. Mechanical bounds                                                  */
+    /*                                                                       */
+    /* Upper bound: frequency-ceiling-derived step limit, placed relative    */
+    /* to fret 0's actual motor position (via Cal_TuneGetOffset).  This      */
+    /* means even if the motor's software home ≠ fret 0, the ceiling is      */
+    /* correct in motor coordinates.                                         */
+    /*                                                                       */
+    /* Lower bound: generous absolute backstop.  The motor may need to       */
+    /* travel far backward if the string starts sharp of open tuning.        */
     /* ------------------------------------------------------------------ */
+    float tune_offset   = (float)Cal_TuneGetOffset(string_id);
+    float ceiling_steps = FreqCeilingToSteps(string_id) + tune_offset;
     slewed_cmd = Clampf(slewed_cmd,
                         (float)TUNING_STEPS_MIN_DEFAULT,
-                        (float)TUNING_STEPS_MAX_DEFAULT);
+                        ceiling_steps);
 
     /* ------------------------------------------------------------------ */
     /* 9. Store final command                                               */

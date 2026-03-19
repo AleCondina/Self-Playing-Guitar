@@ -507,6 +507,18 @@ void LutBuilder_Hop(void)
             SetSpeed(LUT_SPEED_CREEP);
         }
 
+        /* Frequency ceiling: if measured frequency has reached or exceeded
+         * the per-string ceiling, stop the sweep and build with what we have. */
+        if (meas_f >= tuning_freq_ceiling[s_str]) {
+            StopMotor();
+            printf("[LUT] str%u: measured %.1f Hz hit ceiling %.1f Hz at fret %u — finishing.\r\n",
+                   (unsigned)s_str, (double)meas_f,
+                   (double)tuning_freq_ceiling[s_str],
+                   (unsigned)s_current_fret);
+            s_phase = LUT_PHASE_BUILD;
+            break;
+        }
+
         /* Safety: check if we've exceeded max travel */
         int32_t cur_pos = g_shared_memory.current_positions[s_str];
         if (cur_pos >= LUT_MAX_STEPS) {
@@ -565,6 +577,13 @@ void LutBuilder_Hop(void)
 
         if (s_current_fret >= LUT_NUM_FRETS) {
             /* All frets measured for this string */
+            s_phase = LUT_PHASE_BUILD;
+        } else if (s_target_freqs[s_current_fret] > tuning_freq_ceiling[s_str]) {
+            /* Next fret exceeds frequency ceiling — done with this string */
+            printf("[LUT] str%u: fret %u target %.1f Hz exceeds ceiling %.1f Hz — skipping remaining frets.\r\n",
+                   (unsigned)s_str, (unsigned)s_current_fret,
+                   (double)s_target_freqs[s_current_fret],
+                   (double)tuning_freq_ceiling[s_str]);
             s_phase = LUT_PHASE_BUILD;
         } else {
             /* Resume forward motion toward next fret */
