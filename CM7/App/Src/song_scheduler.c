@@ -53,11 +53,11 @@
  *   fret 5 = 196.00 Hz   fret 6 = 207.65 Hz
  *
  * Note timing (durations encode the full note lifecycle):
- *   Note 0 (cold start):  1000ms burst + 750ms settle     = 1750ms
- *   Whole notes:          1500ms PI    + 500ms burst + 500ms rest = 2500ms
- *   Half  notes (5, 6):   1500ms PI    + 250ms burst + 250ms rest = 2000ms
+ *   Note 0 (cold start):  500ms burst  + 563ms settle     = 1063ms
+ *   Whole notes:          1000ms PI    + 250ms burst + 375ms rest = 1625ms
+ *   Half  notes (5, 6):   1000ms PI    + 125ms burst + 188ms rest = 1313ms
  *
- * The solenoid fires once per note at SONG_ACTUATE_DELAY_MS (1500 ms).
+ * The solenoid fires once per note at SONG_ACTUATE_DELAY_MS (1000 ms).
  * String carries energy from the previous burst — no re-excitation on
  * note change.  Motor moves via LUT immediately, PI refines, then
  * solenoid fires at the converged pitch.
@@ -75,30 +75,30 @@
 static const SongNote_t song0_notes[] = {
 
     /* ── Timing budget per note ──────────────────────────────────────── *
-     *  Note 0 (cold start): 1000ms burst + 750ms FFT settle = 1750ms   *
-     *  Whole notes:  1500ms PI + 500ms burst + 500ms rest   = 2500ms   *
-     *  Half  notes:  1500ms PI + 250ms burst + 250ms rest   = 2000ms   *
+     *  Note 0 (cold start): 500ms burst  + 563ms FFT settle = 1063ms   *
+     *  Whole notes:  1000ms PI + 250ms burst + 375ms rest   = 1625ms   *
+     *  Half  notes:  1000ms PI + 125ms burst + 188ms rest   = 1313ms   *
      * ────────────────────────────────────────────────────────────────── */
 
     /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    CHORD(G3_HZ,   D3_HZ,   1750u),  /* #0  fret 0: cold start burst     */
-    CHORD(As3_HZ,  F3_HZ,   2500u),  /* #1  fret 3: Bb3 + F3  – whole    */
-    CHORD(C4_HZ,   G3_HZ,   2500u),  /* #2  fret 5: C4 + G3   – whole    */
+    CHORD(G3_HZ,   D3_HZ,   1063u),  /* #0  fret 0: cold start burst     */
+    CHORD(As3_HZ,  F3_HZ,   1625u),  /* #1  fret 3: Bb3 + F3  – whole    */
+    CHORD(C4_HZ,   G3_HZ,   1625u),  /* #2  fret 5: C4 + G3   – whole    */
 
     /* ── Phrase 2: fret 0 – fret 3 (whole), fret 6 – fret 5 (half) ─── */
-    CHORD(G3_HZ,   D3_HZ,   2500u),  /* #3  fret 0: G3 + D3   – whole    */
-    CHORD(As3_HZ,  F3_HZ,   2500u),  /* #4  fret 3: Bb3 + F3  – whole    */
-    CHORD(Cs4_HZ,  Gs3_HZ,  2000u),  /* #5  fret 6: Db4 + Ab3 – half     */
-    CHORD(C4_HZ,   G3_HZ,   2000u),  /* #6  fret 5: C4  + G3  – half     */
+    CHORD(G3_HZ,   D3_HZ,   1625u),  /* #3  fret 0: G3 + D3   – whole    */
+    CHORD(As3_HZ,  F3_HZ,   1625u),  /* #4  fret 3: Bb3 + F3  – whole    */
+    CHORD(Cs4_HZ,  Gs3_HZ,  1313u),  /* #5  fret 6: Db4 + Ab3 – half     */
+    CHORD(C4_HZ,   G3_HZ,   1313u),  /* #6  fret 5: C4  + G3  – half     */
 
     /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
-    CHORD(G3_HZ,   D3_HZ,   2500u),  /* #7  fret 0: G3 + D3   – whole    */
-    CHORD(As3_HZ,  F3_HZ,   2500u),  /* #8  fret 3: Bb3 + F3  – whole    */
-    CHORD(C4_HZ,   G3_HZ,   2500u),  /* #9  fret 5: C4 + G3   – whole    */
+    CHORD(G3_HZ,   D3_HZ,   1625u),  /* #7  fret 0: G3 + D3   – whole    */
+    CHORD(As3_HZ,  F3_HZ,   1625u),  /* #8  fret 3: Bb3 + F3  – whole    */
+    CHORD(C4_HZ,   G3_HZ,   1625u),  /* #9  fret 5: C4 + G3   – whole    */
 
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    CHORD(As3_HZ,  F3_HZ,   2500u),  /* #10 fret 3: Bb3 + F3  – whole    */
-    CHORD(G3_HZ,   D3_HZ,   2500u),  /* #11 fret 0: G3 + D3   – ending   */
+    CHORD(As3_HZ,  F3_HZ,   1625u),  /* #10 fret 3: Bb3 + F3  – whole    */
+    CHORD(G3_HZ,   D3_HZ,   1625u),  /* #11 fret 0: G3 + D3   – ending   */
 };
 
 /* =========================================================================
@@ -111,24 +111,24 @@ static const SongNote_t song0_notes[] = {
 static const SongNote_t song1_notes[] = {
 
     /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    NOTE(1u, A2_HZ,   1750u),   /* #0  fret 0: cold start burst         */
-    NOTE(1u, C3_HZ,   2500u),   /* #1  fret 3: C3   – whole             */
-    NOTE(1u, D3_HZ,   2500u),   /* #2  fret 5: D3   – whole             */
+    NOTE(1u, A2_HZ,   1063u),   /* #0  fret 0: cold start burst         */
+    NOTE(1u, C3_HZ,   1625u),   /* #1  fret 3: C3   – whole             */
+    NOTE(1u, D3_HZ,   1625u),   /* #2  fret 5: D3   – whole             */
 
     /* ── Phrase 2: fret 0 – fret 3 (whole), fret 6 – fret 5 (half) ─── */
-    NOTE(1u, A2_HZ,   2500u),   /* #3  fret 0: A2   – whole             */
-    NOTE(1u, C3_HZ,   2500u),   /* #4  fret 3: C3   – whole             */
-    NOTE(1u, Ds3_HZ,  2000u),   /* #5  fret 6: Ds3  – half              */
-    NOTE(1u, D3_HZ,   2000u),   /* #6  fret 5: D3   – half              */
+    NOTE(1u, A2_HZ,   1625u),   /* #3  fret 0: A2   – whole             */
+    NOTE(1u, C3_HZ,   1625u),   /* #4  fret 3: C3   – whole             */
+    NOTE(1u, Ds3_HZ,  1313u),   /* #5  fret 6: Ds3  – half              */
+    NOTE(1u, D3_HZ,   1313u),   /* #6  fret 5: D3   – half              */
 
     /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
-    NOTE(1u, A2_HZ,   2500u),   /* #7  fret 0: A2   – whole             */
-    NOTE(1u, C3_HZ,   2500u),   /* #8  fret 3: C3   – whole             */
-    NOTE(1u, D3_HZ,   2500u),   /* #9  fret 5: D3   – whole             */
+    NOTE(1u, A2_HZ,   1625u),   /* #7  fret 0: A2   – whole             */
+    NOTE(1u, C3_HZ,   1625u),   /* #8  fret 3: C3   – whole             */
+    NOTE(1u, D3_HZ,   1625u),   /* #9  fret 5: D3   – whole             */
 
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    NOTE(1u, C3_HZ,   2500u),   /* #10 fret 3: C3   – whole             */
-    NOTE(1u, A2_HZ,   2500u),   /* #11 fret 0: A2   – ending            */
+    NOTE(1u, C3_HZ,   1625u),   /* #10 fret 3: C3   – whole             */
+    NOTE(1u, A2_HZ,   1625u),   /* #11 fret 0: A2   – ending            */
 };
 
 /* =========================================================================

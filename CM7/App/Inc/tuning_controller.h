@@ -124,20 +124,19 @@ extern "C" {
  * If PI converges early, the controller waits.  If PI hasn't converged
  * by this deadline, it fires anyway at the best position reached.
  *
- * At 60 BPM a whole note = 4000 ms, so 1500 ms gives the motor/PI
- * the first 1.5 s to settle, then 2.5 s of string ring time.
- * For half notes (2000 ms) this gives 500 ms of ring — tight but the
- * initial burst already excites the string.  TUNE FOR HARDWARE.
+ * 1000 ms gives the motor/PI time to settle with the aggressive PI
+ * tuning (wider step caps, integral enable at 5 Hz, cold delay = 1).
+ * TUNE FOR HARDWARE.
  */
-#define SONG_ACTUATE_DELAY_MS        1500u
+#define SONG_ACTUATE_DELAY_MS        1000u
 
 /**
  * @brief Duration of the very first pluck of the song (ms).
  *
- * A long initial burst gives the string enough energy to sustain through
- * multiple note changes while the motor moves between frets.
+ * A moderate initial burst gives the string enough energy to sustain
+ * through the first note while the motor settles.
  */
-#define SONG_INITIAL_PLUCK_MS        1000u
+#define SONG_INITIAL_PLUCK_MS        500u
 
 /**
  * @brief Lock-band thresholds expressed in Hz (absolute).
