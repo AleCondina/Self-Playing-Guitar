@@ -231,6 +231,20 @@ void InterCore_SendMotorGoto(uint8_t motor_id, int32_t position)
     InterCore_NotifyCM4();
 }
 
+void InterCore_SendMotorGotoBatch(uint8_t move_mask, const int32_t positions[NUM_MOTORS])
+{
+    if (move_mask == 0u) return;
+    g_shared_memory.motor_cmd_batch_mask = move_mask;
+    for (uint8_t i = 0u; i < NUM_MOTORS; i++) {
+        if (move_mask & (1u << i)) {
+            g_shared_memory.motor_cmd_batch_positions[i] = positions[i];
+        }
+    }
+    g_shared_memory.motor_command_flags |= CMD_MOTOR_MOVE_ABS_BATCH;
+    __DSB();
+    InterCore_NotifyCM4();
+}
+
 /**
  * @brief Send microstep mode command to CM4
  */
@@ -367,6 +381,27 @@ void InterCore_TriggerSolenoidHz(uint8_t  solenoid_id,
     g_shared_memory.solenoid_activation_time_ms = time_ms;
     g_shared_memory.solenoid_burst_cycles       = burst_cycles;
     g_shared_memory.motor_command_flags        |= CMD_TRIGGER_SOLENOID_HZ;
+    __DSB();
+    InterCore_NotifyCM4();
+}
+
+void InterCore_TriggerSolenoidHzBatch(uint8_t     sol_mask,
+                                       const float freq_hz[6],
+                                       uint8_t     duty_percent,
+                                       uint8_t     mode,
+                                       uint16_t    time_ms)
+{
+    if (sol_mask == 0u) return;
+    g_shared_memory.solenoid_batch_mask    = sol_mask;
+    g_shared_memory.solenoid_batch_duty    = duty_percent;
+    g_shared_memory.solenoid_batch_mode    = mode;
+    g_shared_memory.solenoid_batch_time_ms = time_ms;
+    for (uint8_t i = 0u; i < 6u; i++) {
+        if (sol_mask & (1u << i)) {
+            g_shared_memory.solenoid_batch_freq_hz[i] = freq_hz[i];
+        }
+    }
+    g_shared_memory.motor_command_flags |= CMD_TRIGGER_SOLENOID_HZ_BATCH;
     __DSB();
     InterCore_NotifyCM4();
 }

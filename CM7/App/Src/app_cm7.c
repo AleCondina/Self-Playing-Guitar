@@ -53,6 +53,7 @@ uint8_t app_debug_flags = 0;
 static volatile uint8_t s_request_calibrate      = 0u;
 static volatile uint8_t s_request_calibrate_mask = 0x3Fu;
 static volatile uint8_t s_request_play            = 0u;
+static volatile uint8_t s_request_play_song_id    = 0u;
 static volatile uint8_t s_request_lutbuild       = 0u;
 static volatile uint8_t s_request_lutbuild_mask  = 0x3Fu;
 static volatile uint8_t s_request_tune           = 0u;
@@ -293,9 +294,31 @@ void App_CM7_Main(void) {
                         break;
                     }
                     if (s_request_play) {
+                        uint8_t sid = s_request_play_song_id;
                         s_request_play = 0u;
-                        SongSched_Init();
+                        SongSched_InitSong(sid);
                     }
+
+                    /* --- Lock-wait mode (optional) ---
+                     * When SONG_LOCK_WAIT_MODE=1 the scheduler is held on the
+                     * current note until ALL active strings have achieved PI lock.
+                     * This guarantees every note sounds accurately in tune before
+                     * advancing, at the cost of strict rhythmic timing.
+                     *
+                     * Set to 0 for target BPM playback (notes advance on schedule).
+                     * Set to 1 if timing can be relaxed for guaranteed accuracy.
+                     * Combine with a lower SONG_BPM value for the best of both.
+                     */
+#define SONG_LOCK_WAIT_MODE  0u
+#if SONG_LOCK_WAIT_MODE
+                    if (SongSched_IsActive()) {
+                        uint8_t all_locked = TuningCtrl_GetLockState(SongSched_GetStringId());
+                        if (SongSched_GetStringCount() >= 2u) {
+                            all_locked &= TuningCtrl_GetLockState(SongSched_GetStringId2());
+                        }
+                        SongSched_HoldNote(!all_locked);
+                    }
+#endif
 
                     /* --- Song scheduler tick --- */
                     SongSched_Tick(HAL_GetTick());
@@ -385,6 +408,13 @@ void App_RequestCalibration(uint8_t string_mask)
 
 void App_RequestPlay(void)
 {
+    s_request_play_song_id = 0u;
+    s_request_play = 1u;
+}
+
+void App_RequestPlaySong(uint8_t song_id)
+{
+    s_request_play_song_id = song_id;
     s_request_play = 1u;
 }
 

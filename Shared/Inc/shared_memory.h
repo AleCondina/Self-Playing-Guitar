@@ -47,6 +47,8 @@
 #define CMD_MOTOR_ZERO          (1U << 12)  /* Zero motor position -----*/
 #define CMD_TRIGGER_SOLENOID_HZ (1U << 13)  /* Trigger solenoid at exact Hz (tuning controller) */
 #define CMD_MOTOR_ENABLE_MASK   (1U << 14)  /* Batch enable/disable motors via bitmask */
+#define CMD_MOTOR_MOVE_ABS_BATCH    (1U << 15) /* Batch absolute move: positions[] + mask  */
+#define CMD_TRIGGER_SOLENOID_HZ_BATCH (1U << 16) /* Batch Hz trigger: freq[]+mask, one shot */
 
 /* Status flags: CM4 → CM7 (bit field) */
 #define MOTOR_STATUS_READY      (1U << 0)   /* Motors initialized and ready */
@@ -86,6 +88,15 @@ typedef struct {
     volatile uint8_t  motor_cmd_enable;                /* 1=enable, 0=disable */
     volatile uint8_t  motor_cmd_enable_mask;            /* Bitmask for CMD_MOTOR_ENABLE_MASK: bit i → motor i */
     volatile int32_t  motor_cmd_position;              /* Target position (absolute or relative) */
+    volatile uint8_t  motor_cmd_batch_mask;                  /* Bitmask for CMD_MOTOR_MOVE_ABS_BATCH */
+    volatile int32_t  motor_cmd_batch_positions[NUM_MOTORS]; /* Target positions for batch move      */
+
+    /* Batch solenoid Hz trigger (CMD_TRIGGER_SOLENOID_HZ_BATCH) */
+    volatile uint8_t  solenoid_batch_mask;               /* Bit i = trigger solenoid i           */
+    volatile float    solenoid_batch_freq_hz[6];         /* Per-solenoid drive frequency (Hz)    */
+    volatile uint8_t  solenoid_batch_duty;               /* Shared duty cycle (1-99%)            */
+    volatile uint8_t  solenoid_batch_mode;               /* Shared mode (TIMED/INFINITE/BURST)   */
+    volatile uint16_t solenoid_batch_time_ms;            /* Shared auto-stop time for TIMED mode */
     volatile int32_t  motor_cmd_accel;                 /* Acceleration value */
     volatile int32_t  motor_cmd_max_speed;             /* Max speed value */
 

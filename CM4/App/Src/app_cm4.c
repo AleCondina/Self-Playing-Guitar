@@ -265,6 +265,17 @@ void App_CM4_Main(void)
                 InterCore_AckCommand(CMD_MOTOR_ENABLE);
             }
 
+            /* Process batch absolute move (all masked motors start simultaneously) */
+            if (commands & CMD_MOTOR_MOVE_ABS_BATCH) {
+                uint8_t mask = g_shared_memory.motor_cmd_batch_mask;
+                for (uint8_t i = 0u; i < NUM_MOTORS; i++) {
+                    if (mask & (1u << i)) {
+                        Motor_MoveToPosition(i, g_shared_memory.motor_cmd_batch_positions[i]);
+                    }
+                }
+                InterCore_AckCommand(CMD_MOTOR_MOVE_ABS_BATCH);
+            }
+
             /* Process batch motor enable/disable (bitmask) */
             if (commands & CMD_MOTOR_ENABLE_MASK) {
                 uint8_t mask = g_shared_memory.motor_cmd_enable_mask;
@@ -285,6 +296,35 @@ void App_CM4_Main(void)
                     Motor_ZeroPosition(mid);
                 }
                 InterCore_AckCommand(CMD_MOTOR_ZERO);
+            }
+
+            /* Batch solenoid Hz trigger — configure ALL, then start ALL atomically */
+            if (commands & CMD_TRIGGER_SOLENOID_HZ_BATCH) {
+                uint8_t  mask    = g_shared_memory.solenoid_batch_mask;
+                uint8_t  duty    = g_shared_memory.solenoid_batch_duty;
+                uint8_t  mode    = g_shared_memory.solenoid_batch_mode;
+                uint16_t time_ms = g_shared_memory.solenoid_batch_time_ms;
+
+                /* Phase 1: configure frequency + duty for every masked solenoid */
+                for (uint8_t i = 0u; i < 6u; i++) {
+                    if (mask & (1u << i)) {
+                        float freq = g_shared_memory.solenoid_batch_freq_hz[i];
+                        if (freq > 1e-6f) {
+                            Solenoid_SetFrequencyHz(i, freq);
+                            if (duty > 0u && duty < 100u) {
+                                Solenoid_SetDutyCycle(i, duty);
+                            }
+                        }
+                    }
+                }
+                /* Phase 2: start ALL configured solenoids back-to-back */
+                for (uint8_t i = 0u; i < 6u; i++) {
+                    if (mask & (1u << i)) {
+                        Solenoid_StartTimed(i, mode, time_ms, 0u);
+                    }
+                }
+                g_shared_memory.solenoid_active_mask = Solenoid_GetActiveMask();
+                InterCore_AckCommand(CMD_TRIGGER_SOLENOID_HZ_BATCH);
             }
 
             /* Process solenoid direct-Hz trigger (tuning controller actuation) */

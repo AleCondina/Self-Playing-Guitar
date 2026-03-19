@@ -92,6 +92,10 @@ static uint32_t s_debug_counter = 0u;
  * Used to detect transitions and avoid redundant enable commands. */
 static uint8_t s_motor_enable_mask = 0u;
 
+/* Flag: 1 = the very first note of the song has not yet been plucked.
+ * Set by TuningCtrl_Init() / song start, cleared after the initial burst. */
+static uint8_t s_song_first_note = 1u;
+
 /* =========================================================================
  * Private helpers
  * ========================================================================= */
@@ -104,15 +108,6 @@ static inline float Clampf(float v, float lo, float hi)
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
-}
-
-/**
- * @brief Linear interpolation between two points.
- */
-static inline float Lerpf(float x0, float y0, float x1, float y1, float x)
-{
-    if (x1 == x0) return y0;
-    return y0 + (y1 - y0) * (x - x0) / (x1 - x0);
 }
 
 /**
@@ -144,41 +139,47 @@ static float FF_Interpolate(uint8_t str, float freq)
 }
 
 /**
- * @brief Apply solenoid enable/disable based on lock-state edge transitions.
+ * @brief Inverse polynomial: given a motor position in microsteps, estimate
+ *        the frequency the string should be producing.
  *
- * On rising lock edge:  trigger solenoid for this string in infinite mode.
- * On falling lock edge: stop the solenoid.
+ * Solves:  steps = a + b·f + c·f²  →  c·f² + b·f + (a - steps) = 0
+ * Returns the positive root via the quadratic formula, or a linear
+ * fallback when c ≈ 0.
  *
- * @param string_id   String index 0–5
- * @param target_freq Target frequency (used to identify the nearest ARR value)
+ * @param  str   String index 0–5
+ * @param  steps Current absolute motor position (microsteps)
+ * @return Estimated frequency in Hz (clamped to open-string freq minimum)
  */
-static void ApplyActuation(uint8_t string_id,
-                           float   target_freq,
-                           uint8_t lock_now,
-                           uint8_t lock_prev)
+static float FF_InverseInterpolate(uint8_t str, float steps)
 {
-    if (lock_now && !lock_prev) {
-        /* Rising edge: start solenoid at the exact target frequency.
-         * Uses CMD_TRIGGER_SOLENOID_HZ → Solenoid_SetFrequencyHz() on CM4.
-         * This sets ARR = (2200000 / freq_hz) - 0.5f directly instead of using
-         * the coarse string/fret lookup table. */
-        float freq = (target_freq >= 40.0f && target_freq <= 800.0f)
-                            ? target_freq : 0.0f;       
-        if (freq > 1e-6) {
-            InterCore_TriggerSolenoidHz(string_id,
-                                        freq,
-                                        SOLENOID_DEFAULT_DUTY_CYCLE,
-                                        SOLENOID_MODE_TIMED,
-                                        250u,
-                                        0u);
-        }
+    float a = cal_poly_coeff[str][0];
+    float b = cal_poly_coeff[str][1];
+    float c = cal_poly_coeff[str][2];
 
-    } else if (!lock_now && lock_prev) {
-        /* Falling edge: stop this solenoid */
-        g_shared_memory.solenoid_id = string_id;
-        g_shared_memory.motor_command_flags |= CMD_STOP_SOLENOID;
-        InterCore_NotifyCM4();
+    /* Open-string frequency is the minimum possible */
+    float f_open = tuning_ff_freq_bp[str][0];
+
+    if (fabsf(c) < 1e-9f) {
+        /* Linear: steps = a + b·f  →  f = (steps - a) / b */
+        if (fabsf(b) < 1e-9f) return f_open;
+        float f = (steps - a) / b;
+        return (f > f_open) ? f : f_open;
     }
+
+    /* Quadratic: c·f² + b·f + (a - steps) = 0 */
+    float disc = b * b - 4.0f * c * (a - steps);
+    if (disc < 0.0f) return f_open;
+
+    float sqrt_disc = sqrtf(disc);
+    /* Take the root that gives a positive, physically meaningful frequency */
+    float f1 = (-b + sqrt_disc) / (2.0f * c);
+    float f2 = (-b - sqrt_disc) / (2.0f * c);
+
+    /* Pick the root closest to the open-string range */
+    float f = (f1 >= f_open) ? f1 : f2;
+    if (f < f_open) f = f_open;
+
+    return f;
 }
 
 /* =========================================================================
@@ -202,9 +203,15 @@ void TuningCtrl_Init(void)
         /* Sentinel: no note yet */
         s->last_target_freq_hz = -1.0f;
         s->last_valid_freq_hz  =  0.0f;
+
+        /* New tracking state */
+        s->expected_freq_hz = tuning_ff_freq_bp[i][0];
+        s->pi_hop_count     = 0u;
+        s->note_actuated    = 0u;
     }
-    s_debug_counter = 0u;
+    s_debug_counter     = 0u;
     s_motor_enable_mask = 0u;
+    s_song_first_note   = 1u;
 }
 
 /* -------------------------------------------------------------------------
@@ -233,13 +240,28 @@ void TuningCtrl_Update(uint8_t string_id,
         s->integral_state    = 0.0f;
         s->trim_steps        = 0.0f;
         s->lock_state        = 0u;
-        s->delay_hold_counter = (uint16_t)TUNING_DELAY_FRAMES;
         s->pi_enable         = 0u;
         s->stall_counter     = 0u;
         s->fault_flags       = 0u;
 
+        /* Warm/cold adaptive hold:
+         * Warm string → FFT already has live signal → PI can start after 1 hop.
+         * Cold string → solenoid burst fires first (in TuningCtrl_RunHop) →
+         *               keep full 3-hop hold while FFT acquires resonance.      */
+        uint16_t hold = s->string_warm ? (uint16_t)SONG_WARM_DELAY_FRAMES
+                                       : (uint16_t)SONG_COLD_DELAY_FRAMES;
+        s->delay_hold_counter = hold;
+
+        /* Reset per-note pluck tracking */
+        s->note_plucked     = 0u;
+        s->hops_since_pluck = 0u;
+
+        /* Reset per-note PI convergence tracking */
+        s->pi_hop_count  = 0u;
+        s->note_actuated = 0u;
+
         /* Update FF position immediately so motor starts moving */
-        s->ff_steps_abs      = FF_Interpolate(string_id, target_freq_hz);
+        s->ff_steps_abs        = FF_Interpolate(string_id, target_freq_hz);
         s->last_target_freq_hz = target_freq_hz;
 
     } else if (s->delay_hold_counter > 0u) {
@@ -264,9 +286,19 @@ void TuningCtrl_Update(uint8_t string_id,
     if (measurement_trusted) {
         s->last_valid_freq_hz = measured_freq_hz;
         use_freq = measured_freq_hz;
+
+        /* String is (or has become) warm */
+        s->silent_hop_count = 0u;
+        s->string_warm      = 1u;
     } else {
         /* Hold last valid estimate; do NOT update PI integral */
         use_freq = s->last_valid_freq_hz;
+
+        /* Track consecutive silent hops; declare cold after threshold */
+        s->silent_hop_count++;
+        if (s->silent_hop_count >= (uint16_t)SONG_DECAY_COLD_HOPS) {
+            s->string_warm = 0u;
+        }
     }
 
     /* ------------------------------------------------------------------ */
@@ -275,12 +307,11 @@ void TuningCtrl_Update(uint8_t string_id,
     float e = target_freq_hz - use_freq;
 
     /* ------------------------------------------------------------------ */
-    /* 4. Lock-band hysteresis (cents-based, pitch-relative)                */
-    /*    band_hz = target * (2^(cents/1200) - 1)                           */
+    /* 4. Lock-band hysteresis (Hz-based, absolute)                         */
     /* ------------------------------------------------------------------ */
     float abs_e = fabsf(e);
-    float lock_in_hz  = target_freq_hz * (powf(2.0f, TUNING_LOCK_BAND_IN_CENTS  / 1200.0f) - 1.0f);
-    float lock_out_hz = target_freq_hz * (powf(2.0f, TUNING_LOCK_BAND_OUT_CENTS / 1200.0f) - 1.0f);
+    float lock_in_hz  = TUNING_LOCK_BAND_IN_HZ;
+    float lock_out_hz = TUNING_LOCK_BAND_OUT_HZ;
 
     if (s->lock_state) {
         if (abs_e >= lock_out_hz) {
@@ -324,6 +355,11 @@ void TuningCtrl_Update(uint8_t string_id,
         }
         /* else: keep s->trim_steps as-is this hop */
     }
+    /* Count PI hops for convergence limit */
+    if (s->pi_enable && measurement_trusted) {
+        s->pi_hop_count++;
+    }
+
     /* When PI is disabled: hold trim_steps at its last value (do not zero it).
      * This ensures the motor stays where it was, not at the FF position alone. */
 
@@ -359,6 +395,14 @@ void TuningCtrl_Update(uint8_t string_id,
     /* Mirror actual motor position from shared memory */
     s->current_abs_steps = g_shared_memory.current_positions[string_id];
 
+    /* Update expected frequency from the COMMANDED motor position.
+     * Using cmd_steps_abs (not current_abs_steps from CM4 feedback)
+     * eliminates the inter-core lag — the search window moves
+     * immediately when a new position is commanded, rather than
+     * waiting for the motor to physically arrive. */
+    s->expected_freq_hz = FF_InverseInterpolate(string_id,
+                                                 (float)s->cmd_steps_abs);
+
     /* ------------------------------------------------------------------ */
     /* 10. Stall detection                                                  */
     /* Large ongoing PI output with no measurable frequency change →        */
@@ -392,40 +436,86 @@ void TuningCtrl_Update(uint8_t string_id,
 }
 
 /**
- * @brief Sweeps the FFT array to find the closest valid frequency to the target.
- * @param target The expected physical frequency from the MIDI file.
- * @param out_measured Pointer to store the detected frequency.
- * @param out_confidence Pointer to store the signal magnitude (confidence).
+ * @brief Open-string frequencies for cross-string rejection.
+ *
+ * Any FFT peak within ±OPEN_STRING_REJECT_HZ of an open string that is NOT
+ * the string we're tracking gets rejected.  This prevents sympathetic
+ * resonance from B3 (246.94 Hz) hijacking the G3 fret 3-5 range, etc.
  */
-static void GetFFTRadarLock(float target, float* out_measured, float* out_confidence)
+static const float s_open_string_hz[NUM_STRINGS] = {
+    82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f
+};
+#define OPEN_STRING_REJECT_HZ  5.0f   /* ±5 Hz around each open string */
+
+/**
+ * @brief Check whether a frequency is suspiciously close to an open string
+ *        OTHER than the one we're tracking.
+ *
+ * @param freq       Candidate FFT peak frequency
+ * @param string_id  The string we ARE tracking (don't reject its own open freq)
+ * @return 1 if the peak should be rejected, 0 if it's safe
+ */
+static uint8_t IsOpenStringInterference(float freq, uint8_t string_id)
+{
+    for (uint8_t s = 0u; s < NUM_STRINGS; s++) {
+        if (s == string_id) continue;               /* don't reject ourselves */
+        if (fabsf(freq - s_open_string_hz[s]) <= OPEN_STRING_REJECT_HZ)
+            return 1u;
+    }
+    return 0u;
+}
+
+/**
+ * @brief Sweeps the FFT array to find the best peak matching the target string.
+ *
+ * Search strategy (evaluated in a single pass):
+ *   1. Reject any peak within ±5 Hz of another string's open frequency.
+ *   2. Among remaining candidates within ±TUNE_SEARCH_WINDOW_HZ of either
+ *      the expected frequency OR the target frequency, pick the one with
+ *      the highest magnitude.  Magnitude is the best discriminator when
+ *      two candidates are close in frequency (e.g. B3 open at 247 Hz vs
+ *      G3 fret 5 at 261 Hz).
+ *
+ * @param string_id    Which string we're tracking (for open-string rejection)
+ * @param expected     Frequency predicted from commanded motor position
+ * @param target       Final target frequency from song scheduler
+ * @param out_measured  Detected frequency (0 if nothing found)
+ * @param out_confidence  Peak magnitude
+ */
+static void GetFFTRadarLock(uint8_t string_id,
+                            float expected, float target,
+                            float* out_measured, float* out_confidence)
 {
     float best_measured = 0.0f;
     float best_mag      = 0.0f;
-    float min_error     = 9999.0f;
 
-    /* 1. Sweep the active radar pings */
+    /* Build the search window: accept peaks near expected OR near target */
     for (uint8_t i = 0; i < active_string_count; i++) {
-        float error = fabsf(active_frequencies[i] - target);
-        
-        if (error < min_error) {
-            min_error = error;
-            best_measured = active_frequencies[i];
-            best_mag = active_magnitudes[i];
+        float freq = active_frequencies[i];
+        float mag  = active_magnitudes[i];
+
+        /* Reject sympathetic resonance from other open strings */
+        if (IsOpenStringInterference(freq, string_id))
+            continue;
+
+        /* Check if this peak is within the search window of either centre */
+        float err_exp = fabsf(freq - expected);
+        float err_tgt = fabsf(freq - target);
+        float min_err = (err_exp < err_tgt) ? err_exp : err_tgt;
+
+        if (min_err > TUNE_SEARCH_WINDOW_HZ)
+            continue;   /* too far from both centres */
+
+        /* Among valid candidates, pick the LOUDEST — magnitude is the
+         * most reliable discriminator when multiple peaks compete. */
+        if (mag > best_mag) {
+            best_mag      = mag;
+            best_measured = freq;
         }
     }
 
-    /* 2. Validate the lock — peaks in active_frequencies[] are already
-     *    SNR-vetted by FFT_ProcessBlock's adaptive noise floor, so we only
-     *    need to check that we found something within the search window. */
-    if (active_string_count > 0 && min_error <= TUNE_SEARCH_WINDOW_HZ) {
-        *out_measured = best_measured;
-        *out_confidence = best_mag;
-        return; /* Successful lock */
-    }
-
-    /* Target is missing or out of search window */
-    *out_measured = 0.0f;
-    *out_confidence = 0.0f;
+    *out_measured   = best_measured;
+    *out_confidence = best_mag;
 }
 
 /* -------------------------------------------------------------------------
@@ -480,52 +570,177 @@ void TuningCtrl_RunHop(void)
         s_motor_enable_mask = needed_mask;
     }
 
+    /* ------------------------------------------------------------------ */
+    /* Detect note changes (primary and secondary strings)                  */
+    /* ------------------------------------------------------------------ */
+    uint8_t new_note_primary = (fabsf(target - s_state[str].last_target_freq_hz)
+                                 > 0.05f);
+
     /* --- Primary String FFT Lock --- */
     float measured = 0.0f;
     float confidence = 0.0f;
-    GetFFTRadarLock(target, &measured, &confidence);
-
-    /* Store previous lock state before update */
-    uint8_t prev_lock = s_state[str].lock_state;
+    GetFFTRadarLock(str, s_state[str].expected_freq_hz, target, &measured, &confidence);
 
     /* Run one hop of the controller */
     TuningCtrl_Update(str, target, measured, confidence);
 
-    uint8_t curr_lock = s_state[str].lock_state;
+    /* ------------------------------------------------------------------ */
+    /* Second string (chord support) — run control update first so both    */
+    /* motor commands can be batched into a single inter-core notification. */
+    /* ------------------------------------------------------------------ */
+    uint8_t  str2          = 0u;
+    float    target2       = 0.0f;
+    uint8_t  new_note_secondary = 0u;
+    uint8_t  chord = (SongSched_GetStringCount() >= 2u);
 
-    /* ------------------------------------------------------------------ */
-    /* Push motor command to CM4 if position changed                        */
-    /* ------------------------------------------------------------------ */
-    if (s_state[str].cmd_steps_abs != s_state[str].prev_cmd_steps_abs) {
-        InterCore_SendMotorGoto(str, s_state[str].cmd_steps_abs);
-    }
+    if (chord) {
+        str2    = SongSched_GetStringId2();
+        target2 = SongSched_GetTargetFreq2();
 
-    /* ------------------------------------------------------------------ */
-    /* Coordinate solenoid actuation based on lock-state transitions        */
-    /* ------------------------------------------------------------------ */
-    ApplyActuation(str, target, curr_lock, prev_lock);
+        new_note_secondary = (fabsf(target2 - s_state[str2].last_target_freq_hz)
+                               > 0.05f);
 
-    /* ------------------------------------------------------------------ */
-    /* Second string (chord support)                                        */
-    /* ------------------------------------------------------------------ */
-    if (SongSched_GetStringCount() >= 2u) {
-        uint8_t str2     = SongSched_GetStringId2();
-        float   target2  = SongSched_GetTargetFreq2();
-
-        /* --- Secondary String FFT Lock --- */
-        float measured2 = 0.0f;
-        float confidence2 = 0.0f;
-        GetFFTRadarLock(target2, &measured2, &confidence2);
-        
-        uint8_t prev_lock2 = s_state[str2].lock_state;
+        float measured2 = 0.0f, confidence2 = 0.0f;
+        GetFFTRadarLock(str2, s_state[str2].expected_freq_hz, target2, &measured2, &confidence2);
         TuningCtrl_Update(str2, target2, measured2, confidence2);
-        uint8_t curr_lock2 = s_state[str2].lock_state;
-
-        if (s_state[str2].cmd_steps_abs != s_state[str2].prev_cmd_steps_abs) {
-            InterCore_SendMotorGoto(str2, s_state[str2].cmd_steps_abs);
-        }
-        ApplyActuation(str2, target2, curr_lock2, prev_lock2);
     }
+
+    /* ------------------------------------------------------------------ */
+    /* Cold-start burst — ONLY for the very first note of the song.        */
+    /*                                                                      */
+    /* Note 0 is the open string (already tuned).  We fire a long burst    */
+    /* (1000 ms) to get the string vibrating strongly.  The string then    */
+    /* carries this energy through subsequent notes — no burst needed on   */
+    /* later note changes because the string is still warm.                */
+    /*                                                                      */
+    /* All subsequent notes get their solenoid fire at the 1.5 s mark      */
+    /* (SONG_ACTUATE_DELAY_MS) after PI converges on the target pitch.     */
+    /* ------------------------------------------------------------------ */
+    if (s_song_first_note && (new_note_primary || new_note_secondary)) {
+        s_song_first_note = 0u;
+        uint16_t burst_ms = (uint16_t)SONG_INITIAL_PLUCK_MS;  /* 1000 ms */
+
+        float ef1 = s_state[str].expected_freq_hz;
+        float f   = (ef1 >= 40.0f && ef1 <= 800.0f) ? ef1 : 0.0f;
+
+        if (chord) {
+            uint8_t burst_mask  = 0u;
+            float   burst_freqs[6] = {0.0f};
+            float ef2 = s_state[str2].expected_freq_hz;
+            float f2  = (ef2 >= 40.0f && ef2 <= 800.0f) ? ef2 : 0.0f;
+            if (f  > 1e-6f) { burst_mask |= (1u << str);  burst_freqs[str]  = f;  }
+            if (f2 > 1e-6f) { burst_mask |= (1u << str2); burst_freqs[str2] = f2; }
+            if (burst_mask) {
+                InterCore_TriggerSolenoidHzBatch(burst_mask, burst_freqs,
+                                                 SOLENOID_DEFAULT_DUTY_CYCLE,
+                                                 SOLENOID_MODE_TIMED, burst_ms);
+            }
+        } else {
+            if (f > 1e-6f) {
+                InterCore_TriggerSolenoidHz(str, f, SOLENOID_DEFAULT_DUTY_CYCLE,
+                                            SOLENOID_MODE_TIMED, burst_ms, 0u);
+            }
+        }
+        /* Mark note 0 as already actuated — no second fire at 1.5 s */
+        s_state[str].note_actuated = 1u;
+        s_state[str].note_plucked  = 1u;
+        if (chord) {
+            s_state[str2].note_actuated = 1u;
+            s_state[str2].note_plucked  = 1u;
+        }
+        printf("[TC] Cold-start burst: %u ms at %.1f Hz\r\n",
+               (unsigned)burst_ms, (double)f);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Push motor commands — ALWAYS send the current position so CM4 has   */
+    /* an up-to-date target.  The previous logic only sent on change,      */
+    /* which meant the very first command (position 0 → 0 on open string)  */
+    /* was silently dropped, and motors never received subsequent targets.  */
+    /* ------------------------------------------------------------------ */
+    {
+        uint8_t  move_mask = (1u << str);
+        int32_t  positions[NUM_MOTORS] = {0};
+        positions[str] = s_state[str].cmd_steps_abs;
+
+        if (chord) {
+            move_mask       |= (1u << str2);
+            positions[str2]  = s_state[str2].cmd_steps_abs;
+        }
+
+        InterCore_SendMotorGotoBatch(move_mask, positions);
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Solenoid actuation — BPM-scheduled, not convergence-gated           */
+    /*                                                                      */
+    /* ALL strings for a note fire at exactly SONG_ACTUATE_DELAY_MS after   */
+    /* the note starts.  This keeps actuation locked to the song's BPM.    */
+    /*                                                                      */
+    /* If PI locks early, we wait.  If PI hasn't converged by the deadline  */
+    /* we fire anyway at the best position the controller reached.          */
+    /* Chord strings always fire simultaneously — same deadline.            */
+    /* ------------------------------------------------------------------ */
+    {
+        uint32_t note_elapsed = SongSched_GetElapsedMs(HAL_GetTick());
+        uint8_t  time_to_fire = (note_elapsed >= SONG_ACTUATE_DELAY_MS);
+
+        if (time_to_fire && !s_state[str].note_actuated) {
+
+            /* Burst duration: 500ms whole notes, 250ms half notes */
+            const SongNote_t *cur = SongSched_GetNoteAt(SongSched_GetNoteIndex());
+            uint16_t burst_ms = (cur && cur->duration_ms <= 2000u) ? 250u : 500u;
+
+            if (chord) {
+                /* Chord: fire BOTH strings at the same scheduled instant */
+                uint8_t sol_mask = 0u;
+                float   freqs[6] = {0.0f};
+
+                float f1 = s_state[str].lock_state
+                         ? s_state[str].last_valid_freq_hz : target;
+                float f2_freq = s_state[str2].lock_state
+                              ? s_state[str2].last_valid_freq_hz : target2;
+
+                if (f1 >= 40.0f && f1 <= 800.0f) {
+                    sol_mask |= (1u << str);  freqs[str] = f1;
+                }
+                if (f2_freq >= 40.0f && f2_freq <= 800.0f) {
+                    sol_mask |= (1u << str2); freqs[str2] = f2_freq;
+                }
+                if (sol_mask) {
+                    InterCore_TriggerSolenoidHzBatch(sol_mask, freqs,
+                                                     SOLENOID_DEFAULT_DUTY_CYCLE,
+                                                     SOLENOID_MODE_TIMED, burst_ms);
+                }
+                s_state[str].note_actuated  = 1u;
+                s_state[str2].note_actuated = 1u;
+                printf("[TC] Chord actuate @%lums: %.1f/%.1f Hz burst=%ums (lock=%u/%u)\r\n",
+                       (unsigned long)note_elapsed,
+                       (double)f1, (double)f2_freq,
+                       (unsigned)burst_ms,
+                       (unsigned)s_state[str].lock_state,
+                       (unsigned)s_state[str2].lock_state);
+
+            } else {
+                /* Single string */
+                float f = s_state[str].lock_state
+                        ? s_state[str].last_valid_freq_hz : target;
+                if (f >= 40.0f && f <= 800.0f) {
+                    InterCore_TriggerSolenoidHz(str, f, SOLENOID_DEFAULT_DUTY_CYCLE,
+                                                SOLENOID_MODE_TIMED, burst_ms, 0u);
+                }
+                s_state[str].note_actuated = 1u;
+                printf("[TC] Actuate str%u @%lums: %.1f Hz burst=%ums (lock=%u)\r\n",
+                       (unsigned)str, (unsigned long)note_elapsed,
+                       (double)f, (unsigned)burst_ms,
+                       (unsigned)s_state[str].lock_state);
+            }
+        }
+    }
+
+    /* Track pluck age */
+    s_state[str].hops_since_pluck++;
+    if (chord) s_state[str2].hops_since_pluck++;
 
     /* ------------------------------------------------------------------ */
     /* Debug CSV logging (decimated)                                        */
@@ -611,4 +826,5 @@ void TuningCtrl_ResetAll(void)
         TuningCtrl_ResetString(i);
     }
     s_motor_enable_mask = 0u;
+    s_song_first_note   = 1u;
 }

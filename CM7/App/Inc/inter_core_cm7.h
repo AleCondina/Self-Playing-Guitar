@@ -130,10 +130,44 @@ void InterCore_SendMotorEnable(uint8_t motor_id, uint8_t enable);
 void InterCore_SendMotorEnableMask(uint8_t enable_mask);
 
 /**
+ * @brief Send absolute position commands to multiple motors in one atomic notification.
+ *
+ * Writes all positions into motor_cmd_batch_positions[] then raises a single
+ * CMD_MOTOR_MOVE_ABS_BATCH flag.  CM4 processes all positions in one pass,
+ * so both motors start moving simultaneously.
+ *
+ * @param move_mask   Bit i = 1 → command motor i to positions[i]
+ * @param positions   Array of NUM_MOTORS target positions (only masked entries used)
+ */
+void InterCore_SendMotorGotoBatch(uint8_t move_mask, const int32_t positions[NUM_MOTORS]);
+
+/**
  * @brief Send zero position command to CM4
  */
 void InterCore_SendMotorZero(uint8_t motor_id);
 
+
+/**
+ * @brief Trigger multiple solenoids simultaneously at their individual frequencies.
+ *
+ * Writes all per-solenoid frequencies into solenoid_batch_freq_hz[], sets
+ * solenoid_batch_mask, then raises CMD_TRIGGER_SOLENOID_HZ_BATCH in a single
+ * inter-core notification.  CM4 configures and starts ALL masked solenoids
+ * before returning, guaranteeing they fire within the same CM4 loop iteration.
+ *
+ * Use this for chords so both strings pluck at the exact same instant.
+ *
+ * @param sol_mask     Bit i = 1 → trigger solenoid i
+ * @param freq_hz      Array of 6 frequencies (Hz); only masked entries used
+ * @param duty_percent Shared duty cycle 1-99% (0 = default 50%)
+ * @param mode         SOLENOID_MODE_INFINITE / TIMED / BURST
+ * @param time_ms      Auto-stop time for TIMED mode
+ */
+void InterCore_TriggerSolenoidHzBatch(uint8_t        sol_mask,
+                                       const float    freq_hz[6],
+                                       uint8_t        duty_percent,
+                                       uint8_t        mode,
+                                       uint16_t       time_ms);
 
 /**
  * @brief Trigger a solenoid at an exact frequency in Hz (tuning controller)

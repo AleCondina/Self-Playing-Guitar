@@ -55,26 +55,101 @@ extern "C" {
     ((float)(FFT_SIZE / 2) / (float)AUDIO_SAMPLE_RATE_HZ)
 
 /**
- * @brief Hops to hold PI disabled after a note/string change.
+ * @brief Hops to hold PI disabled after a note/string change (generic default).
  *
- * Provides time for the Goertzel estimator to lock onto the new pitch
- * after the motor has moved.  3 hops ≈ 510 ms at the default rate.
- * Increase if measurement latency is longer.  TUNE FOR HARDWARE.
+ * Song playback overrides this with SONG_WARM_DELAY_FRAMES /
+ * SONG_COLD_DELAY_FRAMES depending on string temperature state.
+ * 3 hops ≈ 510 ms at the default rate.
  */
 #define TUNING_DELAY_FRAMES     3u
 
+/* =========================================================================
+ * Song playback mode parameters
+ * =========================================================================
+ * These govern the warm/cold string strategy used during song playback.
+ * A "warm" string is still vibrating from the previous note; a "cold" string
+ * is at rest (first note of song, or string has decayed).
+ * ========================================================================= */
+
 /**
- * @brief Lock-band thresholds expressed in cents (pitch-relative).
+ * @brief PI hold hops when string is WARM (already vibrating).
  *
- * Using cents instead of fixed Hz ensures uniform musical accuracy across
- * all strings.  The Hz threshold is computed at runtime:
- *   band_hz = target_freq * (2^(cents/1200) - 1)
- *
- * 10 cents ≈ 0.58% of target  →  0.48 Hz at E2 (82 Hz), 1.91 Hz at E4 (330 Hz)
- * 20 cents ≈ 1.16% of target  →  0.95 Hz at E2,          3.83 Hz at E4
+ * The FFT already has a live signal, so PI can start correcting after just
+ * 1 hop (~170 ms).  TUNE FOR HARDWARE — increase if PI overreacts.
  */
-#define TUNING_LOCK_BAND_IN_CENTS   10.0f   /**< Enter lock when error ≤ ±10 cents */
-#define TUNING_LOCK_BAND_OUT_CENTS  20.0f   /**< Exit  lock when error ≥ ±20 cents */
+#define SONG_WARM_DELAY_FRAMES   1u
+
+/**
+ * @brief PI hold hops when string is COLD (at rest / first note).
+ *
+ * A solenoid burst fires first to excite the string; PI holds for 3 hops
+ * while the FFT acquires the resonance — same as the calibration approach.
+ */
+#define SONG_COLD_DELAY_FRAMES   3u
+
+/**
+ * @brief Consecutive silent hops before a string is declared cold.
+ *
+ * After this many hops with no FFT signal the string is considered to have
+ * fully decayed.  The next note change will trigger a cold-start burst.
+ * ~4 hops ≈ 680 ms.  TUNE FOR HARDWARE.
+ */
+#define SONG_DECAY_COLD_HOPS     4u
+
+/**
+ * @brief Chord synchronization: hops to wait for both strings to lock before
+ * firing.  If the slower string hasn't locked within this many hops after the
+ * faster one, fire both solenoids anyway so the chord is never silent.
+ * 2 hops ≈ 340 ms.  TUNE FOR HARDWARE.
+ */
+#define SONG_CHORD_PLUCK_TIMEOUT_HOPS   2u
+
+/**
+ * @brief Re-excite sustain: hops between sustain re-trigger attempts.
+ *
+ * Set to 0 (disabled): the solenoid fires once per note on PI lock and the
+ * string is allowed to ring and decay naturally.  Only enable if strings
+ * decay faster than the note duration and re-excitation is needed.
+ */
+#define SONG_SUSTAIN_REEXCITE_HOPS   0u
+
+/**
+ * @brief Fixed actuation delay from note start (milliseconds).
+ *
+ * All strings (single or chord) fire their solenoid at exactly this
+ * time after the note begins, regardless of whether PI has locked.
+ * This keeps actuation locked to the song's BPM timing.
+ *
+ * If PI converges early, the controller waits.  If PI hasn't converged
+ * by this deadline, it fires anyway at the best position reached.
+ *
+ * At 60 BPM a whole note = 4000 ms, so 1500 ms gives the motor/PI
+ * the first 1.5 s to settle, then 2.5 s of string ring time.
+ * For half notes (2000 ms) this gives 500 ms of ring — tight but the
+ * initial burst already excites the string.  TUNE FOR HARDWARE.
+ */
+#define SONG_ACTUATE_DELAY_MS        1500u
+
+/**
+ * @brief Duration of the very first pluck of the song (ms).
+ *
+ * A long initial burst gives the string enough energy to sustain through
+ * multiple note changes while the motor moves between frets.
+ */
+#define SONG_INITIAL_PLUCK_MS        1000u
+
+/**
+ * @brief Lock-band thresholds expressed in Hz (absolute).
+ *
+ * Fixed Hz thresholds match the solenoid drive units and avoid the
+ * overly-tight bands that cents produce at low frequencies (the FFT
+ * resolution is ~2.93 Hz/bin, so sub-Hz bands are unreliable).
+ *
+ * 1.0 Hz enter / 2.0 Hz exit gives comfortable hysteresis across
+ * all commissioned strings (E2 82 Hz – G3 296 Hz).
+ */
+#define TUNING_LOCK_BAND_IN_HZ     1.0f    /**< Enter lock when |error| ≤ 1.0 Hz */
+#define TUNING_LOCK_BAND_OUT_HZ    2.0f    /**< Exit  lock when |error| ≥ 2.0 Hz */
 
 /**
  * @brief Minimum change in trim_steps to apply (defeats backlash dither).
@@ -199,6 +274,23 @@ typedef struct {
     uint8_t  fault_flags;           /**< Bit field: TUNING_FAULT_*        */
     uint32_t stall_counter;         /**< Consecutive hops above stall thr */
     uint32_t hop_count;             /**< Total hops (wraps at UINT32_MAX) */
+
+    /* Song playback — warm/cold string state */
+    uint8_t  string_warm;           /**< 1 = string vibrating recently, 0 = at rest */
+    uint16_t silent_hop_count;      /**< Consecutive hops with no FFT signal         */
+    uint8_t  note_plucked;          /**< 1 = solenoid fired at least once this note  */
+    uint16_t hops_since_pluck;      /**< Hops elapsed since last solenoid fire       */
+
+    /* Chord synchronization — holds solenoid until partner string also locks */
+    uint8_t  chord_pluck_ready;     /**< Locked, waiting for chord partner to lock   */
+    uint8_t  chord_pluck_wait_hops; /**< Hops spent waiting for chord partner        */
+
+    /* Per-note PI convergence tracking */
+    uint16_t pi_hop_count;          /**< PI hops elapsed this note (for max-hop limit) */
+    uint8_t  note_actuated;         /**< 1 = solenoid fired after PI converge this note */
+
+    /* String frequency tracking (from stepper position) */
+    float    expected_freq_hz;      /**< Predicted freq from current motor position    */
 } TuningStringState_t;
 
 /* =========================================================================

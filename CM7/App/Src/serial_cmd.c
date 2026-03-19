@@ -108,6 +108,7 @@ static void Cmd_Calibrate(char *args);
 static void Cmd_MapFrets(char *args);
 static void Cmd_PrintLut(char *args);
 static void Cmd_Smoke(char *args);
+static void Cmd_Smoke1(char *args);
 static void Cmd_FftPrint(char *args);
 static void Cmd_Tune(char *args);
 static void Cmd_Debug(char *args);
@@ -141,7 +142,8 @@ static const CmdEntry_t command_table[] = {
     { "calibrate", Cmd_Calibrate, "calibrate [str ...]      Sweep strings and fill tuning LUT (e.g. 'calibrate 2 3')" },
     { "mapfrets",  Cmd_MapFrets,  "mapfrets [str ...]       Measure fret step positions for LUT (e.g. 'mapfrets 0 1')" },
     { "printlut",  Cmd_PrintLut,  "printlut                 Print current feed-forward LUT values" },
-    { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water" },
+    { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water (chords)" },
+    { "smoke1",    Cmd_Smoke1,    "smoke1                   Play Smoke on the Water (A2 single string)" },
     { "tune",      Cmd_Tune,      "tune [str ...]            Tune open strings 0-3 to standard pitch" },
     { "fftprint",  Cmd_FftPrint,  "fftprint                 Toggle live FFT peak output" },
     { "debug",     Cmd_Debug,     "debug [hop|nf|all|off]   Toggle debug outputs" },
@@ -857,8 +859,15 @@ static void Cmd_Debug(char *args)
 static void Cmd_Smoke(char *args)
 {
     (void)args;
-    printf("  Starting Smoke on the Water...\r\n");
+    printf("  Starting Smoke on the Water (chords G3+D3)...\r\n");
     App_RequestPlay();
+}
+
+static void Cmd_Smoke1(char *args)
+{
+    (void)args;
+    printf("  Starting Smoke on the Water (single A2 string)...\r\n");
+    App_RequestPlaySong(1u);
 }
 
 static void Cmd_Tune(char *args)

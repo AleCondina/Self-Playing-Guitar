@@ -53,10 +53,16 @@ typedef struct {
  * ========================================================================= */
 
 /**
- * @brief Initialise the scheduler (reset to first note).
+ * @brief Initialise the scheduler (reset to first note of the active song).
  * Call once before the main loop.
  */
 void SongSched_Init(void);
+
+/**
+ * @brief Select a song and initialise the scheduler.
+ * @param song_id  0 = Smoke on the Water (chords), 1 = Smoke on the Water (A2 single string)
+ */
+void SongSched_InitSong(uint8_t song_id);
 
 /**
  * @brief Advance the scheduler to the current time.
@@ -118,6 +124,29 @@ uint32_t SongSched_GetNoteCount(void);
  * @brief Return the index of the currently active note.
  */
 uint32_t SongSched_GetNoteIndex(void);
+
+/**
+ * @brief Return the number of milliseconds elapsed since the current note started.
+ * @param now_ms Current system time in milliseconds (HAL_GetTick()).
+ */
+uint32_t SongSched_GetElapsedMs(uint32_t now_ms);
+
+/**
+ * @brief Hold or release the current note.
+ *
+ * When hold=1 the scheduler will not advance to the next note even if the
+ * note's duration has expired.  Used by the lock-wait mode in app_cm7.c to
+ * guarantee every note is in tune before advancing.
+ *
+ * @param hold  1 = freeze on current note, 0 = normal time-based advance
+ */
+void SongSched_HoldNote(uint8_t hold);
+
+/**
+ * @brief Return a read-only pointer to the note at the given index.
+ * Returns NULL if idx >= note count.
+ */
+const SongNote_t *SongSched_GetNoteAt(uint32_t idx);
 
 #ifdef __cplusplus
 }
