@@ -608,9 +608,9 @@ static void Cal_SaveToSRAM(void){
         p->poly_b[i] = cal_poly_coeff[i][1];
         p->poly_c[i] = cal_poly_coeff[i][2];
     }
-
+    __DSB(); /* Flush written data to SRAM */
     p->checksum = CalChecksum(p);
-    __DSB();
+    __DSB(); /* Flush checksum write */
 
     printf("[CAL] Saved to backup SRAM (0x%08lX, %u bytes)\r\n",
            (unsigned long)CAL_BKPSRAM_BASE, (unsigned)sizeof(CalPersist_t));
