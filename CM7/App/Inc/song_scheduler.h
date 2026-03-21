@@ -46,6 +46,7 @@ typedef struct {
     uint8_t  num_strings;      /**< 1 = single note, 2 = chord                       */
     uint8_t  string_id2;       /**< Second string (valid when num_strings == 2)       */
     float    target_freq_hz2;  /**< Second pitch in Hz (valid when num_strings == 2)  */
+    uint16_t burst_ms;         /**< Solenoid burst duration (ms), 0 = use default     */
 } SongNote_t;
 
 /* =========================================================================

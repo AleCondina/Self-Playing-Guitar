@@ -124,19 +124,19 @@ extern "C" {
  * If PI converges early, the controller waits.  If PI hasn't converged
  * by this deadline, it fires anyway at the best position reached.
  *
- * 1000 ms gives the motor/PI time to settle with the aggressive PI
+ * 600 ms gives the motor/PI time to settle with the aggressive PI
  * tuning (wider step caps, integral enable at 5 Hz, cold delay = 1).
  * TUNE FOR HARDWARE.
  */
-#define SONG_ACTUATE_DELAY_MS        1000u
+#define SONG_ACTUATE_DELAY_MS        900u
 
 /**
  * @brief Duration of the very first pluck of the song (ms).
  *
- * A moderate initial burst gives the string enough energy to sustain
+ * A short initial burst gives the string enough energy to sustain
  * through the first note while the motor settles.
  */
-#define SONG_INITIAL_PLUCK_MS        500u
+#define SONG_INITIAL_PLUCK_MS        35u
 
 /**
  * @brief Lock-band thresholds expressed in Hz (absolute).

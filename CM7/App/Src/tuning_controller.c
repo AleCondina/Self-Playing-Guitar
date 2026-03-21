@@ -718,9 +718,9 @@ void TuningCtrl_RunHop(void)
 
         if (time_to_fire && !s_state[str].note_actuated) {
 
-            /* Burst duration: 250ms whole notes, 125ms half notes */
+            /* Burst duration: per-note from song data, default 175ms */
             const SongNote_t *cur = SongSched_GetNoteAt(SongSched_GetNoteIndex());
-            uint16_t burst_ms = (cur && cur->duration_ms <= 1400u) ? 125u : 250u;
+            uint16_t burst_ms = (cur && cur->burst_ms > 0u) ? cur->burst_ms : 175u;
 
             if (chord) {
                 /* Chord: fire BOTH strings at the same scheduled instant */
