@@ -508,11 +508,24 @@ if (!found)
 
     /* Store previous lock state before update */
     uint8_t prev_lock = s_state[str].lock_state;
+    float prev_target = s_state[str].last_target_freq_hz;
 
     /* Run one hop of the controller */
     TuningCtrl_Update(str, target, measured, confidence);
 
     uint8_t curr_lock = s_state[str].lock_state;
+
+    if (fabsf(target - prev_target) > 0.05f)
+{
+    InterCore_TriggerSolenoidHz(
+        str,
+        target,
+        SOLENOID_DEFAULT_DUTY_CYCLE,
+        SOLENOID_MODE_TIMED,
+        250u,
+        0u
+    );
+}
 
     /* ------------------------------------------------------------------ */
     /* Push motor command to CM4 if position changed                        */
