@@ -1847,19 +1847,19 @@ void Cal_Hop(void){
 #define TUNE_PI_LOCK_TIMEOUT        40u
 
 /** Consecutive hops with no FFT signal before re-excite. */
-#define TUNE_DEAD_HOPS              3u
+#define TUNE_DEAD_HOPS              4u
 
 /** Max re-excite retries per string. */
 #define TUNE_MAX_RETRIES            3u
 
 /** Solenoid re-excite burst duration (ms). */
-#define TUNE_REEXCITE_DURATION_MS   300u
+#define TUNE_REEXCITE_DURATION_MS   200u
 
 /** Hops to wait after re-excite burst. */
 #define TUNE_REEXCITE_WAIT_HOPS     4u
 
 /** Motor speed during tune moves. */
-#define TUNE_MOTOR_SPEED            3000
+#define TUNE_MOTOR_SPEED            4000
 
 /** Max hops to wait for the user to pluck. */
 #define TUNE_PLUCK_TIMEOUT          25u
@@ -2422,6 +2422,14 @@ void Cal_TuneHop(void)
              * don't depend on an extra audio hop that may never arrive. */
             fft_sensing_enabled = 1u;
 
+            /* Zero motor positions (we're at open fret) and disable all */
+            for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
+                if ((s_tune_mask >> i) & 1u) {
+                    InterCore_SendMotorZero(i);
+                }
+            }
+            InterCore_SendMotorEnableMask(0u);
+
             printf("[TUNE] ================================================\r\n");
             printf("[TUNE] Tuning complete. Offsets:");
             for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
@@ -2430,6 +2438,7 @@ void Cal_TuneHop(void)
                 }
             }
             printf("\r\n");
+            printf("[TUNE] Motors zeroed and disabled.\r\n");
             printf("[TUNE] ================================================\r\n");
 
             s_tune_status = CAL_STATUS_DONE;
@@ -2447,6 +2456,14 @@ void Cal_TuneHop(void)
     {
         fft_sensing_enabled = 1u;
 
+        /* Zero motor positions (we're at open fret) and disable all */
+        for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
+            if ((s_tune_mask >> i) & 1u) {
+                InterCore_SendMotorZero(i);
+            }
+        }
+        InterCore_SendMotorEnableMask(0u);
+
         printf("[TUNE] ================================================\r\n");
         printf("[TUNE] Tuning complete (via DONE phase). Offsets:");
         for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
@@ -2455,6 +2472,7 @@ void Cal_TuneHop(void)
             }
         }
         printf("\r\n");
+        printf("[TUNE] Motors zeroed and disabled.\r\n");
         printf("[TUNE] ================================================\r\n");
 
         s_tune_status = CAL_STATUS_DONE;
