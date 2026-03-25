@@ -122,6 +122,13 @@ int main(void)
   HAL_Init();
 
   /* USER CODE BEGIN Init */
+  /* Enable backup SRAM access EARLY — before any other code might
+   * touch 0x38800000.  The backup regulator must be on before reads
+   * or the SRAM content may return corrupted data. */
+  HAL_PWR_EnableBkUpAccess();
+  __HAL_RCC_BKPRAM_CLK_ENABLE();
+  HAL_PWREx_EnableBkUpReg();
+
   /* Initialize shared memory to zero (AXI SRAM enabled by default) */
   memset((void*)&g_shared_memory, 0, sizeof(SharedMemory_t));
   __DSB(); /* Data synchronization barrier */

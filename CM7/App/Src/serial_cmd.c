@@ -663,8 +663,8 @@ static void Cmd_Sol(char *args)
         return;
     }
 
-    /* Warn if solenoid has no timer assigned (A2=1, B3=4, E4=5) */
-    if (id == 1 || id == 4 || id == 5) {
+    /* Warn if solenoid has no timer assigned (G3=3, B3=4, E4=5) */
+    if (id == 3 || id == 4 || id == 5) {
         printf("  Warning: Solenoid %d has no timer assigned (no PWM output)\r\n", (int)id);
         return;
     }

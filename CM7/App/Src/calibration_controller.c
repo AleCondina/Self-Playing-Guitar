@@ -612,8 +612,15 @@ static void Cal_SaveToSRAM(void){
     p->checksum = CalChecksum(p);
     __DSB();
 
-    printf("[CAL] Saved to backup SRAM (0x%08lX, %u bytes)\r\n",
-           (unsigned long)CAL_BKPSRAM_BASE, (unsigned)sizeof(CalPersist_t));
+    /* Verify immediately after write */
+    uint32_t verify = CalChecksum(p);
+    if (verify != p->checksum) {
+        printf("[CAL] VERIFY FAIL: wrote 0x%08lX, read-back 0x%08lX\r\n",
+               (unsigned long)p->checksum, (unsigned long)verify);
+    } else {
+        printf("[CAL] Saved & verified in backup SRAM (0x%08lX, %u bytes)\r\n",
+               (unsigned long)CAL_BKPSRAM_BASE, (unsigned)sizeof(CalPersist_t));
+    }
 }
 
 uint8_t Cal_LoadFromSRAM(void){
@@ -631,6 +638,14 @@ uint8_t Cal_LoadFromSRAM(void){
     if (p->checksum != expected) {
         printf("[CAL] Checksum mismatch (got 0x%08lX expected 0x%08lX) — ignored\r\n",
                (unsigned long)p->checksum, (unsigned long)expected);
+
+        /* Dump raw words to find which one is corrupted */
+        const uint32_t *w = (const uint32_t *)p;
+        uint32_t nwords = sizeof(CalPersist_t) / sizeof(uint32_t);
+        for (uint32_t i = 0u; i < nwords; i++) {
+            printf("  w[%lu]=0x%08lX\r\n", (unsigned long)i, (unsigned long)w[i]);
+        }
+
         return 0u;
     }
 
