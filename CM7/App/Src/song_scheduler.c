@@ -56,7 +56,7 @@
  *   Song0: unchanged from original (1063/1625/1313 ms, fires at 600 ms)
  *   Song1: see per-note comments in song1_notes[] below
  *
- * The solenoid fires once per note at SONG_ACTUATE_DELAY_MS (600 ms).
+ * The solenoid fires once per note at SONG_ACTUATE_DELAY_MS (1200 ms).
  * String carries energy from the previous burst — no re-excitation on
  * note change.  Motor moves via LUT immediately, PI refines, then
  * solenoid fires at the converged pitch.
@@ -74,30 +74,30 @@
 static const SongNote_t song0_notes[] = {
 
     /* ── Timing budget per note ──────────────────────────────────────── *
-     *  Note 0 (cold start): 500ms burst  + 563ms FFT settle = 1063ms   *
-     *  Whole notes:  1000ms PI + 250ms burst + 375ms rest   = 1625ms   *
-     *  Half  notes:  1000ms PI + 125ms burst + 188ms rest   = 1313ms   *
+     *  Note 0 (cold start): 1200ms PI + 300ms burst + rest  = 1363ms   *
+     *  Whole notes:  1200ms PI + 250ms burst + 475ms rest   = 1925ms   *
+     *  Half  notes:  1200ms PI + 125ms burst + 288ms rest   = 1613ms   *
      * ────────────────────────────────────────────────────────────────── */
 
     /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    CHORD(G3_HZ,   D3_HZ,   1063u, 300u),  /* #0  fret 0: cold start burst     */
-    CHORD(As3_HZ,  F3_HZ,   1625u, 250u),  /* #1  fret 3: Bb3 + F3  – whole    */
-    CHORD(C4_HZ,   G3_HZ,   1625u, 250u),  /* #2  fret 5: C4 + G3   – whole    */
+    CHORD(G3_HZ,   D3_HZ,   1363u, 300u),  /* #0  fret 0: cold start burst     */
+    CHORD(As3_HZ,  F3_HZ,   1925u, 250u),  /* #1  fret 3: Bb3 + F3  – whole    */
+    CHORD(C4_HZ,   G3_HZ,   1925u, 250u),  /* #2  fret 5: C4 + G3   – whole    */
 
     /* ── Phrase 2: fret 0 – fret 3 (whole), fret 6 – fret 5 (half) ─── */
-    CHORD(G3_HZ,   D3_HZ,   1625u, 250u),  /* #3  fret 0: G3 + D3   – whole    */
-    CHORD(As3_HZ,  F3_HZ,   1625u, 250u),  /* #4  fret 3: Bb3 + F3  – whole    */
-    CHORD(Cs4_HZ,  Gs3_HZ,  1313u, 125u),  /* #5  fret 6: Db4 + Ab3 – half     */
-    CHORD(C4_HZ,   G3_HZ,   1313u, 125u),  /* #6  fret 5: C4  + G3  – half     */
+    CHORD(G3_HZ,   D3_HZ,   1925u, 250u),  /* #3  fret 0: G3 + D3   – whole    */
+    CHORD(As3_HZ,  F3_HZ,   1925u, 250u),  /* #4  fret 3: Bb3 + F3  – whole    */
+    CHORD(Cs4_HZ,  Gs3_HZ,  1613u, 125u),  /* #5  fret 6: Db4 + Ab3 – half     */
+    CHORD(C4_HZ,   G3_HZ,   1613u, 125u),  /* #6  fret 5: C4  + G3  – half     */
 
     /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
-    CHORD(G3_HZ,   D3_HZ,   1625u, 250u),  /* #7  fret 0: G3 + D3   – whole    */
-    CHORD(As3_HZ,  F3_HZ,   1625u, 250u),  /* #8  fret 3: Bb3 + F3  – whole    */
-    CHORD(C4_HZ,   G3_HZ,   1625u, 250u),  /* #9  fret 5: C4 + G3   – whole    */
+    CHORD(G3_HZ,   D3_HZ,   1925u, 250u),  /* #7  fret 0: G3 + D3   – whole    */
+    CHORD(As3_HZ,  F3_HZ,   1925u, 250u),  /* #8  fret 3: Bb3 + F3  – whole    */
+    CHORD(C4_HZ,   G3_HZ,   1925u, 250u),  /* #9  fret 5: C4 + G3   – whole    */
 
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    CHORD(As3_HZ,  F3_HZ,   1625u, 250u),  /* #10 fret 3: Bb3 + F3  – whole    */
-    CHORD(G3_HZ,   D3_HZ,   1625u, 250u),  /* #11 fret 0: G3 + D3   – ending   */
+    CHORD(As3_HZ,  F3_HZ,   1925u, 250u),  /* #10 fret 3: Bb3 + F3  – whole    */
+    CHORD(G3_HZ,   D3_HZ,   1925u, 250u),  /* #11 fret 0: G3 + D3   – ending   */
 };
 
 /* =========================================================================
@@ -110,31 +110,31 @@ static const SongNote_t song0_notes[] = {
 static const SongNote_t song1_notes[] = {
 
     /* ── Timing budget per note ──────────────────────────────────────── *
-     *  900ms PI + 35ms burst + rest                                          *
-     *  Notes 0,1,3,4,7,8,10: rest=400ms → total=1335ms                      *
-     *  Note 5:               rest=200ms → total=1135ms                      *
-     *  Notes 2,6,9,11:       rest=650ms → total=1585ms                      *
+     *  1200ms PI + 35ms burst + rest                                         *
+     *  Notes 0,1,3,4,7,8,10: rest=400ms → total=1635ms                      *
+     *  Note 5:               rest=200ms → total=1435ms                      *
+     *  Notes 2,6,9,11:       rest=650ms → total=1885ms                      *
      * ────────────────────────────────────────────────────────────────── */
 
     /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    NOTE(1u, A2_HZ,   1335u,  35u),  /* #0  fret 0: cold start, rest=400   */
-    NOTE(1u, C3_HZ,   1335u,  35u),  /* #1  fret 3: C3,  rest=400          */
-    NOTE(1u, D3_HZ,   1585u,  35u),  /* #2  fret 5: D3,  rest=650          */
+    NOTE(1u, A2_HZ,   1635u,  35u),  /* #0  fret 0: cold start, rest=400   */
+    NOTE(1u, C3_HZ,   1635u,  35u),  /* #1  fret 3: C3,  rest=400          */
+    NOTE(1u, D3_HZ,   1885u,  35u),  /* #2  fret 5: D3,  rest=650          */
 
     /* ── Phrase 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
-    NOTE(1u, A2_HZ,   1335u,  35u),  /* #3  fret 0: A2,  rest=400          */
-    NOTE(1u, C3_HZ,   1335u,  35u),  /* #4  fret 3: C3,  rest=400          */
-    NOTE(1u, Ds3_HZ,  1135u,  35u),  /* #5  fret 6: Ds3, rest=200          */
-    NOTE(1u, D3_HZ,   1585u,  35u),  /* #6  fret 5: D3,  rest=650          */
+    NOTE(1u, A2_HZ,   1635u,  35u),  /* #3  fret 0: A2,  rest=400          */
+    NOTE(1u, C3_HZ,   1635u,  35u),  /* #4  fret 3: C3,  rest=400          */
+    NOTE(1u, Ds3_HZ,  1435u,  35u),  /* #5  fret 6: Ds3, rest=200          */
+    NOTE(1u, D3_HZ,   1885u,  35u),  /* #6  fret 5: D3,  rest=650          */
 
     /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
-    NOTE(1u, A2_HZ,   1335u,  35u),  /* #7  fret 0: A2,  rest=400          */
-    NOTE(1u, C3_HZ,   1335u,  35u),  /* #8  fret 3: C3,  rest=400          */
-    NOTE(1u, D3_HZ,   1585u,  35u),  /* #9  fret 5: D3,  rest=650          */
+    NOTE(1u, A2_HZ,   1635u,  35u),  /* #7  fret 0: A2,  rest=400          */
+    NOTE(1u, C3_HZ,   1635u,  35u),  /* #8  fret 3: C3,  rest=400          */
+    NOTE(1u, D3_HZ,   1885u,  35u),  /* #9  fret 5: D3,  rest=650          */
 
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    NOTE(1u, C3_HZ,   1335u,  35u),  /* #10 fret 3: C3,  rest=400          */
-    NOTE(1u, A2_HZ,   1585u,  35u),  /* #11 fret 0: A2,  rest=650          */
+    NOTE(1u, C3_HZ,   1635u,  35u),  /* #10 fret 3: C3,  rest=400          */
+    NOTE(1u, A2_HZ,   1885u,  35u),  /* #11 fret 0: A2,  rest=650          */
 };
 
 /* =========================================================================
