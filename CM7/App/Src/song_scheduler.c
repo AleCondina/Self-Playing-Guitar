@@ -101,11 +101,11 @@ static const SongNote_t song0_notes[] = {
 };
 
 /* =========================================================================
- * Song 1: Smoke on the Water – single A2 string (string_id = 1)
+ * Song 1: Smoke on the Water – single E2 string (string_id = 0)
  * =========================================================================
- * A2 fret frequencies:
- *   fret 0 = 110.00 Hz (A2)    fret 3 = 130.81 Hz (C3)
- *   fret 5 = 146.83 Hz (D3)    fret 6 = 155.56 Hz (Ds3)
+ * E2 fret frequencies:
+ *   fret 0 = 82.41 Hz (E2)     fret 3 = 98.00 Hz (G2)
+ *   fret 5 = 110.00 Hz (A2)    fret 6 = 116.54 Hz (As2)
  * ========================================================================= */
 static const SongNote_t song1_notes[] = {
 
@@ -117,24 +117,24 @@ static const SongNote_t song1_notes[] = {
      * ────────────────────────────────────────────────────────────────── */
 
     /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    NOTE(1u, A2_HZ,   1635u,  72u),  /* #0  fret 0: cold start, rest=400   */
-    NOTE(1u, C3_HZ,   1635u,  72u),  /* #1  fret 3: C3,  rest=400          */
-    NOTE(1u, D3_HZ,   1885u,  72u),  /* #2  fret 5: D3,  rest=650          */
+    NOTE(0u, E2_HZ,   1635u,  72u),  /* #0  fret 0: cold start, rest=400   */
+    NOTE(0u, G2_HZ,   1635u,  72u),  /* #1  fret 3: G2,  rest=400          */
+    NOTE(0u, A2_HZ,   1885u,  72u),  /* #2  fret 5: A2,  rest=650          */
 
     /* ── Phrase 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
-    NOTE(1u, A2_HZ,   1635u,  72u),  /* #3  fret 0: A2,  rest=400          */
-    NOTE(1u, C3_HZ,   1635u,  72u),  /* #4  fret 3: C3,  rest=400          */
-    NOTE(1u, Ds3_HZ,  1435u,  72u),  /* #5  fret 6: Ds3, rest=200          */
-    NOTE(1u, D3_HZ,   1885u,  72u),  /* #6  fret 5: D3,  rest=650          */
+    NOTE(0u, E2_HZ,   1635u,  72u),  /* #3  fret 0: E2,  rest=400          */
+    NOTE(0u, G2_HZ,   1635u,  72u),  /* #4  fret 3: G2,  rest=400          */
+    NOTE(0u, As2_HZ,  1435u,  72u),  /* #5  fret 6: As2, rest=200          */
+    NOTE(0u, A2_HZ,   1885u,  72u),  /* #6  fret 5: A2,  rest=650          */
 
     /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
-    NOTE(1u, A2_HZ,   1635u,  72u),  /* #7  fret 0: A2,  rest=400          */
-    NOTE(1u, C3_HZ,   1635u,  72u),  /* #8  fret 3: C3,  rest=400          */
-    NOTE(1u, D3_HZ,   1885u,  72u),  /* #9  fret 5: D3,  rest=650          */
+    NOTE(0u, E2_HZ,   1635u,  72u),  /* #7  fret 0: E2,  rest=400          */
+    NOTE(0u, G2_HZ,   1635u,  72u),  /* #8  fret 3: G2,  rest=400          */
+    NOTE(0u, A2_HZ,   1885u,  72u),  /* #9  fret 5: A2,  rest=650          */
 
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    NOTE(1u, C3_HZ,   1635u,  72u),  /* #10 fret 3: C3,  rest=400          */
-    NOTE(1u, A2_HZ,   1885u,  72u),  /* #11 fret 0: A2,  rest=650          */
+    NOTE(0u, G2_HZ,   1635u,  72u),  /* #10 fret 3: G2,  rest=400          */
+    NOTE(0u, E2_HZ,   1885u,  72u),  /* #11 fret 0: E2,  rest=650          */
 };
 
 /* =========================================================================

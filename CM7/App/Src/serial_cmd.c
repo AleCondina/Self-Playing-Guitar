@@ -663,8 +663,8 @@ static void Cmd_Sol(char *args)
         return;
     }
 
-    /* Warn if solenoid has no timer assigned (E2=0, B3=4, E4=5) */
-    if (id == 0 || id == 4 || id == 5) {
+    /* Warn if solenoid has no timer assigned (A2=1, B3=4, E4=5) */
+    if (id == 1 || id == 4 || id == 5) {
         printf("  Warning: Solenoid %d has no timer assigned (no PWM output)\r\n", (int)id);
         return;
     }
@@ -885,7 +885,7 @@ static void Cmd_Smoke(char *args)
 static void Cmd_Smoke1(char *args)
 {
     (void)args;
-    printf("  Starting Smoke on the Water (single A2 string)...\r\n");
+    printf("  Starting Smoke on the Water (single E2 string)...\r\n");
     App_RequestPlaySong(1u);
 }
 

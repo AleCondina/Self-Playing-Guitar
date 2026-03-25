@@ -12,7 +12,7 @@
 
 /* External timer handles (defined in main.c) — D2-domain timers only */
 extern TIM_HandleTypeDef htim2;   /* Solenoid 2: D3 string (PA5) */
-extern TIM_HandleTypeDef htim3;   /* Solenoid 1: A2 string (PB5) */
+extern TIM_HandleTypeDef htim3;   /* Solenoid 1: E2 string (PB5) */
 extern TIM_HandleTypeDef htim4;   /* Solenoid 3: G3 string (PB6) */
 
 /**
@@ -89,17 +89,17 @@ int32_t Solenoid_Init(void)
         return -1;  /* TIM4 not initialized */
     }
 
-    /* Solenoid 0: E2 — no timer assigned (TIM1 moved to CM7 ADC trigger) */
-    solenoid_states[SOLENOID_STRING_E2].htim = NULL;
-    solenoid_states[SOLENOID_STRING_E2].channel = 0;
+    /* Initialize solenoid 0: TIM3 CH2 (E2 string) on PB5 */
+    solenoid_states[SOLENOID_STRING_E2].htim = &htim3;
+    solenoid_states[SOLENOID_STRING_E2].channel = TIM_CHANNEL_2;
     solenoid_states[SOLENOID_STRING_E2].current_string = 0;
     solenoid_states[SOLENOID_STRING_E2].current_fret = 0;
     solenoid_states[SOLENOID_STRING_E2].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_E2].is_active = 0;
 
-    /* Initialize solenoid 1: TIM3 CH2 (A2 string) on PB5 */
-    solenoid_states[SOLENOID_STRING_A2].htim = &htim3;
-    solenoid_states[SOLENOID_STRING_A2].channel = TIM_CHANNEL_2;
+    /* Solenoid 1: A2 — no timer assigned (was TIM3, now reassigned to E2) */
+    solenoid_states[SOLENOID_STRING_A2].htim = NULL;
+    solenoid_states[SOLENOID_STRING_A2].channel = 0;
     solenoid_states[SOLENOID_STRING_A2].current_string = 1;
     solenoid_states[SOLENOID_STRING_A2].current_fret = 0;
     solenoid_states[SOLENOID_STRING_A2].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
