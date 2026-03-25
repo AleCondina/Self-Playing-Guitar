@@ -592,6 +592,50 @@ Current build setup in the repo:
 - `CMakePresets.json` defines `Debug` and `Release`.
 - `CM7/CMakeLists.txt` and `CM4/CMakeLists.txt` build the two cores separately under the shared top-level build.
 
+## Motor Speed Benchmarking (2026-03-25)
+
+### Test setup
+
+- Motor 1 (A2 string), 1/16 microstepping
+- Move distance: 5955 microsteps (fret 0 → fret 6 equivalent)
+- Timing measured via `[BENCH]` print in `serial_cmd.c` (HAL_GetTick delta from move start to `motor_is_moving` going false)
+- Step pulse width: DRV8825 `STEP_PULSE_US` in `motor_control.c`
+
+### Results
+
+| Accel (steps/s²) | Max Speed (steps/s) | Pulse (µs) | Time (ms) | Notes |
+|---|---|---|---|---|
+| 100,000 | 20,000 | 3 | 729 | Baseline (default settings) |
+| 50,000 | 20,000 | 3 | 894 | Accel too low, slow ramp hurts |
+| 200,000 | 20,000 | 3 | 1066 | Motor stalling — accel too aggressive |
+| 100,000 | 20,000 | 3 | 730 | Baseline confirmed |
+| 100,000 | 40,000 | 3 | 615 | Speed increase helps |
+| 100,000 | 60,000 | 3 | 611 | **Plateau — no further gain** |
+| 100,000 | 40,000 | 2 | 610 | Reduced pulse width, no gain |
+| 100,000 | 60,000 | 2 | 611 | Still plateaued at ~610 ms |
+
+### Analysis
+
+- **Acceleration sweet spot**: 100,000 steps/s². Lower is too slow to ramp; higher causes stalling (stepper can't follow aggressive torque demands at low speed).
+- **Speed ceiling**: ~40,000 microsteps/s at 1/16 microstepping = 2,500 full steps/s = 12.5 rev/s. Beyond this the motor physically cannot keep up.
+- **Pulse width**: Reducing from 3µs to 2µs (DRV8825 min is 1.9µs) did not help because the bottleneck is the motor, not the software pulse generation.
+- **610 ms plateau**: Consistent across all speed/pulse combinations above 40k steps/s.
+
+### Step generation bottleneck (software)
+
+- Step pulses are bit-banged in `Motor_Update()` which runs in the 1kHz control loop (`app_cm4.c`).
+- Each pulse blocks for `STEP_PULSE_US` via DWT cycle-counter busy-wait.
+- At 40,000 steps/s: 40 pulses/tick × 2µs = 80µs blocking per tick (out of 1000µs budget). Manageable.
+- At higher speeds, the motor stalls before the software budget is exhausted.
+- With multiple motors moving simultaneously, blocking time per tick scales linearly (e.g., 4 motors × 40 pulses × 2µs = 320µs).
+
+### Options to go faster
+
+1. **Reduce microstepping** (e.g., 1/16 → 1/4): same physical distance = 4× fewer pulses. GPIO pins for M0/M1/M2 are already wired and `Motor_SetMicrostepMode()` exists. Tradeoff: more vibration, higher risk of skipped steps.
+2. **Higher supply voltage** to DRV8825: more voltage = more torque at speed, raising the physical RPM ceiling.
+3. **Hardware timer pulse generation** (planned for final custom PCB): decouple pulse generation from the 1kHz control loop entirely. One high-frequency timer (~500kHz) as a shared timebase with per-motor accumulators in its ISR, or one dedicated timer per motor. Eliminates the blocking `Motor_DelayUs()` call and allows much higher pulse rates.
+4. **Hybrid microstepping**: use full/quarter steps for fast travel, switch to 1/16 for fine positioning. Requires runtime microstep mode changes (already supported in code).
+
 Current flash addresses from `README.md`:
 
 - CM7: `0x08000000`

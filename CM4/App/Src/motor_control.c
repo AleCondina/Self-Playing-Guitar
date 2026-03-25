@@ -28,7 +28,7 @@
 #define NUM_CONFIGURED_MOTORS   4
 
 /* Step pulse width in microseconds (DRV8825 minimum: 1.9us) */
-#define STEP_PULSE_US           3
+#define STEP_PULSE_US           2
 
 /* Motor pin configuration for DRV8825 driver (internal) */
 typedef struct {
