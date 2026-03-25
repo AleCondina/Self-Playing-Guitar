@@ -2095,7 +2095,7 @@ void Cal_TuneHop(void)
 
         printf("[TUNE] -- String %u (target %.2f Hz) starting at pos=%ld\r\n",
                (unsigned)s_tune_str,
-               (double)s_open_freq[s_tune_str],
+               (double)s_open_freq[TuningCtrl_GetActiveTuning()][s_tune_str],
                (long)cur);
         printf("[TUNE] >>> Pluck string %u now!\r\n",
                (unsigned)s_tune_str);
@@ -2123,7 +2123,7 @@ void Cal_TuneHop(void)
      * ------------------------------------------------------------------ */
     case TUNE_PHASE_WAIT_PLUCK:
     {
-        float open_f = s_open_freq[s_tune_str];
+        float open_f = s_open_freq[TuningCtrl_GetActiveTuning()][s_tune_str];
         float lo = open_f * 0.70f;
         float hi = open_f * 1.80f;
         float best_freq = 0.0f;
@@ -2175,7 +2175,7 @@ void Cal_TuneHop(void)
      * ------------------------------------------------------------------ */
     case TUNE_PHASE_MOTOR_MOVE:
     {
-        float target   = s_open_freq[s_tune_str];
+        float target   = s_open_freq[TuningCtrl_GetActiveTuning()][s_tune_str];
         float measured = s_tune_detected_f;
         float delta_f  = target - measured;
         int32_t current_pos = g_shared_memory.current_positions[s_tune_str];
@@ -2241,7 +2241,7 @@ void Cal_TuneHop(void)
                          ? s_tune_last_valid_f
                          : ((s_tune_detected_f > 0.0f)
                               ? s_tune_detected_f
-                              : s_open_freq[s_tune_str]);
+                              : s_open_freq[TuningCtrl_GetActiveTuning()][s_tune_str]);
 
         /* Gate FFT */
         fft_sensing_enabled = 0u;
@@ -2281,7 +2281,7 @@ void Cal_TuneHop(void)
      * ------------------------------------------------------------------ */
     case TUNE_PHASE_PI_LOCK:
     {
-        float target_freq = s_open_freq[s_tune_str];
+        float target_freq = s_open_freq[TuningCtrl_GetActiveTuning()][s_tune_str];
         float center_freq = (s_tune_last_valid_f > 0.0f)
                           ? s_tune_last_valid_f
                           : ((s_tune_detected_f > 0.0f)
