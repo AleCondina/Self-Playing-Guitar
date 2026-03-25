@@ -1835,7 +1835,7 @@ void Cal_Hop(void){
 #define TUNE_MIN_MOVE_STEPS         4.0f
 
 /** Tune lock-band deadband (Hz). */
-#define TUNE_LOCK_BAND_HZ           0.6f
+#define TUNE_LOCK_BAND_HZ           0.2f
 
 /** Only integrate once the string is already close to target. */
 #define TUNE_INTEGRAL_ENABLE_BAND_HZ  1.0f
@@ -1870,9 +1870,12 @@ void Cal_Hop(void){
 /** Strings with commissioned steppers for the tune workflow. */
 #define TUNE_SUPPORTED_STRING_MASK  0x0Fu
 
-/** Wide frequency search limits while grossly out of tune. */
-#define TUNE_TRACK_MIN_RATIO        0.50f
-#define TUNE_TRACK_MAX_RATIO        2.00f
+/** Wide frequency search limits while grossly out of tune.
+ *  Max must stay below 2.0 to exclude the 2nd harmonic — otherwise the
+ *  tracker can latch onto 2×target, compute a huge negative error, and
+ *  drive the motor into loosening runaway. */
+#define TUNE_TRACK_MIN_RATIO        0.60f
+#define TUNE_TRACK_MAX_RATIO        1.50f
 
 /** Solenoid duty cycle for tune. */
 #define TUNE_SOLENOID_DUTY          50u
@@ -2052,55 +2055,39 @@ void Cal_TuneHop(void)
     switch (s_tune_phase) {
 
     /* ------------------------------------------------------------------
-     * STR_INIT: enable motor and send it to open-string home
+     * STR_INIT: enable motor and start from current position.
+     * No homing — across reboots position 0 is meaningless.  The PI
+     * tunes relative to wherever the motor currently sits.
      * ------------------------------------------------------------------ */
     case TUNE_PHASE_STR_INIT:
     {
         InterCore_SendMotorEnableMask(1u << s_tune_str);
         InterCore_SendMotorMaxSpeed(s_tune_str, TUNE_MOTOR_SPEED);
-        InterCore_SendMotorGoto(s_tune_str, 0);
+
+        int32_t cur = g_shared_memory.current_positions[s_tune_str];
 
         s_tune_pluck_cnt     = 0u;
         s_tune_detected_f    = 0.0f;
         s_tune_motor_cnt     = 0u;
         s_tune_pi_integral   = 0.0f;
-        s_tune_pi_cmd_steps  = 0;
+        s_tune_pi_cmd_steps  = cur;
         s_tune_pi_hop_cnt    = 0u;
         s_tune_pi_lock_consec = 0u;
         s_tune_last_valid_f  = 0.0f;
         s_tune_no_sig_cnt    = 0u;
         s_tune_retry_cnt     = 0u;
-        s_tune_target_steps  = 0;
+        s_tune_target_steps  = cur;
         s_tune_locked        = 0u;
 
-        printf("[TUNE] -- String %u (target %.2f Hz)\r\n",
+        printf("[TUNE] -- String %u (target %.2f Hz) starting at pos=%ld\r\n",
                (unsigned)s_tune_str,
-               (double)s_open_freq[s_tune_str]);
+               (double)s_open_freq[s_tune_str],
+               (long)cur);
+        printf("[TUNE] >>> Pluck string %u now!\r\n",
+               (unsigned)s_tune_str);
 
-        s_tune_phase = TUNE_PHASE_WAIT_HOME;
-        break;
-    }
-
-    /* ------------------------------------------------------------------
-     * WAIT_HOME: do not start sensing until the string is back at home
-     * ------------------------------------------------------------------ */
-    case TUNE_PHASE_WAIT_HOME:
-    {
-        uint8_t arrived = !g_shared_memory.motor_is_moving[s_tune_str];
-        s_tune_motor_cnt++;
-
-        if (arrived || s_tune_motor_cnt >= TUNE_MOTOR_WAIT_HOPS) {
-            if (!arrived) {
-                printf("[TUNE] str%u: home wait timeout — continuing from pos=%ld\r\n",
-                       (unsigned)s_tune_str,
-                       (long)g_shared_memory.current_positions[s_tune_str]);
-            }
-
-            printf("[TUNE] >>> Pluck string %u now!\r\n",
-                   (unsigned)s_tune_str);
-            s_tune_pluck_cnt = 0u;
-            s_tune_phase = TUNE_PHASE_WAIT_PLUCK;
-        }
+        s_tune_pluck_cnt = 0u;
+        s_tune_phase = TUNE_PHASE_WAIT_PLUCK;
         break;
     }
 

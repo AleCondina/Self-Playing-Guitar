@@ -82,6 +82,11 @@ typedef enum {
 static DemoState_t demo_state = DEMO_IDLE;
 static uint32_t demo_timer = 0;
 
+/* ===== Move timing ===== */
+static uint8_t  s_move_timing_active = 0u;
+static uint8_t  s_move_timing_motor  = 0u;
+static uint32_t s_move_timing_start  = 0u;
+
 /* Forward declarations */
 static void Cmd_Start(char *args);
 static void Cmd_Speed(char *args);
@@ -211,6 +216,17 @@ uint8_t SerialCmd_Process(void)
     /* Tick demo state machine every call (runs even when no command pending) */
     Demo_Tick();
 
+    /* Check if a timed move has completed */
+    if (s_move_timing_active &&
+        !g_shared_memory.motor_is_moving[s_move_timing_motor]) {
+        uint32_t elapsed = HAL_GetTick() - s_move_timing_start;
+        printf("[BENCH] Motor %u move done: %lu ms  pos=%ld\r\n",
+               (unsigned)s_move_timing_motor,
+               (unsigned long)elapsed,
+               (long)g_shared_memory.current_positions[s_move_timing_motor]);
+        s_move_timing_active = 0u;
+    }
+
     if (!Debug_UART_IsLineReady()) {
         return 0;
     }
@@ -308,7 +324,10 @@ static void Cmd_Move(char *args)
     if (!check_started()) return;
 
     InterCore_SendMotorMoveRelative(id, steps);
-    printf("  Motor %u moving %ld steps\r\n", id, (long)steps);
+    s_move_timing_active = 1u;
+    s_move_timing_motor  = id;
+    s_move_timing_start  = HAL_GetTick();
+    printf("  Motor %u moving %ld steps (timing...)\r\n", id, (long)steps);
 }
 
 static void Cmd_Goto(char *args)
