@@ -61,6 +61,24 @@ void InterCore_ConfigMPU(void)
 
     HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
+    /* Configure backup SRAM region (0x38800000, 4 KB) as non-cacheable.
+     * Without this, D-cache holds writes that never reach physical SRAM,
+     * causing checksum failures on reboot. */
+    MPU_InitStruct = (MPU_Region_InitTypeDef){0};
+    MPU_InitStruct.Enable = MPU_REGION_ENABLE;
+    MPU_InitStruct.Number = MPU_REGION_NUMBER1;
+    MPU_InitStruct.BaseAddress = 0x38800000;
+    MPU_InitStruct.Size = MPU_REGION_SIZE_4KB;
+    MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+    MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+    MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+    MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
+    MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+    MPU_InitStruct.SubRegionDisable = 0x00;
+    MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+
+    HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
     /* Enable MPU with privileged default access */
     HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 }
