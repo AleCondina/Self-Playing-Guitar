@@ -8,7 +8,7 @@
  *  1. Print a prompt — user manually plucks the string so the system can
  *     detect the current open-string frequency and confirm the string is live.
  *  2. Motor moves to position 0 (open/unfretted) and settles.
- *  3. For each fret 0 … CAL_NUM_FRETS-1:
+ *  3. For each half-semitone target 1 … CAL_NUM_TARGETS (plus −1 fret):
  *     a. Motor advances toward the fret at CAL_MOTOR_SPEED_FAST, then
  *        decelerates in the final CAL_SLOW_ZONE steps at CAL_MOTOR_SPEED_SLOW
  *        for fine positioning.
