@@ -117,24 +117,24 @@ static const SongNote_t song1_notes[] = {
      * ────────────────────────────────────────────────────────────────── */
 
     /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    NOTE(1u, A2_HZ,   1635u,  35u),  /* #0  fret 0: cold start, rest=400   */
-    NOTE(1u, C3_HZ,   1635u,  35u),  /* #1  fret 3: C3,  rest=400          */
-    NOTE(1u, D3_HZ,   1885u,  35u),  /* #2  fret 5: D3,  rest=650          */
+    NOTE(1u, A2_HZ,   1635u,  72u),  /* #0  fret 0: cold start, rest=400   */
+    NOTE(1u, C3_HZ,   1635u,  72u),  /* #1  fret 3: C3,  rest=400          */
+    NOTE(1u, D3_HZ,   1885u,  72u),  /* #2  fret 5: D3,  rest=650          */
 
     /* ── Phrase 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
-    NOTE(1u, A2_HZ,   1635u,  35u),  /* #3  fret 0: A2,  rest=400          */
-    NOTE(1u, C3_HZ,   1635u,  35u),  /* #4  fret 3: C3,  rest=400          */
-    NOTE(1u, Ds3_HZ,  1435u,  35u),  /* #5  fret 6: Ds3, rest=200          */
-    NOTE(1u, D3_HZ,   1885u,  35u),  /* #6  fret 5: D3,  rest=650          */
+    NOTE(1u, A2_HZ,   1635u,  72u),  /* #3  fret 0: A2,  rest=400          */
+    NOTE(1u, C3_HZ,   1635u,  72u),  /* #4  fret 3: C3,  rest=400          */
+    NOTE(1u, Ds3_HZ,  1435u,  72u),  /* #5  fret 6: Ds3, rest=200          */
+    NOTE(1u, D3_HZ,   1885u,  72u),  /* #6  fret 5: D3,  rest=650          */
 
     /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
-    NOTE(1u, A2_HZ,   1635u,  35u),  /* #7  fret 0: A2,  rest=400          */
-    NOTE(1u, C3_HZ,   1635u,  35u),  /* #8  fret 3: C3,  rest=400          */
-    NOTE(1u, D3_HZ,   1885u,  35u),  /* #9  fret 5: D3,  rest=650          */
+    NOTE(1u, A2_HZ,   1635u,  72u),  /* #7  fret 0: A2,  rest=400          */
+    NOTE(1u, C3_HZ,   1635u,  72u),  /* #8  fret 3: C3,  rest=400          */
+    NOTE(1u, D3_HZ,   1885u,  72u),  /* #9  fret 5: D3,  rest=650          */
 
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    NOTE(1u, C3_HZ,   1635u,  35u),  /* #10 fret 3: C3,  rest=400          */
-    NOTE(1u, A2_HZ,   1885u,  35u),  /* #11 fret 0: A2,  rest=650          */
+    NOTE(1u, C3_HZ,   1635u,  72u),  /* #10 fret 3: C3,  rest=400          */
+    NOTE(1u, A2_HZ,   1885u,  72u),  /* #11 fret 0: A2,  rest=650          */
 };
 
 /* =========================================================================
