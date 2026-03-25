@@ -11,9 +11,9 @@
 #include "stm32h7xx_hal.h"
 
 /* External timer handles (defined in main.c) — D2-domain timers only */
-extern TIM_HandleTypeDef htim2;   /* Solenoid 2: D3 string (PA5) */
-extern TIM_HandleTypeDef htim3;   /* Solenoid 1: A2 string (PB5) */
-extern TIM_HandleTypeDef htim4;   /* Solenoid 3: G3 string (PB6) */
+extern TIM_HandleTypeDef htim2;   /* Solenoid 2: D3 string (PA5) - TIM2_CH1 */
+extern TIM_HandleTypeDef htim3;   /* Solenoid 1: A2 string (PB5) - TIM3_CH2 */
+extern TIM_HandleTypeDef htim4;   /* Solenoid 0: E2/D2 string (PB6) - TIM4_CH1 */
 
 /**
  * @brief Solenoid state structure for multi-solenoid management
@@ -53,7 +53,7 @@ static SolenoidState_t solenoid_states[SOLENOID_COUNT];
  *   5    | E4        |  329.63   |   493.88
  */
 
-static const uint16_t SOLENOID_FREQ_TABLE[6][8] = {
+static const uint16_t SOLENOID_FREQ_TABLE_STANDARD[6][8] = {
     /* String 0: E2 (82.41 Hz) - Low E */
     {26694, 25196, 23783, 22447, 21187, 19999, 18876, 17816},  /* Frets 0-7 */
 
@@ -74,6 +74,33 @@ static const uint16_t SOLENOID_FREQ_TABLE[6][8] = {
 };
 
 /**
+ * @brief Drop D tuning: String 0 = D2, String 1 = E2, Strings 2-5 unchanged
+ * @note  ARR = round(2,200,000 / freq) - 1
+ */
+static const uint16_t SOLENOID_FREQ_TABLE_DROP_D[6][8] = {
+    /* String 0: D2 (73.42 Hz) - Drop D */
+    {29965, 28285, 26694, 25196, 23783, 22448, 21187, 19999},  /* Frets 0-7 */
+
+    /* String 1: E2 (82.41 Hz) - was A2 in standard */
+    {26694, 25196, 23783, 22447, 21187, 19999, 18876, 17816},  /* Frets 0-7 */
+
+    /* String 2: D3 (146.83 Hz) - unchanged */
+    {14982, 14141, 13347, 12598, 11891, 11223, 10594, 9999},  /* Frets 0-7 */
+
+    /* String 3: G3 (196.00 Hz) - unchanged */
+    {11223, 10594, 9999, 9438, 8907, 8407, 7936, 7491},  /* Frets 0-7 */
+
+    /* String 4: B3 (246.94 Hz) - unchanged */
+    {8907, 8407, 7936, 7491, 7069, 6672, 6298, 5945},  /* Frets 0-7 */
+
+    /* String 5: E4 (329.63 Hz) - unchanged */
+    {6672, 6298, 5945, 5611, 5296, 4998, 4717, 4453},  /* Frets 0-7 */
+};
+
+/* Active frequency table pointer (switched by Solenoid_SetTuning) */
+static const uint16_t (*active_freq_table)[8] = SOLENOID_FREQ_TABLE_STANDARD;
+
+/**
  * @brief Initialize all solenoid PWM channels
  */
 int32_t Solenoid_Init(void)
@@ -89,9 +116,9 @@ int32_t Solenoid_Init(void)
         return -1;  /* TIM4 not initialized */
     }
 
-    /* Solenoid 0: E2 — no timer assigned (TIM1 moved to CM7 ADC trigger) */
-    solenoid_states[SOLENOID_STRING_E2].htim = NULL;
-    solenoid_states[SOLENOID_STRING_E2].channel = 0;
+    /* Initialize solenoid 0: TIM4 CH1 (E2/D2 string) on PB6 */
+    solenoid_states[SOLENOID_STRING_E2].htim = &htim4;
+    solenoid_states[SOLENOID_STRING_E2].channel = TIM_CHANNEL_1;
     solenoid_states[SOLENOID_STRING_E2].current_string = 0;
     solenoid_states[SOLENOID_STRING_E2].current_fret = 0;
     solenoid_states[SOLENOID_STRING_E2].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
@@ -113,9 +140,9 @@ int32_t Solenoid_Init(void)
     solenoid_states[SOLENOID_STRING_D3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_D3].is_active = 0;
 
-    /* Initialize solenoid 3: TIM4 CH1 (G3 string) on PB6 */
-    solenoid_states[SOLENOID_STRING_G3].htim = &htim4;
-    solenoid_states[SOLENOID_STRING_G3].channel = TIM_CHANNEL_1;
+    /* Solenoid 3: G3 — no timer assigned (TIM4 moved to solenoid 0) */
+    solenoid_states[SOLENOID_STRING_G3].htim = NULL;
+    solenoid_states[SOLENOID_STRING_G3].channel = 0;
     solenoid_states[SOLENOID_STRING_G3].current_string = 3;
     solenoid_states[SOLENOID_STRING_G3].current_fret = 0;
     solenoid_states[SOLENOID_STRING_G3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
@@ -159,8 +186,8 @@ int32_t Solenoid_SetFrequency(uint8_t solenoid_id, uint8_t string, uint8_t fret)
         return 0;
     }
 
-    /* Get new ARR value from lookup table */
-    uint16_t new_arr = SOLENOID_FREQ_TABLE[string][fret] * TIMER_CALIBRATION_FACTOR + 0.5f;
+    /* Get new ARR value from active tuning lookup table */
+    uint16_t new_arr = active_freq_table[string][fret] * TIMER_CALIBRATION_FACTOR + 0.5f;
 
     /* Calculate new CCR for current duty cycle */
     uint16_t new_ccr = ((new_arr + 1) * state->duty_cycle) / 100;
@@ -405,4 +432,17 @@ int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, float freq_hz)
     __HAL_TIM_SET_COMPARE(state->htim, state->channel, new_ccr);
 
     return 0;
+}
+
+/**
+ * @brief Switch the active frequency lookup table between tuning modes
+ * @param tuning_id  TUNING_STANDARD (0) or TUNING_DROP_D (1)
+ */
+void Solenoid_SetTuning(uint8_t tuning_id)
+{
+    if (tuning_id == TUNING_DROP_D) {
+        active_freq_table = SOLENOID_FREQ_TABLE_DROP_D;
+    } else {
+        active_freq_table = SOLENOID_FREQ_TABLE_STANDARD;
+    }
 }

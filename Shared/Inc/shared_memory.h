@@ -49,6 +49,7 @@
 #define CMD_MOTOR_ENABLE_MASK   (1U << 14)  /* Batch enable/disable motors via bitmask */
 #define CMD_MOTOR_MOVE_ABS_BATCH    (1U << 15) /* Batch absolute move: positions[] + mask  */
 #define CMD_TRIGGER_SOLENOID_HZ_BATCH (1U << 16) /* Batch Hz trigger: freq[]+mask, one shot */
+#define CMD_SET_TUNING              (1U << 17)  /* Set tuning mode (standard/drop D)       */
 
 /* Status flags: CM4 → CM7 (bit field) */
 #define MOTOR_STATUS_READY      (1U << 0)   /* Motors initialized and ready */
@@ -107,7 +108,8 @@ typedef struct {
     volatile uint8_t solenoid_padding;                  /* Alignment */
     volatile float solenoid_freq_hz;                 /* Direct Hz drive (CMD_TRIGGER_SOLENOID_HZ) */
 
-
+    /* ===== Tuning Mode (CM7 → CM4) ===== */
+    volatile uint8_t tuning_id;                      /* 0=standard, 1=drop D (see application_config.h) */
 
     /* ===== CM4 → CM7 Status Channel ===== */
     volatile uint32_t motor_status_flags;               /* Status bit field */

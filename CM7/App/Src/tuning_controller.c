@@ -58,6 +58,7 @@
  * TODO: replace with measured values during hardware commissioning.
  *       Current values assume ~10 microsteps per Hz as a rough linear first-guess.
  * ========================================================================= */
+/* Standard tuning feed-forward breakpoints (active copy — overwritten by SetTuning) */
 float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     /* Measured frequencies from LUT RUN 1 */
     /* E2 frets 0-6 */ {  82.41f,  82.69f,  89.97f,  96.05f, 100.07f, 106.37f, 112.82f },
@@ -76,6 +77,50 @@ float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     /* G3 */ {   0.0f,  910.0f, 2583.0f, 3485.0f, 4480.0f, 5523.0f, 6646.0f },
     /* B3 */ {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
     /* E4 */ {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+};
+
+/* Backup copies of standard tuning (so we can restore after Drop D) */
+static const float s_std_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+    {  82.41f,  82.69f,  89.97f,  96.05f, 100.07f, 106.37f, 112.82f },
+    { 110.00f, 115.54f, 121.57f, 127.57f, 139.23f, 145.69f, 151.22f },
+    { 146.83f, 160.03f, 170.43f, 179.45f, 188.51f, 197.45f, 205.19f },
+    { 196.00f, 207.65f, 233.38f, 248.76f, 262.49f, 277.12f, 292.19f },
+    { 246.94f, 261.63f, 277.18f, 293.66f, 311.13f, 329.63f, 349.23f },
+    { 329.63f, 349.23f, 369.99f, 392.00f, 415.30f, 440.00f, 466.16f },
+};
+
+static const float s_std_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+    {   0.0f, 267.0f, 1080.0f, 1623.0f, 2029.0f, 2706.0f, 3385.0f },
+    {   0.0f,  751.0f, 1549.0f, 2370.0f, 4103.0f, 5013.0f, 5955.0f },
+    {   0.0f, 2331.0f, 3363.0f, 4417.0f, 5477.0f, 6533.0f, 7499.0f },
+    {   0.0f,  910.0f, 2583.0f, 3485.0f, 4480.0f, 5523.0f, 6646.0f },
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+};
+
+/* Drop D feed-forward breakpoints (PLACEHOLDER — calibrate with 'lutbuild' in Drop D) */
+static const float s_dropd_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+    /* D2 frets 0-6 (placeholder: equal temperament) */
+    { D2_HZ, Ds2_HZ, E2_HZ, F2_HZ, Fs2_HZ, G2_HZ, Gs2_HZ },
+    /* E2 frets 0-6 (placeholder: equal temperament) */
+    { E2_HZ, F2_HZ, Fs2_HZ, G2_HZ, Gs2_HZ, A2_HZ, As2_HZ },
+    /* D3-E4: same as standard */
+    { 146.83f, 160.03f, 170.43f, 179.45f, 188.51f, 197.45f, 205.19f },
+    { 196.00f, 207.65f, 233.38f, 248.76f, 262.49f, 277.12f, 292.19f },
+    { 246.94f, 261.63f, 277.18f, 293.66f, 311.13f, 329.63f, 349.23f },
+    { 329.63f, 349.23f, 369.99f, 392.00f, 415.30f, 440.00f, 466.16f },
+};
+
+static const float s_dropd_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+    /* D2: placeholder linear estimate (~10 steps/Hz) */
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    /* E2: placeholder linear estimate */
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    /* D3-E4: same as standard */
+    {   0.0f, 2331.0f, 3363.0f, 4417.0f, 5477.0f, 6533.0f, 7499.0f },
+    {   0.0f,  910.0f, 2583.0f, 3485.0f, 4480.0f, 5523.0f, 6646.0f },
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
 };
 
 /* =========================================================================
@@ -464,9 +509,13 @@ void TuningCtrl_Update(uint8_t string_id,
  * the string we're tracking gets rejected.  This prevents sympathetic
  * resonance from B3 (246.94 Hz) hijacking the G3 fret 3-5 range, etc.
  */
-static const float s_open_string_hz[NUM_STRINGS] = {
-    82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f
+static const float s_open_string_hz[NUM_TUNINGS][NUM_STRINGS] = {
+    [TUNING_STANDARD] = { 82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f },
+    [TUNING_DROP_D]   = { 73.42f,  82.41f, 146.83f, 196.00f, 246.94f, 329.63f },
 };
+
+/* Active tuning mode (set by TuningCtrl_SetTuning) */
+static uint8_t s_active_tuning = TUNING_STANDARD;
 #define OPEN_STRING_REJECT_HZ  5.0f   /* ±5 Hz around each open string */
 
 /**
@@ -481,7 +530,7 @@ static uint8_t IsOpenStringInterference(float freq, uint8_t string_id)
 {
     for (uint8_t s = 0u; s < NUM_STRINGS; s++) {
         if (s == string_id) continue;               /* don't reject ourselves */
-        if (fabsf(freq - s_open_string_hz[s]) <= OPEN_STRING_REJECT_HZ)
+        if (fabsf(freq - s_open_string_hz[s_active_tuning][s]) <= OPEN_STRING_REJECT_HZ)
             return 1u;
     }
     return 0u;
@@ -863,4 +912,33 @@ void TuningCtrl_ResetAll(void)
     s_motor_enable_mask  = 0u;
     s_song_first_note    = 1u;
     s_cold_start_pending = 0u;
+}
+
+void TuningCtrl_SetTuning(uint8_t tuning_id)
+{
+    if (tuning_id >= NUM_TUNINGS) tuning_id = TUNING_STANDARD;
+    s_active_tuning = tuning_id;
+
+    /* Swap the feed-forward breakpoint tables */
+    const float (*src_freq)[TUNING_FF_NUM_POINTS];
+    const float (*src_steps)[TUNING_FF_NUM_POINTS];
+
+    if (tuning_id == TUNING_DROP_D) {
+        src_freq  = s_dropd_ff_freq_bp;
+        src_steps = s_dropd_ff_steps_bp;
+    } else {
+        src_freq  = s_std_ff_freq_bp;
+        src_steps = s_std_ff_steps_bp;
+    }
+
+    memcpy(tuning_ff_freq_bp,  src_freq,  sizeof(tuning_ff_freq_bp));
+    memcpy(tuning_ff_steps_bp, src_steps, sizeof(tuning_ff_steps_bp));
+
+    /* Re-fit the polynomial coefficients from the new breakpoints */
+    Cal_FitFromBaseLUT();
+}
+
+uint8_t TuningCtrl_GetActiveTuning(void)
+{
+    return s_active_tuning;
 }

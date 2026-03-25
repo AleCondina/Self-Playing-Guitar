@@ -373,6 +373,24 @@ void TuningCtrl_ResetString(uint8_t string_id);
  */
 void TuningCtrl_ResetAll(void);
 
+/**
+ * @brief  Switch tuning mode (standard / drop D).
+ *
+ * Swaps the feed-forward breakpoint tables, re-fits the polynomial
+ * coefficients, and updates the open-string rejection array.
+ * Does NOT reset controller state — call TuningCtrl_ResetAll() separately
+ * if a song restart is desired.
+ *
+ * @param  tuning_id  TUNING_STANDARD (0) or TUNING_DROP_D (1)
+ */
+void TuningCtrl_SetTuning(uint8_t tuning_id);
+
+/**
+ * @brief  Get the currently active tuning mode.
+ * @return TUNING_STANDARD (0) or TUNING_DROP_D (1)
+ */
+uint8_t TuningCtrl_GetActiveTuning(void);
+
 #ifdef __cplusplus
 }
 #endif

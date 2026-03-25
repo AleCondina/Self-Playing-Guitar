@@ -114,9 +114,12 @@ static void Cmd_MapFrets(char *args);
 static void Cmd_PrintLut(char *args);
 static void Cmd_Smoke(char *args);
 static void Cmd_Smoke1(char *args);
+static void Cmd_Song2(char *args);
 static void Cmd_FftPrint(char *args);
 static void Cmd_Tune(char *args);
 static void Cmd_Debug(char *args);
+static void Cmd_DropD(char *args);
+static void Cmd_Standard(char *args);
 static void Demo_Tick(void);
 
 /* Command table entry */
@@ -149,6 +152,7 @@ static const CmdEntry_t command_table[] = {
     { "printlut",  Cmd_PrintLut,  "printlut                 Print current feed-forward LUT values" },
     { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water (chords)" },
     { "smoke1",    Cmd_Smoke1,    "smoke1                   Play Smoke on the Water (A2 single string)" },
+    { "song2",     Cmd_Song2,     "song2                    Play Drop D fingerpicking" },
     { "tune",      Cmd_Tune,      "tune [str ...]            Tune open strings 0-3 to standard pitch" },
     { "fftprint",  Cmd_FftPrint,  "fftprint                 Toggle live FFT peak output" },
     { "debug",     Cmd_Debug,     "debug [hop|nf|all|off]   Toggle debug outputs" },
@@ -156,6 +160,8 @@ static const CmdEntry_t command_table[] = {
     { "sol",       Cmd_Sol,       "sol <id> <str> <fret> [duty] [time] [cycles]  Trigger solenoid" },
     { "solstop",   Cmd_SolStop,   "solstop <id|all>        Stop solenoid(s)" },
     { "solstatus", Cmd_SolStatus, "solstatus               Show active solenoids" },
+    { "dropd",     Cmd_DropD,     "dropd                   Switch to Drop D tuning" },
+    { "standard",  Cmd_Standard,  "standard                Switch to standard tuning" },
     { NULL, NULL, NULL }
 };
 
@@ -889,6 +895,13 @@ static void Cmd_Smoke1(char *args)
     App_RequestPlaySong(1u);
 }
 
+static void Cmd_Song2(char *args)
+{
+    (void)args;
+    printf("  Starting Drop D fingerpicking (song 2)...\r\n");
+    App_RequestPlaySong(2u);
+}
+
 static void Cmd_Tune(char *args)
 {
     (void)args;
@@ -1090,4 +1103,32 @@ static void Demo_Tick(void)
         demo_state = DEMO_IDLE;
         break;
     }
+}
+
+/* ===== Tuning mode commands ===== */
+
+static void Cmd_DropD(char *args)
+{
+    (void)args;
+    g_shared_memory.tuning_id = TUNING_DROP_D;
+    g_shared_memory.motor_command_flags |= CMD_SET_TUNING;
+    InterCore_NotifyCM4();
+
+    TuningCtrl_SetTuning(TUNING_DROP_D);
+    TuningCtrl_ResetAll();
+
+    printf("  Tuning: Drop D (str0=D2, str1=E2)\r\n> ");
+}
+
+static void Cmd_Standard(char *args)
+{
+    (void)args;
+    g_shared_memory.tuning_id = TUNING_STANDARD;
+    g_shared_memory.motor_command_flags |= CMD_SET_TUNING;
+    InterCore_NotifyCM4();
+
+    TuningCtrl_SetTuning(TUNING_STANDARD);
+    TuningCtrl_ResetAll();
+
+    printf("  Tuning: Standard (str0=E2, str1=A2)\r\n> ");
 }

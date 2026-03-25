@@ -27,7 +27,7 @@
 #define SOLENOID_MAX_DURATION_MS    500 /* Maximum solenoid on-time */
 #define SOLENOID_DEFAULT_DURATION_MS 50 /* Default solenoid duration */
 #define SOLENOID_DEFAULT_DUTY_CYCLE  50 /* Default duty cycle (%) - validated at 82 Hz */
-#define SOLENOID_MIN_FREQ_HZ         82 /* Minimum frequency: E2 (low E string) */
+#define SOLENOID_MIN_FREQ_HZ         73 /* Minimum frequency: D2 (drop D tuning) */
 #define SOLENOID_MAX_FREQ_HZ        220 /* Maximum frequency: D3 fret 7 */ //TODO: modify possibly
 
 /* ===== Audio Processing Parameters ===== */   //TODO: check and modify for FFT
@@ -66,7 +66,14 @@
 #define FIRMWARE_VERSION_MINOR  1
 #define FIRMWARE_VERSION_PATCH  0
 
+/* ===== Tuning Modes ===== */
+#define TUNING_STANDARD  0u
+#define TUNING_DROP_D    1u
+#define NUM_TUNINGS      2u
+
 /* ===== Universal Guitar Frequencies (Hz) ===== */
+#define D2_HZ   73.42f
+#define Ds2_HZ  77.78f  /* D#2 / Eb2 */
 #define E2_HZ   82.41f
 #define F2_HZ   87.31f
 #define Fs2_HZ  92.50f  /* F#2 / Gb2 */

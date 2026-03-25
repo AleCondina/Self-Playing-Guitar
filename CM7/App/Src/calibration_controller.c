@@ -208,9 +208,10 @@
 #define CAL_BKPSRAM_BASE            ((uint32_t)0x38800000UL)
 #define CAL_PERSIST_MAGIC           0xCA115701UL
 
-/* Open-string frequencies (Hz). Order: E2 A2 D3 G3 B3 E4. */
-static const float s_open_freq[NUM_STRINGS] = {
-    E2_HZ, A2_HZ, D3_HZ, G3_HZ, B3_HZ, E4_HZ
+/* Open-string frequencies (Hz) per tuning. */
+static const float s_open_freq[NUM_TUNINGS][NUM_STRINGS] = {
+    [TUNING_STANDARD] = { E2_HZ, A2_HZ, D3_HZ, G3_HZ, B3_HZ, E4_HZ },
+    [TUNING_DROP_D]   = { D2_HZ, E2_HZ, D3_HZ, G3_HZ, B3_HZ, E4_HZ },
 };
 
 /**
@@ -232,19 +233,32 @@ static const int32_t s_cal_steps_max[NUM_STRINGS] = {
  * Derived from the named Hz constants in application_config.h — identical
  * to the values used by the CM4 solenoid controller's ARR table.
  */
-static const float cal_theoretical_freq[NUM_STRINGS][CAL_NUM_FRETS] = {
-    /* String 0: E2  frets 0-7 */
-    { E2_HZ,  F2_HZ,  Fs2_HZ, G2_HZ,  Gs2_HZ, A2_HZ,  As2_HZ, B2_HZ  },
-    /* String 1: A2  frets 0-7 */
-    { A2_HZ,  As2_HZ, B2_HZ,  C3_HZ,  Cs3_HZ, D3_HZ,  Ds3_HZ, E3_HZ  },
-    /* String 2: D3  frets 0-7 */
-    { D3_HZ,  Ds3_HZ, E3_HZ,  F3_HZ,  Fs3_HZ, G3_HZ,  Gs3_HZ, A3_HZ  },
-    /* String 3: G3  frets 0-7 */
-    { G3_HZ,  Gs3_HZ, A3_HZ,  As3_HZ, B3_HZ,  C4_HZ,  Cs4_HZ, D4_HZ  },
-    /* String 4: B3  frets 0-7 */
-    { B3_HZ,  C4_HZ,  Cs4_HZ, D4_HZ,  Ds4_HZ, E4_HZ,  F4_HZ,  Fs4_HZ },
-    /* String 5: E4  frets 0-7 */
-    { E4_HZ,  F4_HZ,  Fs4_HZ, G4_HZ,  Gs4_HZ, A4_HZ,  As4_HZ, B4_HZ  },
+static const float cal_theoretical_freq[NUM_TUNINGS][NUM_STRINGS][CAL_NUM_FRETS] = {
+    [TUNING_STANDARD] = {
+        /* String 0: E2  frets 0-7 */
+        { E2_HZ,  F2_HZ,  Fs2_HZ, G2_HZ,  Gs2_HZ, A2_HZ,  As2_HZ, B2_HZ  },
+        /* String 1: A2  frets 0-7 */
+        { A2_HZ,  As2_HZ, B2_HZ,  C3_HZ,  Cs3_HZ, D3_HZ,  Ds3_HZ, E3_HZ  },
+        /* String 2: D3  frets 0-7 */
+        { D3_HZ,  Ds3_HZ, E3_HZ,  F3_HZ,  Fs3_HZ, G3_HZ,  Gs3_HZ, A3_HZ  },
+        /* String 3: G3  frets 0-7 */
+        { G3_HZ,  Gs3_HZ, A3_HZ,  As3_HZ, B3_HZ,  C4_HZ,  Cs4_HZ, D4_HZ  },
+        /* String 4: B3  frets 0-7 */
+        { B3_HZ,  C4_HZ,  Cs4_HZ, D4_HZ,  Ds4_HZ, E4_HZ,  F4_HZ,  Fs4_HZ },
+        /* String 5: E4  frets 0-7 */
+        { E4_HZ,  F4_HZ,  Fs4_HZ, G4_HZ,  Gs4_HZ, A4_HZ,  As4_HZ, B4_HZ  },
+    },
+    [TUNING_DROP_D] = {
+        /* String 0: D2  frets 0-7 */
+        { D2_HZ,  Ds2_HZ, E2_HZ,  F2_HZ,  Fs2_HZ, G2_HZ,  Gs2_HZ, A2_HZ  },
+        /* String 1: E2  frets 0-7 */
+        { E2_HZ,  F2_HZ,  Fs2_HZ, G2_HZ,  Gs2_HZ, A2_HZ,  As2_HZ, B2_HZ  },
+        /* String 2-5: same as standard */
+        { D3_HZ,  Ds3_HZ, E3_HZ,  F3_HZ,  Fs3_HZ, G3_HZ,  Gs3_HZ, A3_HZ  },
+        { G3_HZ,  Gs3_HZ, A3_HZ,  As3_HZ, B3_HZ,  C4_HZ,  Cs4_HZ, D4_HZ  },
+        { B3_HZ,  C4_HZ,  Cs4_HZ, D4_HZ,  Ds4_HZ, E4_HZ,  F4_HZ,  Fs4_HZ },
+        { E4_HZ,  F4_HZ,  Fs4_HZ, G4_HZ,  Gs4_HZ, A4_HZ,  As4_HZ, B4_HZ  },
+    },
 };
 
 /* Forward declaration: calibration invalidates tune offsets for reworked strings. */
@@ -473,7 +487,7 @@ static void Cal_EnableBkpSRAM(void){
  * frequency range using nearest-neighbour selection.
  */
 static void Cal_BuildTable(uint8_t str){
-    float open_f = s_open_freq[str];
+    float open_f = s_open_freq[TuningCtrl_GetActiveTuning()][str];
 
     if (s_buf_n < CAL_MIN_SAMPLES) {
         printf("[CAL] str%u WARN: only %u samples — LUT unchanged\r\n",
@@ -759,8 +773,8 @@ void Cal_Hop(void){
 
         printf("[CAL] -- String %u (%.2f Hz) | fret7 target %.2f Hz\r\n",
                (unsigned)s_str,
-               (double)s_open_freq[s_str],
-               (double)cal_theoretical_freq[s_str][7u]);
+               (double)s_open_freq[TuningCtrl_GetActiveTuning()][s_str],
+               (double)cal_theoretical_freq[TuningCtrl_GetActiveTuning()][s_str][7u]);
         printf("[CAL] >>> Pluck string %u now (any fret is fine)!\r\n",
                (unsigned)s_str);
 
@@ -798,8 +812,8 @@ void Cal_Hop(void){
          * Magnitude threshold rejects broadband noise.
          * active_frequencies[] is magnitude-sorted descending, so the first
          * qualifying entry is always the strongest peak in the window.        */
-        float lo = s_open_freq[s_str] * 0.70f;
-        float hi = s_open_freq[s_str] * 1.80f;
+        float lo = s_open_freq[TuningCtrl_GetActiveTuning()][s_str] * 0.70f;
+        float hi = s_open_freq[TuningCtrl_GetActiveTuning()][s_str] * 1.80f;
 
         float this_freq = 0.0f;
         for (uint8_t j = 0u; j < active_string_count; j++) {
@@ -846,7 +860,7 @@ void Cal_Hop(void){
 
             if (done) {
                 s_open_detected_freq = Cal_PluckConsensus(s_pluck_buf, s_pluck_buf_n,
-                                                           s_open_freq[s_str]);
+                                                           s_open_freq[TuningCtrl_GetActiveTuning()][s_str]);
                 s_pluck_detected = 1u;
                 printf("[CAL] str%u: consensus %.2f Hz (%u/%u readings)\r\n",
                        (unsigned)s_str, (double)s_open_detected_freq,
@@ -868,8 +882,8 @@ void Cal_Hop(void){
                 float _c = cal_poly_coeff[s_str][2];
                 float _detected_steps = _a + _b * s_open_detected_freq
                                         + _c * s_open_detected_freq * s_open_detected_freq;
-                float _open_steps     = _a + _b * s_open_freq[s_str]
-                                        + _c * s_open_freq[s_str]   * s_open_freq[s_str];
+                float _open_steps     = _a + _b * s_open_freq[TuningCtrl_GetActiveTuning()][s_str]
+                                        + _c * s_open_freq[TuningCtrl_GetActiveTuning()][s_str]   * s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
                 float _delta = _open_steps - _detected_steps;
                 int32_t cur_pos = g_shared_memory.current_positions[s_str];
                 s_open_homing_target = (int32_t)CalClampf(
@@ -892,7 +906,7 @@ void Cal_Hop(void){
         if (s_pluck_timeout_cnt >= CAL_PLUCK_TIMEOUT) {
             if (s_pluck_buf_n > 0u) {
                 s_open_detected_freq = Cal_PluckConsensus(s_pluck_buf, s_pluck_buf_n,
-                                                           s_open_freq[s_str]);
+                                                           s_open_freq[TuningCtrl_GetActiveTuning()][s_str]);
                 printf("[CAL] str%u: timeout — partial consensus %.2f Hz (%u readings)\r\n",
                        (unsigned)s_str, (double)s_open_detected_freq,
                        (unsigned)s_pluck_buf_n);
@@ -901,8 +915,8 @@ void Cal_Hop(void){
                 float _c = cal_poly_coeff[s_str][2];
                 float _detected_steps = _a + _b * s_open_detected_freq
                                         + _c * s_open_detected_freq * s_open_detected_freq;
-                float _open_steps     = _a + _b * s_open_freq[s_str]
-                                        + _c * s_open_freq[s_str]   * s_open_freq[s_str];
+                float _open_steps     = _a + _b * s_open_freq[TuningCtrl_GetActiveTuning()][s_str]
+                                        + _c * s_open_freq[TuningCtrl_GetActiveTuning()][s_str]   * s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
                 float _delta = _open_steps - _detected_steps;
                 int32_t cur_pos = g_shared_memory.current_positions[s_str];
                 s_open_homing_target = (int32_t)CalClampf(
@@ -959,7 +973,7 @@ void Cal_Hop(void){
      * ------------------------------------------------------------------ */
     case CAL_PHASE_OPEN_SOL_BURST:
     {
-        s_burst_freq = s_open_freq[s_str];
+        s_burst_freq = s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
 
         printf("[CAL] str%u: open-freq burst %.2f Hz — finding true open position\r\n",
                (unsigned)s_str, (double)s_burst_freq);
@@ -1013,14 +1027,14 @@ void Cal_Hop(void){
      * new software position 0 (re-zeroed in OPEN_DONE).
      *
      * Same PI logic as fret PI_LOCK / HOME_PI_LOCK but:
-     *   - Target: s_open_freq[s_str]
+     *   - Target: s_open_freq[TuningCtrl_GetActiveTuning()][s_str]
      *   - PI center: s_open_homing_target (motor is already there from FF move)
      *   - Motor clamp: ±300 steps around s_open_homing_target
      *   - On lock/timeout: transitions to OPEN_DONE
      * ------------------------------------------------------------------ */
     case CAL_PHASE_OPEN_PI_LOCK:
     {
-        float target_freq = s_open_freq[s_str];
+        float target_freq = s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
         float search_band = target_freq * 0.15f;
 
         float meas_f = 0.0f;
@@ -1233,7 +1247,7 @@ void Cal_Hop(void){
             if (s_buf_n == 0u) {
                 s_burst_freq = (s_open_detected_freq > 0.0f)
                                ? s_open_detected_freq
-                               : s_open_freq[s_str];
+                               : s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
             } else {
                 s_burst_freq = s_buf[s_buf_n - 1u].freq;
             }
@@ -1243,7 +1257,7 @@ void Cal_Hop(void){
              * after every completed calibration run — estimates improve over
              * time.  The per-string safety cap prevents over-travel.          */
             {
-                float _tf   = cal_theoretical_freq[s_str][s_fret];
+                float _tf   = cal_theoretical_freq[TuningCtrl_GetActiveTuning()][s_str][s_fret];
                 float _a    = cal_poly_coeff[s_str][0];
                 float _b    = cal_poly_coeff[s_str][1];
                 float _c    = cal_poly_coeff[s_str][2];
@@ -1351,7 +1365,7 @@ void Cal_Hop(void){
      * ------------------------------------------------------------------ */
     case CAL_PHASE_PI_LOCK:
     {
-        float target_freq = cal_theoretical_freq[s_str][s_fret];
+        float target_freq = cal_theoretical_freq[TuningCtrl_GetActiveTuning()][s_str][s_fret];
         float search_band = target_freq * 0.15f;   /* ±15% search window  */
 
         float meas_f = 0.0f;
@@ -1490,7 +1504,7 @@ void Cal_Hop(void){
      * ------------------------------------------------------------------ */
     case CAL_PHASE_RECORD:
     {
-        float target_freq = cal_theoretical_freq[s_str][s_fret];
+        float target_freq = cal_theoretical_freq[TuningCtrl_GetActiveTuning()][s_str][s_fret];
         float search_band = target_freq * 0.15f;
 
         float meas_f = 0.0f;
@@ -1571,7 +1585,7 @@ void Cal_Hop(void){
         /* Use last measured fret frequency for excitation; fall back to
          * open-string frequency if no samples were recorded. */
         s_burst_freq = (s_buf_n > 0u) ? s_buf[s_buf_n - 1u].freq
-                                       : s_open_freq[s_str];
+                                       : s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
 
         printf("[CAL] str%u: homing — burst %.2f Hz, motor → pos %ld\r\n",
                (unsigned)s_str, (double)s_burst_freq, (long)s_open_position_offset);
@@ -1620,12 +1634,12 @@ void Cal_Hop(void){
 
     /* ------------------------------------------------------------------
      * HOME_PI_LOCK: PI targets the open-string frequency.
-     * Same logic as the fret PI_LOCK but targeting s_open_freq[s_str].
+     * Same logic as the fret PI_LOCK but targeting s_open_freq[TuningCtrl_GetActiveTuning()][s_str].
      * On lock or timeout, proceeds to HOME_DONE.
      * ------------------------------------------------------------------ */
     case CAL_PHASE_HOME_PI_LOCK:
     {
-        float target_freq = s_open_freq[s_str];
+        float target_freq = s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
         float search_band = target_freq * 0.15f;   /* ±15% */
 
         float meas_f = 0.0f;

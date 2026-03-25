@@ -88,14 +88,15 @@
  *  Update this when B3 (bit 4) and E4 (bit 5) steppers are connected. */
 #define LUT_CONFIGURED_MOTORS   0x0Fu  /* bits 0-3 = strings E2,A2,D3,G3 */
 
-/* Open-string frequencies — must match FFT open_strings[].
- * String order: 0=E2  1=A2  2=D3  3=G3  4=B3  5=E4 */
-static const float s_open_freq[NUM_STRINGS] = {
-     82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f
+/* Open-string frequencies per tuning — must match FFT open_strings[]. */
+static const float s_open_freq[NUM_TUNINGS][NUM_STRINGS] = {
+    [TUNING_STANDARD] = { 82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f },
+    [TUNING_DROP_D]   = { 73.42f,  82.41f, 146.83f, 196.00f, 246.94f, 329.63f },
 };
 
-static const char *s_string_names[NUM_STRINGS] = {
-    "E2", "A2", "D3", "G3", "B3", "E4"
+static const char *s_string_names[NUM_TUNINGS][NUM_STRINGS] = {
+    [TUNING_STANDARD] = { "E2", "A2", "D3", "G3", "B3", "E4" },
+    [TUNING_DROP_D]   = { "D2", "E2", "D3", "G3", "B3", "E4" },
 };
 
 /* =========================================================================
@@ -146,7 +147,7 @@ static float   s_fret_freqs[LUT_NUM_FRETS];
  */
 static void ComputeTargets(uint8_t str)
 {
-    float open_f = s_open_freq[str];
+    float open_f = s_open_freq[TuningCtrl_GetActiveTuning()][str];
     for (uint8_t fret = 0u; fret < LUT_NUM_FRETS; fret++) {
         s_target_freqs[fret] = open_f * powf(2.0f, (float)fret / 12.0f);
     }
@@ -163,7 +164,7 @@ static void ComputeTargets(uint8_t str)
  */
 static void FindBestPeak(float *out_freq, float *out_mag)
 {
-    float min_f = s_open_freq[s_str] * LUT_OPEN_FREQ_MIN_RATIO;
+    float min_f = s_open_freq[TuningCtrl_GetActiveTuning()][s_str] * LUT_OPEN_FREQ_MIN_RATIO;
     float max_f = s_target_freqs[LUT_NUM_FRETS - 1u] * 1.15f;
     float target = s_target_freqs[s_current_fret];
 
@@ -237,14 +238,14 @@ static void WriteLUT(uint8_t str)
  */
 static void PrintResults(uint8_t str)
 {
-    printf("[LUT-RESULT] /* %s */ { ", s_string_names[str]);
+    printf("[LUT-RESULT] /* %s */ { ", s_string_names[TuningCtrl_GetActiveTuning()][str]);
     for (uint8_t fret = 0u; fret < LUT_NUM_FRETS; fret++) {
         printf("%.1f", (double)s_fret_steps[fret]);
         if (fret < LUT_NUM_FRETS - 1u) printf(", ");
     }
     printf(" },\r\n");
 
-    printf("[LUT-FREQ]   /* %s */ { ", s_string_names[str]);
+    printf("[LUT-FREQ]   /* %s */ { ", s_string_names[TuningCtrl_GetActiveTuning()][str]);
     for (uint8_t fret = 0u; fret < LUT_NUM_FRETS; fret++) {
         printf("%.2f", (double)s_fret_freqs[fret]);
         if (fret < LUT_NUM_FRETS - 1u) printf(", ");
@@ -265,7 +266,7 @@ static void PrintFinalSummary(void)
 
     for (uint8_t str = 0u; str < NUM_STRINGS; str++) {
         if (!((s_string_mask >> str) & 1u)) continue;
-        printf("    /* %s */ { ", s_string_names[str]);
+        printf("    /* %s */ { ", s_string_names[TuningCtrl_GetActiveTuning()][str]);
         for (uint8_t fret = 0u; fret < LUT_NUM_FRETS; fret++) {
             printf("%.1f", (double)tuning_ff_steps_bp[str][fret]);
             if (fret < LUT_NUM_FRETS - 1u) printf(", ");
@@ -276,7 +277,7 @@ static void PrintFinalSummary(void)
     printf("[LUT] tuning_ff_freq_bp:\r\n");
     for (uint8_t str = 0u; str < NUM_STRINGS; str++) {
         if (!((s_string_mask >> str) & 1u)) continue;
-        printf("    /* %s */ { ", s_string_names[str]);
+        printf("    /* %s */ { ", s_string_names[TuningCtrl_GetActiveTuning()][str]);
         for (uint8_t fret = 0u; fret < LUT_NUM_FRETS; fret++) {
             printf("%.2f", (double)tuning_ff_freq_bp[str][fret]);
             if (fret < LUT_NUM_FRETS - 1u) printf(", ");
@@ -320,7 +321,7 @@ static void InitString(void)
     InterCore_SendMotorGoto(s_str, 0);
 
     printf("\r\n[LUT] ---- String %u (%s) ----\r\n",
-           (unsigned)s_str, s_string_names[s_str]);
+           (unsigned)s_str, s_string_names[TuningCtrl_GetActiveTuning()][s_str]);
     printf("[LUT] Target frequencies (frets 0-6):\r\n");
     printf("[LUT]   ");
     for (uint8_t f = 0u; f < LUT_NUM_FRETS; f++) {
@@ -328,7 +329,7 @@ static void InitString(void)
     }
     printf("\r\n");
     printf("[LUT] Pluck the %s string and keep it ringing...\r\n",
-           s_string_names[s_str]);
+           s_string_names[TuningCtrl_GetActiveTuning()][s_str]);
 
     s_phase = LUT_PHASE_WAIT_FOR_SIGNAL;
 }
@@ -413,11 +414,11 @@ void LutBuilder_Hop(void)
             s_no_sig_cnt++;
             if (s_no_sig_cnt % LUT_NO_SIG_PROMPT_HOPS == 0u && s_no_sig_cnt > 0u) {
                 printf("[LUT] No signal — pluck the %s string...\r\n",
-                       s_string_names[s_str]);
+                       s_string_names[TuningCtrl_GetActiveTuning()][s_str]);
             }
             if (s_no_sig_cnt >= LUT_NO_SIG_ERROR_HOPS) {
                 printf("[LUT] ERROR: no signal for string %u (%s) after %u hops.\r\n",
-                       (unsigned)s_str, s_string_names[s_str],
+                       (unsigned)s_str, s_string_names[TuningCtrl_GetActiveTuning()][s_str],
                        (unsigned)s_no_sig_cnt);
                 s_phase  = LUT_PHASE_ERROR;
                 s_status = LUT_STATUS_ERROR;
@@ -469,11 +470,11 @@ void LutBuilder_Hop(void)
 
             if (s_no_sig_cnt % LUT_NO_SIG_PROMPT_HOPS == 0u && s_no_sig_cnt > 0u) {
                 printf("[LUT] No signal — pluck the %s string again...\r\n",
-                       s_string_names[s_str]);
+                       s_string_names[TuningCtrl_GetActiveTuning()][s_str]);
             }
             if (s_no_sig_cnt >= LUT_NO_SIG_ERROR_HOPS) {
                 printf("[LUT] ERROR: lost signal on string %u (%s) at fret %u.\r\n",
-                       (unsigned)s_str, s_string_names[s_str],
+                       (unsigned)s_str, s_string_names[TuningCtrl_GetActiveTuning()][s_str],
                        (unsigned)s_current_fret);
                 InterCore_SendMotorGoto(s_str, 0);
                 s_phase  = LUT_PHASE_ERROR;
