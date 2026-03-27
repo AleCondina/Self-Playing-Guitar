@@ -1,0 +1,182 @@
+[FFT] 1 peak(s): 82.33 Hz (3550873)  
+calibrate 0
+
+  Requesting calibration sweep (mask 0x01)...
+  Watch [CAL] output. Type 'smoke' when done.
+> [CAL] Cleared stale tune offsets for mask 0x01
+[CAL] ================================================
+[CAL] Fret calibration started ��� mask 0x01
+[CAL] Burst: 1000 ms primary / 300 ms re-excite
+[CAL] str, step, freq_hz
+[CAL] ================================================
+[CAL] -- String 0 (82.41 Hz) | top target 123.48 Hz (7 semitones, 14 pts)
+[CAL] >>> Pluck string 0 now (any fret is fine)!
+[CAL] str0: pluck detected 82.34 Hz ��� collecting (12 hops)...
+[CAL] str0: consensus 82.33 Hz (12/12 readings)
+[CAL] str0: pluck=82.33 Hz ��� FF homing target=9 steps
+[CAL] str0: at homing target (pos=7, target=9)
+[CAL] str0: open-freq burst 82.41 Hz ��� finding true open position
+[CAL] str0: OPEN LOCKED at 82.39 Hz (err 0.015 Hz, pos=9)
+[CAL] str0: open locked at 82.39 Hz, pos=9 ��� re-zeroing motor
+[CAL] 0, 0, 82.39 (open measured)
+[CAL] str0 neg | burst 82.39 Hz, motor �� -399 steps
+[CAL] str0 neg: LOCKED 77.49 Hz (err 0.292 Hz)
+[CAL] 0, -439, 78.61 (neg)
+[CAL] str0 t1 (0.5 st) | burst 82.39 Hz, motor pos=-439 err=0
+[CAL] str0 fret1: lock timeout (86.30 Hz) ��� re-excite 86.30 Hz (retry 1/3)
+[CAL] str0 fret1 | re-excite 86.30 Hz, continue to pos=410 (retry 1/3)
+[CAL] str0 fret1: lock timeout (86.22 Hz) ��� re-excite 86.22 Hz (retry 2/3)
+[CAL] str0 fret1 | re-excite 86.22 Hz, continue to pos=410 (retry 2/3)
+[CAL] str0 fret1 WARN: timeout after 3 retries
+[CAL] 0, 392, 86.80
+[CAL] str0 t2 (1.0 st) | burst 86.80 Hz, motor pos=392 err=0
+[CAL] str0 fret2: lock timeout (90.32 Hz) ��� re-excite 90.32 Hz (retry 1/3)
+[CAL] str0 fret2 | re-excite 90.32 Hz, continue to pos=690 (retry 1/3)
+[CAL] str0 fret2: lock timeout (90.49 Hz) — re-excite 90.49 Hz (retry 2/3)
+[CAL] str0 fret2 | re-excite 90.49 Hz, continue to pos=690 (retry 2/3)
+[CAL] str0 fret2 WARN: timeout after 3 retries
+[CAL] 0, 665, 90.41
+[CAL] str0 t3 (1.5 st) | burst 90.41 Hz, motor pos=664 err=-1
+[CAL] str0 fret3: lock timeout (93.49 Hz) �� re-excite 93.49 Hz (retry 1/3)
+[CAL] str0 fret3 | re-excite 93.49 Hz, continue to pos=974 (retry 1/3)
+[CAL] str0 fret3: lock timeout (93.96 Hz) ��� re-excite 93.96 Hz (retry 2/3)
+[CAL] str0 fret3 | re-excite 93.96 Hz, continue to pos=974 (retry 2/3)
+[CAL] str0 fret3 WARN: timeout after 3 retries
+[CAL] 0, 938, 94.37
+[CAL] str0 t4 (2.0 st) | burst 94.37 Hz, motor pos=938 err=0
+[CAL] str0 fret4: lock timeout (96.00 Hz) ��� re-excite 96.00 Hz (retry 1/3)
+[CAL] str0 fret4 | re-excite 96.00 Hz, continue to pos=1263 (retry 1/3)
+[CAL] str0 fret4: lock timeout (96.28 Hz) ��� re-excite 96.28 Hz (retry 2/3)
+[CAL] str0 fret4 | re-excite 96.28 Hz, continue to pos=1263 (retry 2/3)
+[CAL] str0 fret4 WARN: max retries reached ��� recording best estimate
+[CAL] 0, 1238, 96.28
+[CAL] str0 t5 (2.5 st) | burst 96.28 Hz, motor pos=1238 err=0
+[CAL] str0 fret5: lock timeout (98.42 Hz) �� re-excite 98.42 Hz (retry 1/3)
+[CAL] str0 fret5 | re-excite 98.42 Hz, continue to pos=1556 (retry 1/3)
+[CAL] str0 fret5: lock timeout (98.86 Hz) �� re-excite 98.86 Hz (retry 2/3)
+[CAL] str0 fret5 | re-excite 98.86 Hz, continue to pos=1556 (retry 2/3)
+[CAL] str0 fret5 WARN: timeout after 3 retries
+[CAL] 0, 1527, 98.11
+[CAL] str0 t6 (3.0 st) | burst 98.11 Hz, motor pos=1527 err=0
+[CAL] str0 fret6: lock timeout (100.98 Hz) �� re-excite 100.98 Hz (retry 1/3)
+[CAL] str0 fret6 | re-excite 100.98 Hz, continue to pos=1853 (retry 1/3)
+[CAL] str0 fret6: lock timeout (100.89 Hz) ��� re-excite 100.89 Hz (retry 2/3)
+[CAL] str0 fret6 | re-excite 100.89 Hz, continue to pos=1853 (retry 2/3)
+[CAL] str0 fret6 WARN: timeout after 3 retries
+[CAL] 0, 1826, 100.85
+[CAL] str0 t7 (3.5 st) | burst 100.85 Hz, motor pos=1826 err=0
+[CAL] str0 fret7: lock timeout (103.56 Hz) �� re-excite 103.56 Hz (retry 1/3)
+[CAL] str0 fret7 | re-excite 103.56 Hz, continue to pos=2155 (retry 1/3)
+[CAL] str0 fret7: lock timeout (103.79 Hz) �� re-excite 103.79 Hz (retry 2/3)
+[CAL] str0 fret7 | re-excite 103.79 Hz, continue to pos=2155 (retry 2/3)
+[CAL] str0 fret7 WARN: timeout after 3 retries
+[CAL] 0, 2129, 103.68
+[CAL] str0 t8 (4.0 st) | burst 103.68 Hz, motor pos=2128 err=-1
+[CAL] str0 fret8: lock timeout (106.78 Hz) ��� re-excite 106.78 Hz (retry 1/3)
+[CAL] str0 fret8 | re-excite 106.78 Hz, continue to pos=2461 (retry 1/3)
+[CAL] str0 fret8: lock timeout (106.45 Hz) ��� re-excite 106.45 Hz (retry 2/3)
+[CAL] str0 fret8 | re-excite 106.45 Hz, continue to pos=2461 (retry 2/3)
+[CAL] str0 fret8 WARN: timeout after 3 retries
+[CAL] 0, 2436, 106.73
+[CAL] str0 t9 (4.5 st) | burst 106.73 Hz, motor pos=2436 err=0
+[CAL] str0 fret9: lock timeout (109.54 Hz) �� re-excite 109.54 Hz (retry 1/3)
+[CAL] str0 fret9 | re-excite 109.54 Hz, continue to pos=2771 (retry 1/3)
+[CAL] str0 fret9: lock timeout (109.32 Hz) ��� re-excite 109.32 Hz (retry 2/3)
+[CAL] str0 fret9 | re-excite 109.32 Hz, continue to pos=2771 (retry 2/3)
+[CAL] str0 fret9 WARN: timeout after 3 retries
+[CAL] 0, 2746, 109.42
+[CAL] str0 t10 (5.0 st) | burst 109.42 Hz, motor pos=2746 err=0
+[CAL] str0 fret10: signal lost at 111.41 Hz ��� re-excite 111.41 Hz (retry 1/3)
+[CAL] str0 fret10 | re-excite 111.41 Hz, continue to pos=3085 (retry 1/3)
+[CAL] str0 fret10: lock timeout (112.28 Hz) ��� re-excite 112.28 Hz (retry 2/3)
+[CAL] str0 fret10 | re-excite 112.28 Hz, continue to pos=3085 (retry 2/3)
+[CAL] str0 fret10 WARN: timeout after 3 retries
+[CAL] 0, 3063, 112.31
+[CAL] str0 t11 (5.5 st) | burst 112.31 Hz, motor pos=3063 err=0
+[CAL] str0 fret11: lock timeout (114.94 Hz) ��� re-excite 114.94 Hz (retry 1/3)
+[CAL] str0 fret11 | re-excite 114.94 Hz, continue to pos=3402 (retry 1/3)
+[CAL] str0 fret11: lock timeout (114.90 Hz) — re-excite 114.90 Hz (retry 2/3)
+[CAL] str0 fret11 | re-excite 114.90 Hz, continue to pos=3402 (retry 2/3)
+[CAL] str0 fret11 WARN: timeout after 3 retries
+[CAL] 0, 3388, 114.90
+[CAL] str0 t12 (6.0 st) | burst 114.90 Hz, motor pos=3388 err=0
+[CAL] str0 fret12: lock timeout (118.09 Hz) ��� re-excite 118.09 Hz (retry 1/3)
+[CAL] str0 fret12 | re-excite 118.09 Hz, continue to pos=3722 (retry 1/3)
+[CAL] str0 fret12: lock timeout (117.94 Hz) — re-excite 117.94 Hz (retry 2/3)
+[CAL] str0 fret12 | re-excite 117.94 Hz, continue to pos=3722 (retry 2/3)
+[CAL] str0 fret12 WARN: timeout after 3 retries
+[CAL] 0, 3709, 117.93
+[CAL] str0 t13 (6.5 st) | burst 117.93 Hz, motor pos=3709 err=0
+[CAL] str0 fret13: lock timeout (121.11 Hz) ��� re-excite 121.11 Hz (retry 1/3)
+[CAL] str0 fret13 | re-excite 121.11 Hz, continue to pos=4046 (retry 1/3)
+[CAL] str0 fret13: lock timeout (120.98 Hz) �� re-excite 120.98 Hz (retry 2/3)
+[CAL] str0 fret13 | re-excite 120.98 Hz, continue to pos=4046 (retry 2/3)
+[CAL] str0 fret13 WARN: timeout after 3 retries
+[CAL] 0, 4038, 120.91
+[CAL] str0 t14 (7.0 st) | burst 120.91 Hz, motor pos=4038 err=0
+[CAL] str0 fret14: LOCKED 123.59 Hz (err -0.119 Hz)
+[CAL] 0, 4372, 123.61
+[CAL] str0: 16 samples | open=82.39 Hz | top=123.61 Hz
+[CAL-LUT] 0, 0, 82.39, 0
+[CAL-LUT] 0, 1, 90.41, 665
+[CAL-LUT] 0, 2, 96.28, 1238
+[CAL-LUT] 0, 3, 103.68, 2129
+[CAL-LUT] 0, 4, 109.42, 2746
+[CAL-LUT] 0, 5, 117.93, 3709
+[CAL-LUT] 0, 6, 123.61, 4372
+[CAL-POLY] str0: a=-5389.792 b=35.2940 c=0.354956
+[CAL] Saved & verified in backup SRAM (0x38800000, 416 bytes)
+[CAL] str0: homing ��� burst 123.61 Hz, motor �� pos 0
+[CAL] str0: home lock timeout �� re-excite 85.00 Hz (retry 1/5)
+[CAL] str0: home lock timeout ��� re-excite 84.87 Hz (retry 2/5)
+[CAL] str0: home lock timeout ��� re-excite 84.77 Hz (retry 3/5)
+[CAL] str0: home lock timeout �� re-excite 84.67 Hz (retry 4/5)
+[CAL] str0: home timeout after 5 retries �� pos=-20
+[CAL] ================================================
+[CAL] Calibration complete ��� LUT and polynomial saved.
+[CAL] All motors returned to open-string position.
+[CAL] ================================================
+
+
+
+
+try 2
+┌────────┬───────────┬───────┬───────────┬───────────────────────┐
+  │ Target │ Semitones │ Steps │ Freq (Hz) │         Notes         │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t0     │ -1.0      │ -399  │ 76.79     │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t1     │ -0.5      │ -134  │ 77.06     │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t2     │ 0.0       │ 135   │ 78.13     │ open string           │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t3     │ 0.5       │ 410   │ 81.00     │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t4     │ 1.0       │ 690   │ 84.49     │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t5     │ 1.5       │ 974   │ 88.04     │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t6     │ 2.0       │ 1263  │ 91.21     │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t7     │ 2.5       │ 1556  │ 93.87     │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t8     │ 3.0       │ 1853  │ 96.37     │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t9     │ 3.5       │ 2155  │ 99.31     │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t10    │ 4.0       │ 2461  │ 102.09    │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t11    │ 4.5       │ 2771  │ 105.18    │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t12    │ 5.0       │ 3085  │ 108.09    │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t13    │ 5.5       │ 3402  │ 110.86    │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t14    │ 6.0       │ 3722  │ 116.55    │ re-excite, last-valid │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t15    │ 6.5       │ 4046  │ 117.30    │                       │
+  ├────────┼───────────┼───────┼───────────┼───────────────────────┤
+  │ t16    │ 7.0       │ 4372  │ 120.06    │                       │
+  └────────┴───────────┴───────┴───────────┴───────────────────────┘
+
+  Polynomial: a=-8199.598  b=105.9551  c=-0.016518
