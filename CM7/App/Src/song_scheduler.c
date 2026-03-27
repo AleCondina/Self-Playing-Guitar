@@ -265,6 +265,11 @@ uint8_t SongSched_IsActive(void)
     return s_active;
 }
 
+void SongSched_Stop(void)
+{
+    s_active = 0u;
+}
+
 void SongSched_Restart(void)
 {
     SongSched_Init();
