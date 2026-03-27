@@ -140,7 +140,7 @@ calibrate 0
 
 
 
-try 2
+-----------------try 2-----------------
 ┌────────┬───────────┬───────┬───────────┬───────────────────────┐
   │ Target │ Semitones │ Steps │ Freq (Hz) │         Notes         │
   ├────────┼───────────┼───────┼───────────┼───────────────────────┤
@@ -183,7 +183,7 @@ try 2
 
 
 
-try 3 with burst and listen:
+-----------------try 3 with burst and listen:-----------------
 
 [FFT] 2 peak(s): 82.47 Hz (3486320)  109.65 Hz (154989)  
 calibrate 0
@@ -264,3 +264,89 @@ calibrate 0
 > [FFT] 2 peak(s): 81.16 Hz (1656319)  132.25 Hz (157010)  
 [FFT] 2 peak(s): 81.19 Hz (1902727)  132.82 Hz (153330)  
 [FFT] 2 peak(s): 81.22 Hz (2081956)  135.84 Hz (156331)  
+
+
+
+-----------------calibrate with proper home-----------------
+
+FFT] 6 peak(s): 82.43 Hz (1211133)  334.76 Hz (1023207)  238.75 Hz (283809)  315.59 Hz (176066)  401.02 Hz (161203)  179.02 Hz (141204)  
+[FFT] 6 peak(s): 330.24 Hz (4614002)  412.29 Hz (3273838)  83.73 Hz (960898)  173.44 Hz (363885)  91.11 Hz (352349)  100.88 Hz (71116)  
+calibrate 0
+
+  Requesting calibration sweep (mask 0x01)...
+  Watch [CAL] output. Type 'smoke' when done.
+> [CAL] Cleared stale tune offsets for mask 0x01
+[CAL] ================================================
+[CAL] Fret calibration started ��� mask 0x01
+[CAL] Burst: 1000 ms primary / 300 ms re-excite
+[CAL] str, step, freq_hz
+[CAL] ================================================
+[CAL] -- String 0 (82.41 Hz) | -1 to +7 semitones, 17 pts
+[CAL] >>> Pluck string 0 now (any fret is fine)!
+[CAL] str0: pluck detected 82.61 Hz ��� collecting (12 hops)...
+[CAL] str0: consensus 82.32 Hz (12/12 readings)
+[CAL] str0: pluck=82.32 Hz ��� FF homing target=10 steps
+[CAL] str0: at homing target (pos=8, target=10)
+[CAL] str0: open-freq burst 82.41 Hz ��� finding true open position
+[CAL] str0: OPEN LOCKED at 82.32 Hz (-1.8 cents, pos=10)
+[CAL] str0: open locked at 82.32 Hz, pos=10 �� re-zeroing motor
+[CAL] str0 t0 (-1.0 st) | burst 77.78 Hz, motor pos=0 err=0
+[CAL] 0, -399, 82.09
+[CAL] str0 t1 (-0.5 st) | burst 80.06 Hz, motor pos=-399 err=0
+[CAL] 0, -134, 82.20
+[CAL] str0 t2 (0.0 st) | burst 82.41 Hz, motor pos=-134 err=0
+[CAL] 0, 135, 83.19
+[CAL] str0 t3 (0.5 st) | burst 84.82 Hz, motor pos=135 err=0
+[CAL] 0, 410, 86.72
+[CAL] str0 t4 (1.0 st) | burst 87.31 Hz, motor pos=410 err=0
+[CAL] 0, 690, 89.40
+[CAL] str0 t5 (1.5 st) | burst 89.87 Hz, motor pos=690 err=0
+[CAL] 0, 974, 91.55
+[CAL] str0 t6 (2.0 st) | burst 92.50 Hz, motor pos=974 err=0
+[CAL] 0, 1263, 94.13
+[CAL] str0 t7 (2.5 st) | burst 95.21 Hz, motor pos=1263 err=0
+[CAL] 0, 1556, 97.24
+[CAL] str0 t8 (3.0 st) | burst 98.00 Hz, motor pos=1556 err=0
+[CAL] 0, 1853, 100.72
+[CAL] str0 t9 (3.5 st) | burst 100.87 Hz, motor pos=1853 err=0
+[CAL] 0, 2155, 103.52
+[CAL] str0 t10 (4.0 st) | burst 103.83 Hz, motor pos=2155 err=0
+[CAL] 0, 2461, 106.04
+[CAL] str0 t11 (4.5 st) | burst 106.87 Hz, motor pos=2461 err=0
+[CAL] 0, 2771, 108.82
+[CAL] str0 t12 (5.0 st) | burst 110.00 Hz, motor pos=2771 err=0
+[CAL] 0, 3085, 109.58
+[CAL] str0 t13 (5.5 st) | burst 113.23 Hz, motor pos=3085 err=0
+[CAL] 0, 3402, 114.09
+[CAL] str0 t14 (6.0 st) | burst 116.55 Hz, motor pos=3402 err=0
+[CAL] 0, 3722, 115.87
+[CAL] str0 t15 (6.5 st) | burst 119.96 Hz, motor pos=3722 err=0
+[CAL] 0, 4046, 117.28
+[CAL] str0 t16 (7.0 st) | burst 123.48 Hz, motor pos=4046 err=0
+[CAL] 0, 4372, 118.59
+[CAL] str0: 17 samples | open=82.20 Hz | top=118.59 Hz
+[CAL-LUT] 0, 0, 82.20, -134
+[CAL-LUT] 0, 1, 89.40, 690
+[CAL-LUT] 0, 2, 94.13, 1263
+[CAL-LUT] 0, 3, 100.72, 1853
+[CAL-LUT] 0, 4, 106.04, 2461
+[CAL-LUT] 0, 5, 114.09, 3402
+[CAL-LUT] 0, 6, 118.59, 4372
+[CAL-POLY] str0: a=-4944.617 b=18.1350 c=0.495098
+[CAL-SEMI-FF] str0: steps = -90.8643·s² + 461.894��s + 33.396
+[CAL-SEMI-PLANT] str0: semi = 2.3806e-01��s�� + 1.8774e-03·s + -0.0000
+[CAL] Saved & verified in backup SRAM (0x38800000, 560 bytes)
+[CAL] str0: homing �� burst 82.41 Hz, motor �� pos 0
+[CAL] str0: home lock timeout ��� re-excite 82.41 Hz (retry 1/5)
+[CAL] str0: HOME LOCKED at 82.45 Hz (0.8 cents, pos=0)
+[CAL] ================================================
+[CAL] Calibration complete ��� LUT and polynomial saved.
+[CAL] All motors returned to open-string position.
+[CAL] ================================================
+
+[CMD] Calibration finished. Ready.
+> [FFT] 3 peak(s): 244.08 Hz (2076730)  162.47 Hz (1329432)  84.10 Hz (399962)  
+[FFT] 2 peak(s): 406.21 Hz (724938)  82.63 Hz (447204)  
+[FFT] 1 peak(s): 82.01 Hz (431555)  
+[FFT] 1 peak(s): 81.36 Hz (466643)  
+[FFT] 1 peak(s): 81.79 Hz (579423)  

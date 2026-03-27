@@ -118,6 +118,11 @@
 /** Lock-band deadband (Hz).  PI only accumulates outside this band. */
 #define CAL_LOCK_BAND_HZ            0.6f
 
+/** Cents-based lock accuracy for OPEN_PI_LOCK and HOME_PI_LOCK.
+ *  5 cents = 0.05 semitones.  More musically meaningful than a fixed Hz band
+ *  since the same Hz error is a larger pitch deviation at low frequencies. */
+#define CAL_LOCK_CENTS              5.0f
+
 /** Motor position (steps) within which we consider the string "at home". */
 #define CAL_HOME_POS_THRESHOLD      50
 
@@ -257,6 +262,9 @@ typedef struct {
     float    poly_a  [NUM_STRINGS];
     float    poly_b  [NUM_STRINGS];
     float    poly_c  [NUM_STRINGS];
+    /* Semitone-domain coefficients (added for v2 controller) */
+    float    semi_ff  [NUM_STRINGS][3];   /**< tuning_ff_semi_coeff[str][a,b,c] */
+    float    semi_plant[NUM_STRINGS][3];  /**< tuning_plant_coeff[str][a,b,c]   */
     uint32_t checksum;
 } __attribute__((packed)) CalPersist_t;
 
@@ -367,6 +375,13 @@ static inline float CalClampf(float v, float lo, float hi){
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
+}
+
+/** Compute pitch error in cents: 1200 × log2(meas / target). */
+static inline float CalErrorCents(float meas_f, float target_f)
+{
+    if (meas_f <= 0.0f || target_f <= 0.0f) return 9999.0f;
+    return 1200.0f * log2f(meas_f / target_f);
 }
 
 static void WaitThen(uint16_t hops, CalPhase_t next){
@@ -600,6 +615,134 @@ static void Cal_FitPolynomial(uint8_t str){
            (double)coeff[0], (double)coeff[1], (double)coeff[2]);
 }
 
+/**
+ * @brief Fit semitone-domain polynomials from s_buf[] data.
+ *
+ * Converts (steps, freq) → (steps, semi) using freq_to_semi, then fits:
+ *   Feedforward: steps = a·semi² + b·semi + c   (tuning_ff_semi_coeff)
+ *   Plant model: semi  = a·steps² + b·steps + c (tuning_plant_coeff)
+ *
+ * Uses the same Gaussian elimination approach as Cal_FitPolynomial.
+ */
+static void Cal_FitSemiPolynomial(uint8_t str)
+{
+    if (s_buf_n < 3u) {
+        printf("[CAL-SEMI] str%u: too few samples for semitone fit\r\n",
+               (unsigned)str);
+        return;
+    }
+
+    float open_f = s_open_freq[str];
+
+    /* --- Feedforward fit: steps = a·semi² + b·semi + c --- */
+    {
+        double S0=0, S1=0, S2=0, S3=0, S4=0, T0=0, T1=0, T2=0;
+
+        for (uint16_t i = 0u; i < s_buf_n; i++) {
+            double semi = 12.0 * log2((double)s_buf[i].freq / (double)open_f);
+            double y    = (double)s_buf[i].steps;
+            double x2   = semi * semi;
+            S0 += 1.0;   S1 += semi;     S2 += x2;
+            S3 += x2*semi; S4 += x2*x2;
+            T0 += y;     T1 += semi*y;   T2 += x2*y;
+        }
+
+        double A[3][4] = {
+            { S0, S1, S2, T0 },
+            { S1, S2, S3, T1 },
+            { S2, S3, S4, T2 }
+        };
+
+        uint8_t ok = 1u;
+        for (int piv = 0; piv < 3; piv++) {
+            int maxRow = piv;
+            for (int r = piv + 1; r < 3; r++) {
+                if (fabs(A[r][piv]) > fabs(A[maxRow][piv])) maxRow = r;
+            }
+            for (int c = 0; c < 4; c++) {
+                double tmp = A[piv][c]; A[piv][c] = A[maxRow][c]; A[maxRow][c] = tmp;
+            }
+            if (fabs(A[piv][piv]) < 1e-12) { ok = 0u; break; }
+            for (int r = piv + 1; r < 3; r++) {
+                double factor = A[r][piv] / A[piv][piv];
+                for (int c = piv; c < 4; c++) A[r][c] -= factor * A[piv][c];
+            }
+        }
+
+        if (ok) {
+            double coeff[3];
+            for (int i = 2; i >= 0; i--) {
+                coeff[i] = A[i][3];
+                for (int j = i + 1; j < 3; j++) coeff[i] -= A[i][j] * coeff[j];
+                coeff[i] /= A[i][i];
+            }
+            tuning_ff_semi_coeff[str][0] = (float)coeff[0];  /* a (semi²) */
+            tuning_ff_semi_coeff[str][1] = (float)coeff[1];  /* b (semi)  */
+            tuning_ff_semi_coeff[str][2] = (float)coeff[2];  /* c (const) */
+
+            printf("[CAL-SEMI-FF] str%u: steps = %.4f·s² + %.3f·s + %.3f\r\n",
+                   (unsigned)str, coeff[0], coeff[1], coeff[2]);
+        } else {
+            printf("[CAL-SEMI-FF] str%u: singular — keeping existing\r\n",
+                   (unsigned)str);
+        }
+    }
+
+    /* --- Plant model fit: semi = a·steps² + b·steps + c --- */
+    {
+        double S0=0, S1=0, S2=0, S3=0, S4=0, T0=0, T1=0, T2=0;
+
+        for (uint16_t i = 0u; i < s_buf_n; i++) {
+            double x    = (double)s_buf[i].steps;
+            double semi = 12.0 * log2((double)s_buf[i].freq / (double)open_f);
+            double x2   = x * x;
+            S0 += 1.0;   S1 += x;      S2 += x2;
+            S3 += x2*x;  S4 += x2*x2;
+            T0 += semi;  T1 += x*semi;  T2 += x2*semi;
+        }
+
+        double A[3][4] = {
+            { S0, S1, S2, T0 },
+            { S1, S2, S3, T1 },
+            { S2, S3, S4, T2 }
+        };
+
+        uint8_t ok = 1u;
+        for (int piv = 0; piv < 3; piv++) {
+            int maxRow = piv;
+            for (int r = piv + 1; r < 3; r++) {
+                if (fabs(A[r][piv]) > fabs(A[maxRow][piv])) maxRow = r;
+            }
+            for (int c = 0; c < 4; c++) {
+                double tmp = A[piv][c]; A[piv][c] = A[maxRow][c]; A[maxRow][c] = tmp;
+            }
+            if (fabs(A[piv][piv]) < 1e-12) { ok = 0u; break; }
+            for (int r = piv + 1; r < 3; r++) {
+                double factor = A[r][piv] / A[piv][piv];
+                for (int c = piv; c < 4; c++) A[r][c] -= factor * A[piv][c];
+            }
+        }
+
+        if (ok) {
+            double coeff[3];
+            for (int i = 2; i >= 0; i--) {
+                coeff[i] = A[i][3];
+                for (int j = i + 1; j < 3; j++) coeff[i] -= A[i][j] * coeff[j];
+                coeff[i] /= A[i][i];
+            }
+            tuning_plant_coeff[str][0] = (float)coeff[0];  /* a (steps²) */
+            tuning_plant_coeff[str][1] = (float)coeff[1];  /* b (steps)  */
+            tuning_plant_coeff[str][2] = (float)coeff[2];  /* c (const)  */
+
+            printf("[CAL-SEMI-PLANT] str%u: semi = %.4e·s² + %.4e·s + %.4f\r\n",
+                   (unsigned)str, coeff[0], coeff[1], coeff[2]);
+        } else {
+            printf("[CAL-SEMI-PLANT] str%u: singular — keeping existing\r\n",
+                   (unsigned)str);
+        }
+    }
+}
+
 /* =========================================================================
  * Persistent storage
  * ========================================================================= */
@@ -618,6 +761,11 @@ static void Cal_SaveToSRAM(void){
         p->poly_b[i] = cal_poly_coeff[i][1];
         p->poly_c[i] = cal_poly_coeff[i][2];
     }
+
+    /* Semitone-domain coefficients */
+    memcpy(p->semi_ff,    tuning_ff_semi_coeff, sizeof(tuning_ff_semi_coeff));
+    memcpy(p->semi_plant, tuning_plant_coeff,   sizeof(tuning_plant_coeff));
+
     __DSB();
     p->checksum = CalChecksum(p);
     __DSB();
@@ -668,6 +816,26 @@ uint8_t Cal_LoadFromSRAM(void){
         cal_poly_coeff[i][2] = p->poly_c[i];
     }
 
+    /* Semitone-domain coefficients — check for non-zero to detect old SRAM
+     * layouts that don't have these fields (they'd read as all-zero). */
+    {
+        uint8_t has_semi = 0u;
+        for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
+            if (p->semi_ff[i][0] != 0.0f || p->semi_ff[i][1] != 0.0f ||
+                p->semi_ff[i][2] != 0.0f) {
+                has_semi = 1u;
+                break;
+            }
+        }
+        if (has_semi) {
+            memcpy(tuning_ff_semi_coeff, p->semi_ff,    sizeof(tuning_ff_semi_coeff));
+            memcpy(tuning_plant_coeff,   p->semi_plant, sizeof(tuning_plant_coeff));
+            printf("[CAL] Semitone-domain coefficients restored.\r\n");
+        } else {
+            printf("[CAL] No semitone coefficients in SRAM — using defaults.\r\n");
+        }
+    }
+
     printf("[CAL] Calibration restored from backup SRAM.\r\n");
     return 1u;
 }
@@ -692,6 +860,12 @@ void Cal_FitFromBaseLUT(void){
             s_buf[i].steps = tuning_ff_steps_bp[str][i];
         }
         Cal_FitPolynomial(str);
+
+        /* Seed semitone-domain coefficients from the base LUT too,
+         * but skip string 0 (E2) which has MATLAB-derived values. */
+        if (str != 0u) {
+            Cal_FitSemiPolynomial(str);
+        }
     }
     s_buf_n = 0u;
 }
@@ -1063,8 +1237,10 @@ void Cal_Hop(void){
             s_last_valid_freq = meas_f;
             s_pi_no_sig_cnt   = 0u;
 
-            float error     = target_freq - meas_f;
-            float abs_error = fabsf(error);
+            float error      = target_freq - meas_f;
+            float abs_error  = fabsf(error);
+            float error_cents = CalErrorCents(meas_f, target_freq);
+            float abs_cents   = fabsf(error_cents);
 
             /* Dynamic trim cap:
              * If the frequency error is shrinking → PI is working, let it
@@ -1073,17 +1249,17 @@ void Cal_Hop(void){
              * hops → stall / dead string / false reading → re-engage the
              * hard CAL_PI_MAX_TRIM cap to stop runaway accumulation.       */
             if (abs_error < s_pi_last_abs_error) {
-                s_pi_stall_cnt = 0u;                        /* converging — reset stall counter */
+                s_pi_stall_cnt = 0u;
             } else {
                 if (s_pi_stall_cnt < CAL_OPEN_STALL_HOPS) s_pi_stall_cnt++;
             }
             s_pi_last_abs_error = abs_error;
 
             float trim_cap = (s_pi_stall_cnt < CAL_OPEN_STALL_HOPS)
-                             ? (float)s_cal_steps_max[s_str]  /* converging: full range  */
-                             : CAL_PI_MAX_TRIM;               /* stalled:    hard cap    */
+                             ? (float)s_cal_steps_max[s_str]
+                             : CAL_PI_MAX_TRIM;
 
-            if (abs_error > CAL_LOCK_BAND_HZ) {
+            if (abs_cents > CAL_LOCK_CENTS) {
                 s_pi_integral = CalClampf(
                     s_pi_integral + CAL_PI_KI * error * TUNING_SAMPLE_TIME_S,
                     -trim_cap, trim_cap);
@@ -1106,9 +1282,9 @@ void Cal_Hop(void){
             }
 
             if (s_pi_lock_consec >= CAL_LOCK_CONSEC_HOPS) {
-                printf("[CAL] str%u: OPEN LOCKED at %.2f Hz (err %.3f Hz, pos=%ld)\r\n",
+                printf("[CAL] str%u: OPEN LOCKED at %.2f Hz (%.1f cents, pos=%ld)\r\n",
                        (unsigned)s_str, (double)meas_f,
-                       (double)(target_freq - meas_f),
+                       (double)error_cents,
                        (long)g_shared_memory.current_positions[s_str]);
                 s_phase = CAL_PHASE_OPEN_DONE;
                 break;
@@ -1209,10 +1385,25 @@ void Cal_Hop(void){
                (unsigned)s_str, (double)s_last_valid_freq, (long)locked_pos);
 
         /* Re-zero: set the current physical position as the new software
-         * position 0 on CM4.  After this, poly(open_freq) ≈ 0 steps is
-         * accurate and all fret polynomial targets are correct.           */
+         * position 0 on CM4.  After this, position 0 = true open string. */
         InterCore_SendMotorZero(s_str);
-        s_open_position_offset = 0;   /* offset is 0 — we re-zeroed */
+
+        /* The polynomial cal_poly_coeff was fitted in a PREVIOUS coordinate
+         * system.  In that system, poly(open_freq) != 0 in general.  After
+         * re-zeroing, position 0 = open, so we need:
+         *   motor_target = poly(target_freq) - poly(open_freq)
+         * Set the offset to -poly(open_freq) so SOL_BURST adds it. */
+        {
+            float _a = cal_poly_coeff[s_str][0];
+            float _b = cal_poly_coeff[s_str][1];
+            float _c = cal_poly_coeff[s_str][2];
+            float _of = s_open_freq[s_str];
+            float poly_at_open = _a + _b * _of + _c * _of * _of;
+            s_open_position_offset = -(int32_t)roundf(poly_at_open);
+            printf("[CAL] str%u: poly offset = %ld (poly(%.1f Hz) = %.1f)\r\n",
+                   (unsigned)s_str, (long)s_open_position_offset,
+                   (double)_of, (double)poly_at_open);
+        }
 
         /* Open-string point will be measured in the unified loop at
          * index 2 (0 semitones).  No s_buf recording here. */
@@ -1443,6 +1634,7 @@ void Cal_Hop(void){
     {
         Cal_BuildTable(s_str);
         Cal_FitPolynomial(s_str);
+        Cal_FitSemiPolynomial(s_str);
         Cal_SaveToSRAM();
 
         /* Transition to PI-based acoustic homing — drive motor back to
@@ -1458,10 +1650,10 @@ void Cal_Hop(void){
      * ------------------------------------------------------------------ */
     case CAL_PHASE_HOME_SOL_BURST:
     {
-        /* Use last measured fret frequency for excitation; fall back to
-         * open-string frequency if no samples were recorded. */
-        s_burst_freq = (s_buf_n > 0u) ? s_buf[s_buf_n - 1u].freq
-                                       : s_open_freq[s_str];
+        /* Burst at the OPEN-string frequency — not the last fret's freq.
+         * The motor is returning to position 0 (open), so exciting near
+         * 82 Hz (E2) ensures the string rings at its natural resonance. */
+        s_burst_freq = s_open_freq[s_str];
 
         printf("[CAL] str%u: homing — burst %.2f Hz, motor → pos %ld\r\n",
                (unsigned)s_str, (double)s_burst_freq, (long)s_open_position_offset);
@@ -1533,9 +1725,11 @@ void Cal_Hop(void){
             s_last_valid_freq = meas_f;
             s_pi_no_sig_cnt   = 0u;
 
-            float error = target_freq - meas_f;
+            float error       = target_freq - meas_f;
+            float error_cents = CalErrorCents(meas_f, target_freq);
+            float abs_cents   = fabsf(error_cents);
 
-            if (fabsf(error) > CAL_HOME_LOCK_BAND_HZ) {
+            if (abs_cents > CAL_LOCK_CENTS) {
                 s_pi_integral = CalClampf(
                     s_pi_integral + CAL_PI_KI * error * TUNING_SAMPLE_TIME_S,
                     -CAL_PI_MAX_TRIM, CAL_PI_MAX_TRIM);
@@ -1543,7 +1737,7 @@ void Cal_Hop(void){
                 float trim = CalClampf(CAL_PI_KP * error + s_pi_integral,
                                        -CAL_PI_MAX_TRIM, CAL_PI_MAX_TRIM);
                 int32_t cmd = (int32_t)CalClampf(
-                    (float)s_open_position_offset + trim,   /* target is measured open position */
+                    (float)s_open_position_offset + trim,
                     (float)TUNING_STEPS_MIN_DEFAULT,
                     (float)s_cal_steps_max[s_str]);
 
@@ -1558,9 +1752,9 @@ void Cal_Hop(void){
             }
 
             if (s_pi_lock_consec >= CAL_LOCK_CONSEC_HOPS) {
-                printf("[CAL] str%u: HOME LOCKED at %.2f Hz (err %.3f Hz, pos=%ld)\r\n",
+                printf("[CAL] str%u: HOME LOCKED at %.2f Hz (%.1f cents, pos=%ld)\r\n",
                        (unsigned)s_str, (double)meas_f,
-                       (double)(target_freq - meas_f),
+                       (double)error_cents,
                        (long)g_shared_memory.current_positions[s_str]);
                 s_phase = CAL_PHASE_HOME_DONE;
                 break;
@@ -1573,9 +1767,9 @@ void Cal_Hop(void){
                 s_retry_cnt++;
 
                 if (s_retry_cnt < CAL_HOME_MAX_RETRIES) {
-                    s_burst_freq = (s_last_valid_freq > 0.0f)
-                                   ? s_last_valid_freq
-                                   : target_freq;
+                    /* Always re-excite at the open-string frequency —
+                     * s_last_valid_freq may be a stale fret reading. */
+                    s_burst_freq = s_open_freq[s_str];
 
                     printf("[CAL] str%u: home signal lost — re-excite %.2f Hz "
                            "(retry %u/%u)\r\n",
@@ -1619,9 +1813,8 @@ void Cal_Hop(void){
             s_retry_cnt++;
 
             if (s_retry_cnt < CAL_HOME_MAX_RETRIES) {
-                s_burst_freq = (s_last_valid_freq > 0.0f)
-                               ? s_last_valid_freq
-                               : target_freq;
+                /* Always re-excite at the open-string frequency */
+                s_burst_freq = s_open_freq[s_str];
 
                 printf("[CAL] str%u: home lock timeout — re-excite %.2f Hz "
                        "(retry %u/%u)\r\n",
