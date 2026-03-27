@@ -110,31 +110,32 @@ static const SongNote_t song0_notes[] = {
 static const SongNote_t song1_notes[] = {
 
     /* ── Timing budget per note ──────────────────────────────────────── *
-     *  1200ms PI + 35ms burst + rest                                         *
+     *  1000ms total: 72 burst, max 520 FF, 340 PI                                         *
      *  Notes 0,1,3,4,7,8,10: rest=400ms → total=1635ms                      *
      *  Note 5:               rest=200ms → total=1435ms                      *
      *  Notes 2,6,9,11:       rest=650ms → total=1885ms                      *
      * ────────────────────────────────────────────────────────────────── */
 
-    /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    NOTE(0u, E2_HZ,   1635u,  72u),  /* #0  fret 0: cold start, rest=400   */
-    NOTE(0u, G2_HZ,   1635u,  72u),  /* #1  fret 3: G2,  rest=400          */
-    NOTE(0u, A2_HZ,   1885u,  72u),  /* #2  fret 5: A2,  rest=650          */
+    /* ── Measure 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
+    NOTE(0u, E2_HZ,   1000u,  72u),  /* #0  fret 0: cold start,   */
+    NOTE(0u, G2_HZ,   1000u,  72u),  /* #1  fret 3: G2,            */
+    NOTE(0u, A2_HZ,   1500u,  72u),  /* #2  fret 5: A2,            */
+    NOTE(0u, E2_HZ,   1000u,  72u),  /* #3  fret 0: E2,          */
+    
+    /* ── Measure 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
+    NOTE(0u, G2_HZ,   1000u,  72u),  /* #4  fret 3: G2,           */
+    NOTE(0u, As2_HZ,  500u,  72u),  /* #5  fret 6: As2,           */
+    NOTE(0u, A2_HZ,   2000u,  72u),  /* #6  fret 5: A2,           */
 
-    /* ── Phrase 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
-    NOTE(0u, E2_HZ,   1635u,  72u),  /* #3  fret 0: E2,  rest=400          */
-    NOTE(0u, G2_HZ,   1635u,  72u),  /* #4  fret 3: G2,  rest=400          */
-    NOTE(0u, As2_HZ,  1435u,  72u),  /* #5  fret 6: As2, rest=200          */
-    NOTE(0u, A2_HZ,   1885u,  72u),  /* #6  fret 5: A2,  rest=650          */
-
-    /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
-    NOTE(0u, E2_HZ,   1635u,  72u),  /* #7  fret 0: E2,  rest=400          */
-    NOTE(0u, G2_HZ,   1635u,  72u),  /* #8  fret 3: G2,  rest=400          */
-    NOTE(0u, A2_HZ,   1885u,  72u),  /* #9  fret 5: A2,  rest=650          */
-
+    /* ── Measure 3: same as measure 1 ─────────────────────────────────── */
+    NOTE(0u, E2_HZ,   1000u,  72u),  /* #0  fret 0: E2,    */
+    NOTE(0u, G2_HZ,   1000u,  72u),  /* #1  fret 3: G2,            */
+    NOTE(0u, A2_HZ,   1500u,  72u),  /* #2  fret 5: A2,            */
+    NOTE(0u, E2_HZ,   1500u,  72u),  /* #3  fret 0: E2,           */
+    
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    NOTE(0u, G2_HZ,   1635u,  72u),  /* #10 fret 3: G2,  rest=400          */
-    NOTE(0u, E2_HZ,   1885u,  72u),  /* #11 fret 0: E2,  rest=650          */
+    NOTE(0u, G2_HZ,   3000u,  144u),  /* #10 fret 3: G2,  rest=400          */
+              
 };
 
 /* =========================================================================
