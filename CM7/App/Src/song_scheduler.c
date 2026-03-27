@@ -131,10 +131,11 @@ static const SongNote_t song1_notes[] = {
     NOTE(0u, E2_HZ,   1000u,  72u),  /* #0  fret 0: E2,    */
     NOTE(0u, G2_HZ,   1000u,  72u),  /* #1  fret 3: G2,            */
     NOTE(0u, A2_HZ,   1500u,  72u),  /* #2  fret 5: A2,            */
-    NOTE(0u, E2_HZ,   1500u,  72u),  /* #3  fret 0: E2,           */
+    NOTE(0u, G2_HZ,   1000u,  72u),  /* #10 fret 3: G2,           */
     
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    NOTE(0u, G2_HZ,   3000u,  144u),  /* #10 fret 3: G2,  rest=400          */
+    
+     NOTE(0u, E2_HZ,   4000u,  72u),  /* #3  fret 0: E2,           */
               
 };
 
