@@ -887,7 +887,8 @@ static void Cmd_Smoke(char *args)
 static void Cmd_Smoke1(char *args)
 {
     (void)args;
-    printf("  Starting Smoke on the Water (single E2 string)...\r\n");
+    printf("  Setting motor speed to 60000 and starting Smoke on the Water (single E2 string)...\r\n");
+    InterCore_SendMotorMaxSpeed(0u, 60000);
     App_RequestPlaySong(1u);
 }
 

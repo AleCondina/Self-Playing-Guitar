@@ -377,6 +377,9 @@ void TuningCtrl_Update(uint8_t string_id,
         if (abs_e < TUNING_DEADBAND_SEMI) {
             s->lock_state = 1u;
             s->state      = TUNE_STATE_IN_TUNE;
+            printf("[TC-PI] str%u | LOCKED err=%.4f st, pos=%ld\r\n",
+                   (unsigned)string_id, (double)e,
+                   (long)s->current_abs_steps);
             break;
         }
 
@@ -396,6 +399,12 @@ void TuningCtrl_Update(uint8_t string_id,
         s->integral_state = Clampf(s->integral_state, int_min, int_max);
 
         pi_delta = kp_actual * e + TUNING_KI_Z * s->integral_state;
+
+        printf("[TC-PI] str%u | err=%.3f st, Kp=%.1f, integ=%.1f, pi_delta=%.1f, ff=%.0f, cmd=%.0f\r\n",
+               (unsigned)string_id, (double)e, (double)kp_actual,
+               (double)s->integral_state, (double)pi_delta,
+               (double)s->ff_steps_abs,
+               (double)(s->ff_steps_abs + pi_delta));
 
         s->lock_state = 0u;
         break;
@@ -578,6 +587,11 @@ void TuningCtrl_RunHop(void)
     float measured = 0.0f, confidence = 0.0f;
     GetFFTRadarLock(str, s_state[str].expected_freq_hz, target,
                     &measured, &confidence);
+    printf("[TC-DBG] str%u | tgt=%.2f exp=%.2f meas=%.2f mag=%.1f state=%u\r\n",
+           (unsigned)str, (double)target,
+           (double)s_state[str].expected_freq_hz,
+           (double)measured, (double)confidence,
+           (unsigned)s_state[str].state);
     TuningCtrl_Update(str, target, measured, confidence);
 
     /* ------------------------------------------------------------------ */

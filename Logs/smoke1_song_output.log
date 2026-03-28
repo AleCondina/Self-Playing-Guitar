@@ -403,3 +403,139 @@ smoke1
 stopsong
 
   Stopping song...
+
+
+
+
+
+
+  ------------- song with calibration and matlab values no resonance time-------------
+  [FFT] 2 peak(s): 111.84 Hz (3387121)  189.09 Hz (200210)  
+[TC-DBG] str0 | tgt=110.00 exp=110.08 meas=0.00 mag=0.0 state=3
+[FFT] 2 peak(s): 111.83 Hz (2787504)  189.04 Hz (193086)  
+[TC-DBG] str0 | tgt=110.00 exp=110.08 meas=0.00 mag=0.0 state=3
+[FFT] 2 peak(s): 111.83 Hz (2278706)  189.05 Hz (183154)  
+[TC-DBG] str0 | tgt=110.00 exp=110.08 meas=0.00 mag=0.0 state=3
+[FFT] 2 peak(s): 111.82 Hz (1856689)  189.15 Hz (177666)  
+[TC-DBG] str0 | tgt=110.00 exp=110.08 meas=0.00 mag=0.0 state=3
+[FFT] 2 peak(s): 111.82 Hz (1512551)  189.11 Hz (164901)  
+[TC-DBG] str0 | tgt=110.00 exp=110.08 meas=0.00 mag=0.0 state=3
+[TC] 418056,0,3,4.999,6.182,-1.1829,3104.6,3105,3105,0,0,0
+[FFT] 2 peak(s): 111.84 Hz (1233439)  189.14 Hz (157171)  
+[TC-DBG] str0 | tgt=82.41 exp=110.08 meas=0.00 mag=0.0 state=3
+[TC] Actuate str0: 82.4 Hz burst=72ms
+[FFT] 1 peak(s): 111.87 Hz (999667)  
+[TC-DBG] str0 | tgt=82.41 exp=82.37 meas=0.00 mag=0.0 state=2
+[FFT] 1 peak(s): 430.64 Hz (56348)  
+[TC-DBG] str0 | tgt=82.41 exp=82.37 meas=0.00 mag=0.0 state=2
+[FFT] 5 peak(s): 159.44 Hz (225083)  235.44 Hz (182885)  255.83 Hz (173148)  411.39 Hz (167609)  356.18 Hz (72438)  
+[TC-DBG] str0 | tgt=82.41 exp=82.37 meas=85.71 mag=587980.6 state=2
+[FFT] 2 peak(s): 85.71 Hz (587981)  241.36 Hz (193458)  
+[TC-DBG] str0 | tgt=82.41 exp=82.37 meas=84.44 mag=535339.7 state=3
+[TC-PI] str0 | err=-0.422 st, Kp=39.9, integ=-0.4, pi_delta=-18.8, ff=20, cmd=2
+[TC] 418918,0,3,0.000,0.422,-0.4219,20.4,2,27,0,535340,0
+[FFT] 3 peak(s): 84.44 Hz (535340)  157.74 Hz (350229)  241.08 Hz (182530)  
+[TC-DBG] str0 | tgt=82.41 exp=82.21 meas=84.20 mag=470613.3 state=3
+[TC-PI] str0 | err=-0.372 st, Kp=39.8, integ=-0.8, pi_delta=-18.5, ff=20, cmd=2
+[FFT] 2 peak(s): 84.20 Hz (470613)  158.05 Hz (338170)  
+[TC-DBG] str0 | tgt=98.00 exp=82.21 meas=83.85 mag=410780.5 state=3
+[TC] Actuate str0: 98.0 Hz burst=72ms
+[FFT] 1 peak(s): 83.85 Hz (410780)  
+[TC-DBG] str0 | tgt=98.00 exp=98.01 meas=0.00 mag=0.0 state=2
+[FFT] 4 peak(s): 167.91 Hz (1714345)  251.25 Hz (888431)  314.96 Hz (203233)  420.72 Hz (73269)  
+[TC-DBG] str0 | tgt=98.00 exp=98.01 meas=94.19 mag=737071.7 state=2
+[FFT] 3 peak(s): 94.19 Hz (737072)  201.33 Hz (124393)  386.83 Hz (65423)  
+[TC-DBG] str0 | tgt=98.00 exp=98.01 meas=95.05 mag=696329.1 state=3
+[TC] 419764,0,1,3.000,2.471,0.5283,1748.3,1748,1727,0,696329,0
+[FFT] 2 peak(s): 95.05 Hz (696329)  158.38 Hz (177701)  
+[TC-DBG] str0 | tgt=98.00 exp=98.01 meas=96.42 mag=625622.8 state=1
+[FFT] 2 peak(s): 96.42 Hz (625623)  157.78 Hz (160346)  
+[CM7] Song note 8/12 | CM4 loop 1000 Hz
+[TC-DBG] str0 | tgt=98.00 exp=98.01 meas=96.60 mag=558225.9 state=2
+[FFT] 1 peak(s): 96.60 Hz (558226)  
+[TC-DBG] str0 | tgt=110.00 exp=98.01 meas=96.66 mag=488720.0 state=3
+[TC] Actuate str0: 110.0 Hz burst=72ms
+[FFT] 1 peak(s): 96.66 Hz (488720)  
+[TC-DBG] str0 | tgt=110.00 exp=110.08 meas=0.00 mag=0.0 state=2
+[FFT] 3 peak(s): 192.07 Hz (867438)  290.85 Hz (530712)  171.55 Hz (197355)  
+[TC-DBG] str0 | tgt=110.00 exp=110.08 meas=0.00 mag=0.0 state=2
+[TC] 420616,0,2,4.999,2.761,2.2385,3104.6,3105,3027,0,0,0
+[FFT] 2 peak(s): 107.25 Hz (542296)  170.47 Hz (159584)  
+[TC-DBG] str0 | tgt=110.00 exp=110.08 meas=0.00 mag=0.0 state=2
+[FFT] 1 peak(s): 107.81 Hz (337479)  
+[TC-DBG] str0 | tgt=110.00 exp=110.08 meas=0.00 mag=0.0 state=2
+[FFT] 1 peak(s): 108.39 Hz (319164)  
+[TC-DBG] str0 | tgt=110.00 exp=110.08 meas=0.00 mag=0.0 state=2
+[FFT] 1 peak(s): 108.62 Hz (299262)  
+[TC-DBG] str0 | tgt=110.00 exp=110.08 meas=0.00 mag=0.0 state=2
+[FFT] 1 peak(s): 108.57 Hz (290217)  
+[TC-DBG] str0 | tgt=110.00 exp=110.08 meas=0.00 mag=0.0 state=2
+[TC] 421470,0,2,4.999,2.761,2.2385,3104.6,3105,3105,0,0,0
+[FFT] 1 peak(s): 108.64 Hz (285819)  
+[TC-DBG] str0 | tgt=110.00 exp=110.08 meas=0.00 mag=0.0 state=2
+[FFT] 1 peak(s): 108.69 Hz (263594)  
+[TC-DBG] str0 | tgt=98.00 exp=110.08 meas=0.00 mag=0.0 state=2
+[TC] Actuate str0: 98.0 Hz burst=72ms
+[FFT] 1 peak(s): 108.67 Hz (266032)  
+[TC-DBG] str0 | tgt=98.00 exp=98.01 meas=0.00 mag=0.0 state=2
+[FFT] 2 peak(s): 217.80 Hz (255963)  336.48 Hz (68791)  
+[TC-DBG] str0 | tgt=98.00 exp=98.01 meas=0.00 mag=0.0 state=2
+[FFT] 3 peak(s): 105.25 Hz (2359550)  188.95 Hz (284801)  299.36 Hz (119992)  
+[TC-DBG] str0 | tgt=98.00 exp=98.01 meas=100.94 mag=2146914.0 state=2
+[TC] 422324,0,3,3.000,3.511,-0.5112,1748.3,1748,1762,0,2146914,0
+[FFT] 2 peak(s): 100.94 Hz (2146914)  241.44 Hz (180083)  
+[TC-DBG] str0 | tgt=98.00 exp=98.01 meas=100.29 mag=2148760.0 state=3
+[TC-PI] str0 | err=-0.399 st, Kp=47.1, integ=-0.4, pi_delta=-20.7, ff=1748, cmd=1728
+[FFT] 2 peak(s): 100.29 Hz (2148760)  240.48 Hz (199845)  
+[TC-DBG] str0 | tgt=98.00 exp=97.83 meas=100.22 mag=2037936.1 state=3
+[TC-PI] str0 | err=-0.388 st, Kp=47.0, integ=-0.8, pi_delta=-22.0, ff=1748, cmd=1726
+[FFT] 2 peak(s): 100.22 Hz (2037936)  157.53 Hz (163033)  
+[TC-DBG] str0 | tgt=82.41 exp=97.81 meas=100.10 mag=1933044.0 state=3
+[TC] Actuate str0: 82.4 Hz burst=72ms
+[FFT] 2 peak(s): 100.10 Hz (1933044)  157.34 Hz (164273)  
+[TC-DBG] str0 | tgt=82.41 exp=82.37 meas=0.00 mag=0.0 state=2
+[FFT] 1 peak(s): 99.15 Hz (1511030)  
+[TC-DBG] str0 | tgt=82.41 exp=82.37 meas=0.00 mag=0.0 state=2
+[TC] 423176,0,2,0.000,3.367,-3.3670,20.4,20,131,0,0,0
+[FFT] 4 peak(s): 259.70 Hz (316270)  242.16 Hz (314551)  190.32 Hz (232103)  155.58 Hz (230046)  
+[TC-DBG] str0 | tgt=82.41 exp=82.37 meas=84.95 mag=1695641.9 state=2
+[FFT] 4 peak(s): 84.95 Hz (1695642)  157.98 Hz (231966)  189.59 Hz (229248)  241.56 Hz (222926)  
+[TC-DBG] str0 | tgt=82.41 exp=82.37 meas=84.20 mag=1414557.4 state=3
+[TC-PI] str0 | err=-0.373 st, Kp=39.8, integ=-0.4, pi_delta=-16.6, ff=20, cmd=4
+[FFT] 4 peak(s): 84.20 Hz (1414557)  158.04 Hz (231103)  189.38 Hz (207766)  241.63 Hz (197255)  
+[TC-DBG] str0 | tgt=82.41 exp=82.22 meas=84.07 mag=1294706.0 state=3
+[TC-PI] str0 | err=-0.346 st, Kp=39.8, integ=-0.7, pi_delta=-17.1, ff=20, cmd=3
+[FFT] 4 peak(s): 84.07 Hz (1294706)  157.90 Hz (215659)  241.65 Hz (200020)  189.91 Hz (168898)  
+[TC-DBG] str0 | tgt=82.41 exp=82.22 meas=83.93 mag=1177647.5 state=3
+[TC-PI] str0 | err=-0.316 st, Kp=39.7, integ=-1.0, pi_delta=-17.4, ff=20, cmd=3
+[FFT] 4 peak(s): 83.93 Hz (1177648)  241.29 Hz (193965)  157.94 Hz (185540)  189.59 Hz (163740)  
+[TC-DBG] str0 | tgt=82.41 exp=82.22 meas=83.90 mag=1085653.8 state=3
+[TC-PI] str0 | err=-0.311 st, Kp=39.7, integ=-1.3, pi_delta=-18.7, ff=20, cmd=2
+[TC] 424037,0,3,0.000,0.311,-0.3110,20.4,3,4,0,1085654,0
+[FFT] 3 peak(s): 83.90 Hz (1085654)  157.88 Hz (164687)  241.46 Hz (159635)  
+[TC-DBG] str0 | tgt=82.41 exp=82.22 meas=83.89 mag=994361.6 state=3
+[TC-PI] str0 | err=-0.308 st, Kp=39.7, integ=-1.7, pi_delta=-20.0, ff=20, cmd=0
+[FFT] 1 peak(s): 83.89 Hz (994362)  
+[TC-DBG] str0 | tgt=82.41 exp=82.22 meas=83.88 mag=903203.2 state=3
+[TC-PI] str0 | err=-0.307 st, Kp=39.7, integ=-2.0, pi_delta=-21.4, ff=20, cmd=-1
+[FFT] 1 peak(s): 83.88 Hz (903203)  
+[TC-DBG] str0 | tgt=82.41 exp=82.22 meas=83.91 mag=816944.9 state=3
+[TC-PI] str0 | err=-0.312 st, Kp=39.7, integ=-2.3, pi_delta=-23.1, ff=20, cmd=-3
+[FFT] 1 peak(s): 83.91 Hz (816945)  
+[TC-DBG] str0 | tgt=82.41 exp=82.16 meas=83.89 mag=734759.6 state=3
+[TC-PI] str0 | err=-0.308 st, Kp=39.7, integ=-2.6, pi_delta=-24.4, ff=20, cmd=-4
+[FFT] 1 peak(s): 83.89 Hz (734760)  
+stopsong
+
+  Stopping song...
+> [CMD] Song stopped.
+> [FFT] 1 peak(s): 83.84 Hz (665728)  
+[FFT] 1 peak(s): 83.88 Hz (590732)  
+[FFT] 1 peak(s): 83.85 Hz (502366)  
+[FFT] 1 peak(s): 83.80 Hz (432569)  
+[FFT] 1 peak(s): 83.81 Hz (359362)  
+
+
+
+
+-----------------

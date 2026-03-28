@@ -350,3 +350,388 @@ calibrate 0
 [FFT] 1 peak(s): 82.01 Hz (431555)  
 [FFT] 1 peak(s): 81.36 Hz (466643)  
 [FFT] 1 peak(s): 81.79 Hz (579423)  
+
+
+
+
+---------------calibrate with PI try 1----------------
+[FFT] 2 peak(s): 82.47 Hz (5049632)  337.61 Hz (103094)  
+[FFT] 1 peak(s): 82.50 Hz (4752358)  
+calibrate 0
+
+  Requesting calibration sweep (mask 0x01)...
+  Watch [CAL] output. Type 'smoke' when done.
+> [CAL] Cleared stale tune offsets for mask 0x01
+[CAL] ================================================
+[CAL] Fret calibration started �� mask 0x01
+[CAL] Burst: 1000 ms primary / 300 ms re-excite
+[CAL] str, step, freq_hz
+[CAL] ================================================
+[CAL] -- String 0 (82.41 Hz) | -1 to +7 semitones, 17 pts
+[CAL] >>> Pluck string 0 now (any fret is fine)!
+[CAL] str0: pluck detected 82.45 Hz ��� collecting (12 hops)...
+[CAL] str0: consensus 82.39 Hz (12/12 readings)
+[CAL] str0: pluck=82.39 Hz → FF homing target=2 steps
+[CAL] str0: at homing target (pos=2, target=2)
+[CAL] str0: open-freq burst 82.41 Hz �� finding true open position
+[CAL] str0: OPEN LOCKED at 82.42 Hz (0.2 cents, pos=2)
+[CAL] str0: open locked at 82.42 Hz, pos=2 �� re-zeroing motor
+[CAL] str0: poly offset = -136 (poly(82.4 Hz) = 135.7)
+[CAL] str0 t0 (-1.0 st) | burst 77.78 Hz, motor pos=0 err=0
+[CAL] str0 t0: fret lock timeout ��� re-excite 78.96 Hz (retry 1/3)
+[CAL] str0 t0: fret lock timeout ��� re-excite 76.27 Hz (retry 2/3)
+[CAL] str0 t0: fret timeout after 3 retries — pos=-507
+[CAL] 0, -507, 76.09
+[CAL] str0 t1 (-0.5 st) | burst 80.06 Hz, motor pos=-507 err=0
+[CAL] str0 t1: fret lock timeout ��� re-excite 76.83 Hz (retry 1/3)
+[CAL] str0 t1: fret lock timeout �� re-excite 76.31 Hz (retry 2/3)
+[CAL] str0 t1: fret timeout after 3 retries �� pos=-192
+[CAL] 0, -192, 76.24
+[CAL] str0 t2 (0.0 st) | burst 82.41 Hz, motor pos=-192 err=0
+[CAL] str0 t2: fret lock timeout ��� re-excite 76.65 Hz (retry 1/3)
+[CAL] str0 t2: fret lock timeout ��� re-excite 76.86 Hz (retry 2/3)
+[CAL] str0 t2: fret timeout after 3 retries �� pos=117
+[CAL] 0, 117, 77.15
+[CAL] str0 t3 (0.5 st) | burst 84.82 Hz, motor pos=117 err=0
+[CAL] str0 t3: fret lock timeout �� re-excite 79.71 Hz (retry 1/3)
+[CAL] str0 t3: fret lock timeout �� re-excite 79.40 Hz (retry 2/3)
+[CAL] str0 t3: fret timeout after 3 retries ��� pos=374
+[CAL] 0, 375, 79.96
+[CAL] str0 t4 (1.0 st) | burst 87.31 Hz, motor pos=375 err=0
+[CAL] str0 t4: fret lock timeout ��� re-excite 82.83 Hz (retry 1/3)
+[CAL] str0 t4: fret lock timeout ��� re-excite 83.43 Hz (retry 2/3)
+[CAL] str0 t4: fret timeout after 3 retries ��� pos=640
+[CAL] 0, 640, 83.53
+[CAL] str0 t5 (1.5 st) | burst 89.87 Hz, motor pos=640 err=0
+[CAL] str0 t5: fret lock timeout ��� re-excite 86.25 Hz (retry 1/3)
+[CAL] str0 t5: fret lock timeout — re-excite 86.98 Hz (retry 2/3)
+[CAL] str0 t5: fret max retries �� accepting pos=890
+[CAL] 0, 890, 87.66
+[CAL] str0 t6 (2.0 st) | burst 92.50 Hz, motor pos=890 err=0
+[CAL] str0 t6: fret lock timeout �� re-excite 89.22 Hz (retry 1/3)
+[CAL] str0 t6: fret signal lost ��� re-excite 88.97 Hz (retry 2/3)
+[CAL] str0 t6: fret timeout after 3 retries ��� pos=1183
+[CAL] 0, 1183, 89.87
+[CAL] str0 t7 (2.5 st) | burst 95.21 Hz, motor pos=1183 err=0
+[CAL] str0 t7: fret lock timeout — re-excite 91.81 Hz (retry 1/3)
+[CAL] str0 t7: fret lock timeout ��� re-excite 91.90 Hz (retry 2/3)
+[CAL] str0 t7: fret timeout after 3 retries �� pos=1487
+[CAL] 0, 1487, 91.90
+[CAL] str0 t8 (3.0 st) | burst 98.00 Hz, motor pos=1487 err=0
+[CAL] str0 t8: fret lock timeout �� re-excite 94.67 Hz (retry 1/3)
+[CAL] str0 t8: fret lock timeout — re-excite 94.78 Hz (retry 2/3)
+[CAL] str0 t8: fret max retries �� accepting pos=1775
+[CAL] 0, 1775, 95.64
+[CAL] str0 t9 (3.5 st) | burst 100.87 Hz, motor pos=1775 err=0
+[CAL] str0 t9: fret lock timeout ��� re-excite 97.72 Hz (retry 1/3)
+[CAL] str0 t9: fret lock timeout ��� re-excite 98.07 Hz (retry 2/3)
+[CAL] str0 t9: fret timeout after 3 retries ��� pos=2083
+[CAL] 0, 2083, 99.04
+[CAL] str0 t10 (4.0 st) | burst 103.83 Hz, motor pos=2083 err=0
+[CAL] str0 t10: fret lock timeout ��� re-excite 100.61 Hz (retry 1/3)
+[CAL] str0 t10: fret lock timeout — re-excite 101.53 Hz (retry 2/3)
+[CAL] str0 t10: fret timeout after 3 retries ��� pos=2385
+[CAL] 0, 2385, 101.64
+[CAL] str0 t11 (4.5 st) | burst 106.87 Hz, motor pos=2385 err=0
+[CAL] str0 t11: fret lock timeout — re-excite 103.85 Hz (retry 1/3)
+[CAL] str0 t11: fret lock timeout ��� re-excite 105.62 Hz (retry 2/3)
+[CAL] str0 t11: fret timeout after 3 retries ��� pos=2683
+[CAL] 0, 2683, 105.67
+[CAL] str0 t12 (5.0 st) | burst 110.00 Hz, motor pos=2683 err=0
+[CAL] str0 t12: fret lock timeout ��� re-excite 107.48 Hz (retry 1/3)
+[CAL] str0 t12: fret lock timeout �� re-excite 107.87 Hz (retry 2/3)
+[CAL] str0 t12: fret timeout after 3 retries �� pos=3008
+[CAL] 0, 3008, 108.76
+[CAL] str0 t13 (5.5 st) | burst 113.23 Hz, motor pos=3008 err=0
+[CAL] str0 t13: fret lock timeout ��� re-excite 109.26 Hz (retry 1/3)
+[CAL] str0 t13: fret lock timeout ��� re-excite 110.12 Hz (retry 2/3)
+[CAL] str0 t13: fret timeout after 3 retries ��� pos=3335
+[CAL] 0, 3339, 109.79
+[CAL] str0 t14 (6.0 st) | burst 116.55 Hz, motor pos=3340 err=1
+[CAL] str0 t14: fret lock timeout ��� re-excite 112.34 Hz (retry 1/3)
+[CAL] str0 t14: fret lock timeout — re-excite 113.65 Hz (retry 2/3)
+[CAL] str0 t14: fret timeout after 3 retries ��� pos=3652
+[CAL] 0, 3652, 113.78
+[CAL] str0 t15 (6.5 st) | burst 119.96 Hz, motor pos=3652 err=0
+[CAL] str0 t15: fret signal lost �� re-excite 116.34 Hz (retry 1/3)
+[CAL] str0 t15: fret lock timeout — re-excite 116.30 Hz (retry 2/3)
+[CAL] str0 t15: fret timeout after 3 retries ��� pos=3967
+[CAL] 0, 3968, 116.60
+[CAL] str0 t16 (7.0 st) | burst 123.48 Hz, motor pos=3968 err=0
+[CAL] str0 t16: fret lock timeout — re-excite 118.73 Hz (retry 1/3)
+[CAL] str0 t16: fret lock timeout ��� re-excite 119.11 Hz (retry 2/3)
+[CAL] str0 t16: fret timeout after 3 retries ��� pos=4331
+[CAL] 0, 4332, 119.57
+[CAL] str0: 17 samples | open=77.15 Hz | top=119.57 Hz
+[CAL-LUT] 0, 0, 77.15, 117
+[CAL-LUT] 0, 1, 83.53, 640
+[CAL-LUT] 0, 2, 91.90, 1487
+[CAL-LUT] 0, 3, 99.04, 2083
+[CAL-LUT] 0, 4, 105.67, 2683
+[CAL-LUT] 0, 5, 113.78, 3652
+[CAL-LUT] 0, 6, 119.57, 4332
+[CAL-POLY] str0: a=-6871.660 b=78.8205 c=0.120597
+[CAL-SEMI-FF] str0: steps = 436.8362��s�� + 470.938·s + 18.908
+[CAL-SEMI-PLANT] str0: semi = -9.0129e-01��s² + 2.0732e-03��s + -0.0000
+[CAL] Saved & verified in backup SRAM (0x38800000, 560 bytes)
+[CAL] str0: homing ��� burst 82.41 Hz, motor ��� pos -136
+[CAL] str0: home lock timeout �� re-excite 82.41 Hz (retry 1/5)
+[CAL] str0: HOME LOCKED at 82.21 Hz (-4.2 cents, pos=-129)
+[CAL] ================================================
+[CAL] Calibration complete ��� LUT and polynomial saved.
+[CAL] All motors returned to open-string position.
+[CAL] ================================================
+
+[CMD] Calibration finished. Ready.
+> [FFT] 1 peak(s): 81.99 Hz (727761)  
+[FFT] 1 peak(s): 81.32 Hz (651414)  
+
+
+
+
+------------------calibration with harder PI but still has zero issue --------------------
+
+[FFT] 1 peak(s): 81.84 Hz (1111142)  
+[FFT] 1 peak(s): 81.81 Hz (1110834)  
+[FFT] 1 peak(s): 81.83 Hz (1121730)  
+calibrate 0
+
+  Requesting calibration sweep (mask 0x01)...
+  Watch [CAL] output. Type 'smoke' when done.
+> [CAL] Cleared stale tune offsets for mask 0x01
+[CAL] ================================================
+[CAL] Fret calibration started �� mask 0x01
+[CAL] Burst: 1000 ms primary / 300 ms re-excite
+[CAL] str, step, freq_hz
+[CAL] ================================================
+[CAL] -- String 0 (82.41 Hz) | -1 to +7 semitones, 17 pts
+[CAL] >>> Pluck string 0 now (any fret is fine)!
+[CAL] str0: pluck detected 81.76 Hz �� collecting (12 hops)...
+[CAL] str0: consensus 81.84 Hz (12/12 readings)
+[CAL] str0: pluck=81.84 Hz �� FF homing target=65 steps
+[CAL] str0: at homing target (pos=52, target=65)
+[CAL] str0: open-freq burst 82.41 Hz �� finding true open position
+[CAL] str0: open lock timeout ��� re-excite 81.96 Hz (retry 1/3)
+[CAL] str0: OPEN LOCKED at 82.18 Hz (-4.8 cents, pos=70)
+[CAL] str0: open locked at 82.18 Hz, pos=70 �� re-zeroing motor
+[CAL] str0: poly offset = -136 (poly(82.4 Hz) = 135.7)
+[CAL] str0 t0 (-1.0 st) | burst 77.78 Hz, motor pos=0 err=0
+[CAL] str0 t0: fret lock timeout ��� re-excite 78.93 Hz (retry 1/3)
+[CAL] str0 t0: fret lock timeout ��� re-excite 78.20 Hz (retry 2/3)
+[CAL] str0 t0: FRET LOCKED at 77.95 Hz (3.7 cents, pos=-652)
+[CAL] 0, -652, 77.95
+[CAL] str0 t1 (-0.5 st) | burst 80.06 Hz, motor pos=-652 err=0
+[CAL] str0 t1: fret lock timeout �� re-excite 78.33 Hz (retry 1/3)
+[CAL] str0 t1: fret lock timeout — re-excite 78.69 Hz (retry 2/3)
+[CAL] str0 t1: fret timeout after 3 retries ��� pos=2
+[CAL] 0, 4, 78.82
+[CAL] str0 t2 (0.0 st) | burst 82.41 Hz, motor pos=4 err=0
+[CAL] str0 t2: fret signal lost — re-excite 79.89 Hz (retry 1/3)
+[CAL] str0 t2: fret lock timeout ��� re-excite 81.38 Hz (retry 2/3)
+[CAL] str0 t2: fret timeout after 3 retries ��� pos=232
+[CAL] 0, 227, 81.96
+[CAL] str0 t3 (0.5 st) | burst 84.82 Hz, motor pos=226 err=-1
+[CAL] str0 t3: fret lock timeout ��� re-excite 83.97 Hz (retry 1/3)
+[CAL] str0 t3: FRET LOCKED at 84.62 Hz (-4.1 cents, pos=375)
+[CAL] 0, 375, 84.62
+[CAL] str0 t4 (1.0 st) | burst 87.31 Hz, motor pos=375 err=0
+[CAL] str0 t4: fret lock timeout — re-excite 86.41 Hz (retry 1/3)
+[CAL] str0 t4: FRET LOCKED at 87.44 Hz (2.5 cents, pos=601)
+[CAL] 0, 601, 87.44
+[CAL] str0 t5 (1.5 st) | burst 89.87 Hz, motor pos=601 err=0
+[CAL] str0 t5: fret lock timeout ��� re-excite 91.71 Hz (retry 1/3)
+[CAL] str0 t5: fret signal lost ��� re-excite 92.60 Hz (retry 2/3)
+[CAL] str0 t5: fret timeout after 3 retries ��� pos=678
+[CAL] 0, 678, 91.03
+[CAL] str0 t6 (2.0 st) | burst 92.50 Hz, motor pos=678 err=0
+[CAL] str0 t6: fret signal lost — re-excite 91.94 Hz (retry 1/3)
+[CAL] str0 t6: fret lock timeout ��� re-excite 92.31 Hz (retry 2/3)
+[CAL] str0 t6: FRET LOCKED at 92.31 Hz (-3.6 cents, pos=1181)
+[CAL] 0, 1181, 92.31
+[CAL] str0 t7 (2.5 st) | burst 95.21 Hz, motor pos=1181 err=0
+[CAL] str0 t7: fret signal lost ��� re-excite 95.21 Hz (retry 1/3)
+[CAL] str0 t7: FRET LOCKED at 95.14 Hz (-1.4 cents, pos=1386)
+[CAL] 0, 1383, 95.14
+[CAL] str0 t8 (3.0 st) | burst 98.00 Hz, motor pos=1382 err=-1
+[CAL] str0 t8: fret lock timeout ��� re-excite 99.60 Hz (retry 1/3)
+[CAL] str0 t8: fret lock timeout — re-excite 99.41 Hz (retry 2/3)
+[CAL] str0 t8: fret timeout after 3 retries �� pos=1480
+[CAL] 0, 1476, 99.38
+[CAL] str0 t9 (3.5 st) | burst 100.87 Hz, motor pos=1475 err=-1
+[CAL] str0 t9: FRET LOCKED at 101.12 Hz (4.2 cents, pos=2020)
+[CAL] 0, 2020, 101.12
+[CAL] str0 t10 (4.0 st) | burst 103.83 Hz, motor pos=2020 err=0
+[CAL] str0 t10: FRET LOCKED at 103.60 Hz (-3.8 cents, pos=2337)
+[CAL] 0, 2337, 103.60
+[CAL] str0 t11 (4.5 st) | burst 106.87 Hz, motor pos=2337 err=0
+[CAL] str0 t11: FRET LOCKED at 107.05 Hz (2.9 cents, pos=2644)
+[CAL] 0, 2645, 107.05
+[CAL] str0 t12 (5.0 st) | burst 110.00 Hz, motor pos=2645 err=0
+[CAL] str0 t12: FRET LOCKED at 109.83 Hz (-2.8 cents, pos=2953)
+[CAL] 0, 2952, 109.83
+[CAL] str0 t13 (5.5 st) | burst 113.23 Hz, motor pos=2952 err=0
+[CAL] str0 t13: fret lock timeout ��� re-excite 112.36 Hz (retry 1/3)
+[CAL] str0 t13: FRET LOCKED at 113.06 Hz (-2.6 cents, pos=3337)
+[CAL] 0, 3337, 113.06
+[CAL] str0 t14 (6.0 st) | burst 116.55 Hz, motor pos=3337 err=0
+[CAL] str0 t14: fret lock timeout ��� re-excite 115.07 Hz (retry 1/3)
+[CAL] str0 t14: FRET LOCKED at 116.32 Hz (-3.4 cents, pos=3683)
+[CAL] 0, 3683, 116.32
+[CAL] str0 t15 (6.5 st) | burst 119.96 Hz, motor pos=3683 err=0
+[CAL] str0 t15: fret lock timeout ��� re-excite 117.35 Hz (retry 1/3)
+[CAL] str0 t15: fret lock timeout — re-excite 118.33 Hz (retry 2/3)
+[CAL] str0 t15: fret timeout after 3 retries ��� pos=4326
+[CAL] 0, 4326, 118.54
+[CAL] str0 t16 (7.0 st) | burst 123.48 Hz, motor pos=4326 err=0
+[CAL] str0 t16: fret lock timeout ��� re-excite 120.45 Hz (retry 1/3)
+[CAL] str0 t16: fret lock timeout �� re-excite 120.93 Hz (retry 2/3)
+[CAL] str0 t16: fret max retries ��� accepting pos=4833
+[CAL] 0, 4833, 120.63
+[CAL] str0: normalizing steps �� open 82.41 Hz at 252.03 steps, shifting by 252.03
+[CAL] str0: 17 samples | open=82.41 Hz | top=120.63 Hz
+[CAL-LUT] 0, 0, 82.41, 0
+[CAL-LUT] 0, 1, 87.44, 349
+[CAL-LUT] 0, 2, 95.14, 1131
+[CAL-LUT] 0, 3, 101.12, 1768
+[CAL-LUT] 0, 4, 107.05, 2393
+[CAL-LUT] 0, 5, 113.06, 3085
+[CAL-LUT] 0, 6, 120.63, 4581
+[CAL-POLY] str0: a=-72.727 b=-81.7730 c=0.980441
+[CAL-SEMI-FF] str0: steps = -170.7770��s�� + 362.475·s + 47.312
+[CAL-SEMI-PLANT] str0: semi = 3.9358e-01��s�� + 2.0824e-03��s + -0.0000
+[CAL] str0: fret PI summary ��� locked=11 timed_out=5
+[CAL] Saved & verified in backup SRAM (0x38800000, 560 bytes)
+[CAL] str0: homing ��� burst 82.41 Hz, motor ��� pos -136
+[CAL] str0: home signal lost ��� re-excite 82.41 Hz (retry 1/5)
+[CAL] str0: home lock timeout �� re-excite 82.41 Hz (retry 2/5)
+[CAL] str0: home lock timeout ��� re-excite 82.41 Hz (retry 3/5)
+[CAL] str0: home lock timeout ��� re-excite 82.41 Hz (retry 4/5)
+[CAL] str0: home timeout after 5 retries �� pos=-91
+[CAL] ================================================
+[CAL] Calibration complete �� LUT and polynomial saved.
+[CAL] All motors returned to open-string position.
+[CAL] ================================================
+
+[CMD] Calibration finished. Ready.
+> [FFT] 1 peak(s): 77.27 Hz (615763)  
+
+
+
+
+
+----------- calibration with PI with zero fix --------
+
+[FFT] 1 peak(s): 82.10 Hz (3368966)  
+[FFT] 1 peak(s): 82.08 Hz (3254412)  
+[FFT] 1 peak(s): 82.16 Hz (3137366)  
+[FFT] 1 peak(s): 82.12 Hz (2995934)  
+calibrate 0
+
+  Requesting calibration sweep (mask 0x01)...
+  Watch [CAL] output. Type 'smoke' when done.
+> [CAL] Cleared stale tune offsets for mask 0x01
+[CAL] ================================================
+[CAL] Fret calibration started ��� mask 0x01
+[CAL] Burst: 1000 ms primary / 300 ms re-excite
+[CAL] str, step, freq_hz
+[CAL] ================================================
+[CAL] -- String 0 (82.41 Hz) | -1 to +7 semitones, 17 pts
+[CAL] >>> Pluck string 0 now (any fret is fine)!
+[CAL] str0: pluck detected 82.13 Hz — collecting (12 hops)...
+[CAL] str0: consensus 82.13 Hz (12/12 readings)
+[CAL] str0: pluck=82.13 Hz �� FF homing target=32 steps
+[CAL] str0: at homing target (pos=26, target=32)
+[CAL] str0: open-freq burst 82.41 Hz — finding true open position
+[CAL] str0: OPEN LOCKED at 82.35 Hz (-1.3 cents, pos=32)
+[CAL] str0: open locked at 82.35 Hz, pos=32 ��� re-zeroing motor
+[CAL] str0: poly offset = -136 (poly(82.4 Hz) = 135.7)
+[CAL] str0 t0 (-1.0 st) | burst 77.78 Hz, motor pos=0 err=0
+[CAL] str0 t0: fret lock timeout — re-excite 79.70 Hz (retry 1/3)
+[CAL] str0 t0: fret lock timeout ��� re-excite 78.54 Hz (retry 2/3)
+[CAL] str0 t0: fret timeout after 3 retries — pos=-797
+[CAL] 0, -797, 78.38
+[CAL] str0 t1 (-0.5 st) | burst 80.06 Hz, motor pos=-797 err=0
+[CAL] str0 t1: FRET LOCKED at 79.95 Hz (-2.4 cents, pos=-242)
+[CAL] 0, -242, 79.95
+[CAL] str0 t2 (0.0 st) | burst 82.41 Hz, motor pos=-242 err=0
+[CAL] str0 t2: FRET LOCKED at 82.21 Hz (-4.3 cents, pos=16)
+[CAL] 0, 16, 82.21
+[CAL] str0 t3 (0.5 st) | burst 84.82 Hz, motor pos=16 err=0
+[CAL] str0 t3: FRET LOCKED at 84.62 Hz (-4.1 cents, pos=285)
+[CAL] 0, 285, 84.62
+[CAL] str0 t4 (1.0 st) | burst 87.31 Hz, motor pos=285 err=0
+[CAL] str0 t4: FRET LOCKED at 87.11 Hz (-4.0 cents, pos=542)
+[CAL] 0, 542, 87.11
+[CAL] str0 t5 (1.5 st) | burst 89.87 Hz, motor pos=542 err=0
+[CAL] str0 t5: FRET LOCKED at 90.05 Hz (3.4 cents, pos=830)
+[CAL] 0, 830, 90.05
+[CAL] str0 t6 (2.0 st) | burst 92.50 Hz, motor pos=830 err=0
+[CAL] str0 t6: FRET LOCKED at 92.56 Hz (1.1 cents, pos=1119)
+[CAL] 0, 1119, 92.56
+[CAL] str0 t7 (2.5 st) | burst 95.21 Hz, motor pos=1119 err=0
+[CAL] str0 t7: FRET LOCKED at 95.37 Hz (2.8 cents, pos=1420)
+[CAL] 0, 1420, 95.37
+[CAL] str0 t8 (3.0 st) | burst 98.00 Hz, motor pos=1420 err=0
+[CAL] str0 t8: FRET LOCKED at 98.00 Hz (-0.1 cents, pos=1731)
+[CAL] 0, 1731, 98.00
+[CAL] str0 t9 (3.5 st) | burst 100.87 Hz, motor pos=1731 err=0
+[CAL] str0 t9: FRET LOCKED at 100.72 Hz (-2.6 cents, pos=2066)
+[CAL] 0, 2068, 100.72
+[CAL] str0 t10 (4.0 st) | burst 103.83 Hz, motor pos=2068 err=0
+[CAL] str0 t10: FRET LOCKED at 103.53 Hz (-5.0 cents, pos=2351)
+[CAL] 0, 2350, 103.53
+[CAL] str0 t11 (4.5 st) | burst 106.87 Hz, motor pos=2350 err=0
+[CAL] str0 t11: fret lock timeout �� re-excite 106.19 Hz (retry 1/3)
+[CAL] str0 t11: FRET LOCKED at 106.65 Hz (-3.7 cents, pos=2739)
+[CAL] 0, 2740, 106.65
+[CAL] str0 t12 (5.0 st) | burst 110.00 Hz, motor pos=2740 err=0
+[CAL] str0 t12: fret lock timeout ��� re-excite 109.09 Hz (retry 1/3)
+[CAL] str0 t12: fret lock timeout �� re-excite 109.43 Hz (retry 2/3)
+[CAL] str0 t12: FRET LOCKED at 109.72 Hz (-4.5 cents, pos=3047)
+[CAL] 0, 3047, 109.72
+[CAL] str0 t13 (5.5 st) | burst 113.23 Hz, motor pos=3047 err=0
+[CAL] str0 t13: fret signal lost �� re-excite 108.31 Hz (retry 1/3)
+[CAL] str0 t13: fret lock timeout — re-excite 109.19 Hz (retry 2/3)
+[CAL] str0 t13: fret max retries — accepting pos=3757
+[CAL] 0, 3757, 109.54
+[CAL] str0 t14 (6.0 st) | burst 116.55 Hz, motor pos=3757 err=0
+[CAL] str0 t14: fret lock timeout — re-excite 115.01 Hz (retry 1/3)
+[CAL] str0 t14: fret lock timeout �� re-excite 115.06 Hz (retry 2/3)
+[CAL] str0 t14: fret timeout after 3 retries ��� pos=3797
+[CAL] 0, 3794, 115.68
+[CAL] str0 t15 (6.5 st) | burst 119.96 Hz, motor pos=3793 err=-1
+[CAL] str0 t15: fret signal lost �� re-excite 116.71 Hz (retry 1/3)
+[CAL] str0 t15: fret lock timeout ��� re-excite 118.82 Hz (retry 2/3)
+[CAL] str0 t15: fret timeout after 3 retries ��� pos=4151
+[CAL] 0, 4164, 118.87
+[CAL] str0 t16 (7.0 st) | burst 123.48 Hz, motor pos=4167 err=3
+[CAL] str0 t16: fret lock timeout — re-excite 120.69 Hz (retry 1/3)
+[CAL] str0 t16: fret lock timeout �� re-excite 121.57 Hz (retry 2/3)
+[CAL] str0 t16: FRET LOCKED at 123.26 Hz (-3.0 cents, pos=4674)
+[CAL] 0, 4674, 123.26
+[CAL] str0: normalizing steps — open 82.41 Hz at 38.73 steps, shifting by 38.73
+[CAL] str0: 17 samples | open=82.41 Hz | top=123.26 Hz
+[CAL-LUT] 0, 0, 82.41, 0
+[CAL-LUT] 0, 1, 90.05, 791
+[CAL-LUT] 0, 2, 95.37, 1381
+[CAL-LUT] 0, 3, 103.53, 2311
+[CAL-LUT] 0, 4, 109.72, 3008
+[CAL-LUT] 0, 5, 115.68, 3755
+[CAL-LUT] 0, 6, 123.26, 4635
+[CAL-POLY] str0: a=-11431.204 b=150.9362 c=-0.165277
+[CAL-SEMI-FF] str0: steps = -114.8694·s² + 586.651·s + 14.177
+[CAL-SEMI-PLANT] str0: semi = 2.0996e-01·s² + 1.6856e-03·s + -0.0000
+[CAL] str0: fret PI summary — locked=13 timed_out=3
+[CAL] Saved & verified in backup SRAM (0x38800000, 560 bytes)
+[CAL] str0: homing �� burst 82.41 Hz, motor �� pos 0
+[CAL] str0: HOME LOCKED at 82.58 Hz (3.6 cents, pos=0)
+[CAL] ================================================
+[CAL] Calibration complete ��� LUT and polynomial saved.
+[CAL] All motors returned to open-string position.
+[CAL] ================================================
+
+[CMD] Calibration finished. Ready.
+> [FFT] 1 peak(s): 82.58 Hz (533716)  
+[FFT] 1 peak(s): 82.57 Hz (495164)  
+[FFT] 1 peak(s): 82.59 Hz (464275)  
+[FFT] 1 peak(s): 82.52 Hz (425833)  
