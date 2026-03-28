@@ -97,6 +97,30 @@ static const uint16_t SOLENOID_FREQ_TABLE_DROP_D[6][8] = {
     {6672, 6298, 5945, 5611, 5296, 4998, 4717, 4453},  /* Frets 0-7 */
 };
 
+/**
+ * @brief Drop G2 tuning: String 1 = G2 (A2 tuned down), all others unchanged
+ * @note  ARR = round(2,200,000 / freq) - 1
+ */
+static const uint16_t SOLENOID_FREQ_TABLE_DROP_G2[6][8] = {
+    /* String 0: E2 (82.41 Hz) - unchanged */
+    {26694, 25196, 23783, 22447, 21187, 19999, 18876, 17816},  /* Frets 0-7 */
+
+    /* String 1: G2 (98.00 Hz) - was A2 in standard */
+    {22447, 21187, 19999, 18876, 17816, 16816, 15873, 14982},  /* Frets 0-7 */
+
+    /* String 2: D3 (146.83 Hz) - unchanged */
+    {14982, 14141, 13347, 12598, 11891, 11223, 10594, 9999},  /* Frets 0-7 */
+
+    /* String 3: G3 (196.00 Hz) - unchanged */
+    {11223, 10594, 9999, 9438, 8907, 8407, 7936, 7491},  /* Frets 0-7 */
+
+    /* String 4: B3 (246.94 Hz) - unchanged */
+    {8907, 8407, 7936, 7491, 7069, 6672, 6298, 5945},  /* Frets 0-7 */
+
+    /* String 5: E4 (329.63 Hz) - unchanged */
+    {6672, 6298, 5945, 5611, 5296, 4998, 4717, 4453},  /* Frets 0-7 */
+};
+
 /* Active frequency table pointer (switched by Solenoid_SetTuning) */
 static const uint16_t (*active_freq_table)[8] = SOLENOID_FREQ_TABLE_STANDARD;
 
@@ -436,12 +460,14 @@ int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, float freq_hz)
 
 /**
  * @brief Switch the active frequency lookup table between tuning modes
- * @param tuning_id  TUNING_STANDARD (0) or TUNING_DROP_D (1)
+ * @param tuning_id  TUNING_STANDARD (0), TUNING_DROP_D (1), or TUNING_DROP_G2 (2)
  */
 void Solenoid_SetTuning(uint8_t tuning_id)
 {
     if (tuning_id == TUNING_DROP_D) {
         active_freq_table = SOLENOID_FREQ_TABLE_DROP_D;
+    } else if (tuning_id == TUNING_DROP_G2) {
+        active_freq_table = SOLENOID_FREQ_TABLE_DROP_G2;
     } else {
         active_freq_table = SOLENOID_FREQ_TABLE_STANDARD;
     }

@@ -212,6 +212,7 @@
 static const float s_open_freq[NUM_TUNINGS][NUM_STRINGS] = {
     [TUNING_STANDARD] = { E2_HZ, A2_HZ, D3_HZ, G3_HZ, B3_HZ, E4_HZ },
     [TUNING_DROP_D]   = { D2_HZ, E2_HZ, D3_HZ, G3_HZ, B3_HZ, E4_HZ },
+    [TUNING_DROP_G2]  = { E2_HZ, G2_HZ, D3_HZ, G3_HZ, B3_HZ, E4_HZ },
 };
 
 /**
@@ -253,6 +254,17 @@ static const float cal_theoretical_freq[NUM_TUNINGS][NUM_STRINGS][CAL_NUM_FRETS]
         { D2_HZ,  Ds2_HZ, E2_HZ,  F2_HZ,  Fs2_HZ, G2_HZ,  Gs2_HZ, A2_HZ  },
         /* String 1: E2  frets 0-7 */
         { E2_HZ,  F2_HZ,  Fs2_HZ, G2_HZ,  Gs2_HZ, A2_HZ,  As2_HZ, B2_HZ  },
+        /* String 2-5: same as standard */
+        { D3_HZ,  Ds3_HZ, E3_HZ,  F3_HZ,  Fs3_HZ, G3_HZ,  Gs3_HZ, A3_HZ  },
+        { G3_HZ,  Gs3_HZ, A3_HZ,  As3_HZ, B3_HZ,  C4_HZ,  Cs4_HZ, D4_HZ  },
+        { B3_HZ,  C4_HZ,  Cs4_HZ, D4_HZ,  Ds4_HZ, E4_HZ,  F4_HZ,  Fs4_HZ },
+        { E4_HZ,  F4_HZ,  Fs4_HZ, G4_HZ,  Gs4_HZ, A4_HZ,  As4_HZ, B4_HZ  },
+    },
+    [TUNING_DROP_G2] = {
+        /* String 0: E2  frets 0-7 (same as standard) */
+        { E2_HZ,  F2_HZ,  Fs2_HZ, G2_HZ,  Gs2_HZ, A2_HZ,  As2_HZ, B2_HZ  },
+        /* String 1: G2  frets 0-7 (A2 tuned down to G2) */
+        { G2_HZ,  Gs2_HZ, A2_HZ,  As2_HZ, B2_HZ,  C3_HZ,  Cs3_HZ, D3_HZ  },
         /* String 2-5: same as standard */
         { D3_HZ,  Ds3_HZ, E3_HZ,  F3_HZ,  Fs3_HZ, G3_HZ,  Gs3_HZ, A3_HZ  },
         { G3_HZ,  Gs3_HZ, A3_HZ,  As3_HZ, B3_HZ,  C4_HZ,  Cs4_HZ, D4_HZ  },

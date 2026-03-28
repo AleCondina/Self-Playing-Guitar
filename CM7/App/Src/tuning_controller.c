@@ -123,6 +123,31 @@ static const float s_dropd_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
 };
 
+/* Drop G2 feed-forward breakpoints (PLACEHOLDER — calibrate with 'lutbuild' in Drop G2) */
+static const float s_dropg2_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+    /* E2: same as standard (measured LUT RUN 1) */
+    {  82.41f,  82.69f,  89.97f,  96.05f, 100.07f, 106.37f, 112.82f },
+    /* G2: placeholder equal temperament (calibrate with 'lutbuild') */
+    { G2_HZ, Gs2_HZ, A2_HZ, As2_HZ, B2_HZ, C3_HZ, Cs3_HZ },
+    /* D3-E4: same as standard */
+    { 146.83f, 160.03f, 170.43f, 179.45f, 188.51f, 197.45f, 205.19f },
+    { 196.00f, 207.65f, 233.38f, 248.76f, 262.49f, 277.12f, 292.19f },
+    { 246.94f, 261.63f, 277.18f, 293.66f, 311.13f, 329.63f, 349.23f },
+    { 329.63f, 349.23f, 369.99f, 392.00f, 415.30f, 440.00f, 466.16f },
+};
+
+static const float s_dropg2_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+    /* E2: same as standard (measured LUT RUN 1) */
+    {   0.0f, 267.0f, 1080.0f, 1623.0f, 2029.0f, 2706.0f, 3385.0f },
+    /* G2: placeholder linear estimate (~10 steps/Hz) */
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    /* D3-E4: same as standard */
+    {   0.0f, 2331.0f, 3363.0f, 4417.0f, 5477.0f, 6533.0f, 7499.0f },
+    {   0.0f,  910.0f, 2583.0f, 3485.0f, 4480.0f, 5523.0f, 6646.0f },
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+};
+
 /* =========================================================================
  * Private state
  * ========================================================================= */
@@ -512,6 +537,7 @@ void TuningCtrl_Update(uint8_t string_id,
 static const float s_open_string_hz[NUM_TUNINGS][NUM_STRINGS] = {
     [TUNING_STANDARD] = { 82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f },
     [TUNING_DROP_D]   = { 73.42f,  82.41f, 146.83f, 196.00f, 246.94f, 329.63f },
+    [TUNING_DROP_G2]  = { 82.41f,  98.00f, 146.83f, 196.00f, 246.94f, 329.63f },
 };
 
 /* Active tuning mode (set by TuningCtrl_SetTuning) */
@@ -926,6 +952,9 @@ void TuningCtrl_SetTuning(uint8_t tuning_id)
     if (tuning_id == TUNING_DROP_D) {
         src_freq  = s_dropd_ff_freq_bp;
         src_steps = s_dropd_ff_steps_bp;
+    } else if (tuning_id == TUNING_DROP_G2) {
+        src_freq  = s_dropg2_ff_freq_bp;
+        src_steps = s_dropg2_ff_steps_bp;
     } else {
         src_freq  = s_std_ff_freq_bp;
         src_steps = s_std_ff_steps_bp;

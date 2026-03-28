@@ -92,11 +92,13 @@
 static const float s_open_freq[NUM_TUNINGS][NUM_STRINGS] = {
     [TUNING_STANDARD] = { 82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f },
     [TUNING_DROP_D]   = { 73.42f,  82.41f, 146.83f, 196.00f, 246.94f, 329.63f },
+    [TUNING_DROP_G2]  = { 82.41f,  98.00f, 146.83f, 196.00f, 246.94f, 329.63f },
 };
 
 static const char *s_string_names[NUM_TUNINGS][NUM_STRINGS] = {
     [TUNING_STANDARD] = { "E2", "A2", "D3", "G3", "B3", "E4" },
     [TUNING_DROP_D]   = { "D2", "E2", "D3", "G3", "B3", "E4" },
+    [TUNING_DROP_G2]  = { "E2", "G2", "D3", "G3", "B3", "E4" },
 };
 
 /* =========================================================================

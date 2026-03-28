@@ -119,6 +119,7 @@ static void Cmd_FftPrint(char *args);
 static void Cmd_Tune(char *args);
 static void Cmd_Debug(char *args);
 static void Cmd_DropD(char *args);
+static void Cmd_DropG2(char *args);
 static void Cmd_Standard(char *args);
 static void Demo_Tick(void);
 
@@ -161,6 +162,7 @@ static const CmdEntry_t command_table[] = {
     { "solstop",   Cmd_SolStop,   "solstop <id|all>        Stop solenoid(s)" },
     { "solstatus", Cmd_SolStatus, "solstatus               Show active solenoids" },
     { "dropd",     Cmd_DropD,     "dropd                   Switch to Drop D tuning" },
+    { "dropg2",    Cmd_DropG2,    "dropg2                  Switch to Drop G2 tuning (str1=G2)" },
     { "standard",  Cmd_Standard,  "standard                Switch to standard tuning" },
     { NULL, NULL, NULL }
 };
@@ -1118,6 +1120,19 @@ static void Cmd_DropD(char *args)
     TuningCtrl_ResetAll();
 
     printf("  Tuning: Drop D (str0=D2, str1=E2)\r\n> ");
+}
+
+static void Cmd_DropG2(char *args)
+{
+    (void)args;
+    g_shared_memory.tuning_id = TUNING_DROP_G2;
+    g_shared_memory.motor_command_flags |= CMD_SET_TUNING;
+    InterCore_NotifyCM4();
+
+    TuningCtrl_SetTuning(TUNING_DROP_G2);
+    TuningCtrl_ResetAll();
+
+    printf("  Tuning: Drop G2 (str0=E2, str1=G2)\r\n> ");
 }
 
 static void Cmd_Standard(char *args)

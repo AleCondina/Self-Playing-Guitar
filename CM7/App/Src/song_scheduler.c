@@ -71,35 +71,47 @@
     { (str), (hz), (dur_ms), 1u, 0u, 0.0f, (burst) }
 
 /* =========================================================================
- * Song 0: Smoke on the Water – two-string chords (G3 + D3)
+ * Song 0: Smoke on the Water – alternating E2 + G2 strings (key of E)
+ * =========================================================================
+ * Requires TUNING_DROP_G2 (string 1 tuned from A2 down to G2).
+ *
+ * String mapping (Drop G2 tuning):
+ *   0 = E2 (82.41 Hz open)    1 = G2 (98.00 Hz open)
+ *
+ * Riff transposed to E root — same intervals as Song1 (A-root):
+ *   root = E2 (fret 0)   m3 = G2 (fret 3 on E2 / fret 0 on G2)
+ *   P4   = A2 (fret 5)   tritone = Bb2/As2 (fret 6 on E2 / fret 3 on G2)
+ *
+ * Notes alternate between str0 (E2) and str1 (G2).
+ * Timing matches Song1: 1635ms standard, 1435ms short, 1885ms held.
  * ========================================================================= */
 static const SongNote_t song0_notes[] = {
 
-    /* ── Timing budget per note ──────────────────────────────────────── *
-     *  Note 0 (cold start): 1200ms PI + 300ms burst + rest  = 1363ms   *
-     *  Whole notes:  1200ms PI + 250ms burst + 475ms rest   = 1925ms   *
-     *  Half  notes:  1200ms PI + 125ms burst + 288ms rest   = 1613ms   *
+    /* ── Timing: 1200ms PI + 35ms burst + rest ───────────────────────── *
+     *  Standard notes: rest=400ms → 1635ms                               *
+     *  Short note (#5): rest=200ms → 1435ms                              *
+     *  Held notes (#2,6,9,11): rest=650ms → 1885ms                       *
      * ────────────────────────────────────────────────────────────────── */
 
-    /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    CHORD(G3_HZ,   D3_HZ,   1363u, 300u),  /* #0  fret 0: cold start burst     */
-    CHORD(As3_HZ,  F3_HZ,   1925u, 250u),  /* #1  fret 3: Bb3 + F3  – whole    */
-    CHORD(C4_HZ,   G3_HZ,   1925u, 250u),  /* #2  fret 5: C4 + G3   – whole    */
+    /* ── Phrase 1: root – m3 – P4 ────────────────────────────────────── */
+    NOTE(0u, E2_HZ,   1635u,  35u),   /* #0  str0 E2 fret 0 (root)      */
+    NOTE(1u, G2_HZ,   1635u,  35u),   /* #1  str1 G2 fret 0 (m3)        */
+    NOTE(0u, A2_HZ,   1885u,  35u),   /* #2  str0 E2 fret 5 (P4, held)  */
 
-    /* ── Phrase 2: fret 0 – fret 3 (whole), fret 6 – fret 5 (half) ─── */
-    CHORD(G3_HZ,   D3_HZ,   1925u, 250u),  /* #3  fret 0: G3 + D3   – whole    */
-    CHORD(As3_HZ,  F3_HZ,   1925u, 250u),  /* #4  fret 3: Bb3 + F3  – whole    */
-    CHORD(Cs4_HZ,  Gs3_HZ,  1613u, 125u),  /* #5  fret 6: Db4 + Ab3 – half     */
-    CHORD(C4_HZ,   G3_HZ,   1613u, 125u),  /* #6  fret 5: C4  + G3  – half     */
+    /* ── Phrase 2: root – m3 – tritone – P4 ──────────────────────────── */
+    NOTE(0u, E2_HZ,   1635u,  35u),   /* #3  str0 E2 fret 0 (root)      */
+    NOTE(1u, G2_HZ,   1635u,  35u),   /* #4  str1 G2 fret 0 (m3)        */
+    NOTE(1u, As2_HZ,  1435u,  35u),   /* #5  str1 G2 fret 3 (tritone)   */
+    NOTE(0u, A2_HZ,   1885u,  35u),   /* #6  str0 E2 fret 5 (P4, held)  */
 
-    /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
-    CHORD(G3_HZ,   D3_HZ,   1925u, 250u),  /* #7  fret 0: G3 + D3   – whole    */
-    CHORD(As3_HZ,  F3_HZ,   1925u, 250u),  /* #8  fret 3: Bb3 + F3  – whole    */
-    CHORD(C4_HZ,   G3_HZ,   1925u, 250u),  /* #9  fret 5: C4 + G3   – whole    */
+    /* ── Phrase 3: same as phrase 1 ──────────────────────────────────── */
+    NOTE(0u, E2_HZ,   1635u,  35u),   /* #7  str0 E2 fret 0 (root)      */
+    NOTE(1u, G2_HZ,   1635u,  35u),   /* #8  str1 G2 fret 0 (m3)        */
+    NOTE(0u, A2_HZ,   1885u,  35u),   /* #9  str0 E2 fret 5 (P4, held)  */
 
-    /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    CHORD(As3_HZ,  F3_HZ,   1925u, 250u),  /* #10 fret 3: Bb3 + F3  – whole    */
-    CHORD(G3_HZ,   D3_HZ,   1925u, 250u),  /* #11 fret 0: G3 + D3   – ending   */
+    /* ── Phrase 4: m3 – root (ending) ────────────────────────────────── */
+    NOTE(1u, G2_HZ,   1635u,  35u),   /* #10 str1 G2 fret 0 (m3)        */
+    NOTE(0u, E2_HZ,   1885u,  35u),   /* #11 str0 E2 fret 0 (root, end) */
 };
 
 /* =========================================================================

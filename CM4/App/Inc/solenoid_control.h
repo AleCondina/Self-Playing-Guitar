@@ -136,7 +136,7 @@ int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, float freq_hz);
 
 /**
  * @brief Switch the active frequency lookup table between tuning modes
- * @param tuning_id  TUNING_STANDARD (0) or TUNING_DROP_D (1)
+ * @param tuning_id  TUNING_STANDARD (0), TUNING_DROP_D (1), or TUNING_DROP_G2 (2)
  * @note  Only affects Solenoid_SetFrequency() (string/fret lookup).
  *        Solenoid_SetFrequencyHz() is unaffected (direct Hz control).
  */

@@ -69,7 +69,8 @@
 /* ===== Tuning Modes ===== */
 #define TUNING_STANDARD  0u
 #define TUNING_DROP_D    1u
-#define NUM_TUNINGS      2u
+#define TUNING_DROP_G2   2u
+#define NUM_TUNINGS      3u
 
 /* ===== Universal Guitar Frequencies (Hz) ===== */
 #define D2_HZ   73.42f
