@@ -320,7 +320,7 @@ void App_CM7_Main(void) {
                      * Set to 1 if timing can be relaxed for guaranteed accuracy.
                      * Combine with a lower SONG_BPM value for the best of both.
                      */
-#define SONG_LOCK_WAIT_MODE  0u
+#define SONG_LOCK_WAIT_MODE  1u
 #if SONG_LOCK_WAIT_MODE
                     if (SongSched_IsActive()) {
                         uint8_t all_locked = TuningCtrl_GetLockState(SongSched_GetStringId());

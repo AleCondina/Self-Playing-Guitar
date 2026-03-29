@@ -150,6 +150,17 @@ uint32_t SongSched_GetElapsedMs(uint32_t now_ms);
 void SongSched_HoldNote(uint8_t hold);
 
 /**
+ * @brief Reset the current note's start time to now_ms.
+ *
+ * Called by the tuning controller after the pipeline (cold-start deferral +
+ * solenoid fire) is ready, so that the note's full duration counts from the
+ * moment the string is actually actuated — not from the first scheduler tick.
+ *
+ * @param now_ms  Current system time in milliseconds (HAL_GetTick()).
+ */
+void SongSched_ResetNoteTimer(uint32_t now_ms);
+
+/**
  * @brief Return a read-only pointer to the note at the given index.
  * Returns NULL if idx >= note count.
  */

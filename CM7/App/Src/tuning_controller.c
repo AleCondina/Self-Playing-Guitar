@@ -481,6 +481,9 @@ void TuningCtrl_Update(uint8_t string_id,
         break;
     }
 
+    /* Store PI output for logging */
+    s->last_pi_delta = pi_delta;
+
     /* ------------------------------------------------------------------ */
     /* 3. Compute raw commanded position                                     */
     /* ------------------------------------------------------------------ */
@@ -755,7 +758,26 @@ void TuningCtrl_RunHop(void)
     }
 
     if (start_primary) {
+        /* Log previous note's final state before transition resets it */
+        {
+            const TuningStringState_t *prev = &s_state[str];
+            uint32_t prev_idx = SongSched_GetNoteIndex();
+            if (prev_idx > 0u || prev->hop_count > 0u) {
+                printf("[NOTE] t=%lu idx→%lu str%u tgt=%.2f Hz "
+                       "state=%u hops=%lu lock=%u err=%.4f\r\n",
+                       (unsigned long)HAL_GetTick(),
+                       (unsigned long)prev_idx,
+                       (unsigned)str, (double)target,
+                       (unsigned)prev->state,
+                       (unsigned long)prev->hop_count,
+                       (unsigned)prev->lock_state,
+                       (double)(prev->target_semi - prev->measured_semi));
+            }
+        }
         StartNoteTransition(str, target, burst_fired_primary, burst_ms_for_start);
+
+        /* Sync note timer: duration counts from solenoid fire, not first tick */
+        SongSched_ResetNoteTimer(HAL_GetTick());
     }
     if (chord && start_secondary) {
         StartNoteTransition(str2, target2,
@@ -802,30 +824,31 @@ void TuningCtrl_RunHop(void)
     }
 
     /* ------------------------------------------------------------------ */
-    /* Debug CSV logging (decimated)                                        */
-    /* Format: timestamp, str, state, target_semi, meas_semi, err_semi,     */
-    /*         ff_steps, cmd_steps, cur_steps, lock, confidence, faults     */
+    /* Per-hop diagnostic logging                                            */
+    /* [SNG] ts, note_idx, hop, state, tgt_hz, meas_hz, err_semi,           */
+    /*       ff, pi_d, cmd, cur, mbusy, fft_w, res_w, lock, mag             */
     /* ------------------------------------------------------------------ */
-    s_debug_counter++;
-    if (s_debug_counter >= DEBUG_DECIM_HOPS) {
-        s_debug_counter = 0u;
-
+    {
         const TuningStringState_t *ds = &s_state[str];
         float err_semi = ds->target_semi - ds->measured_semi;
 
-        printf("[TC] %lu,%u,%u,%.3f,%.3f,%.4f,%.1f,%ld,%ld,%u,%.0f,%u\r\n",
+        printf("[SNG] %lu,%lu,%lu,%u,%.2f,%.2f,%.4f,%.0f,%.1f,%ld,%ld,%u,%u,%u,%u,%.0f\r\n",
                (unsigned long)HAL_GetTick(),
-               (unsigned)str,
+               (unsigned long)SongSched_GetNoteIndex(),
+               (unsigned long)ds->hop_count,
                (unsigned)ds->state,
-               (double)ds->target_semi,
-               (double)ds->measured_semi,
+               (double)target,
+               (double)measured,
                (double)err_semi,
                (double)ds->ff_steps_abs,
+               (double)ds->last_pi_delta,
                (long)ds->cmd_steps_abs,
                (long)ds->current_abs_steps,
+               (unsigned)g_shared_memory.motor_is_moving[str],
+               (unsigned)ds->fft_clear_wait_hops_remaining,
+               (unsigned)ds->resonance_wait_hops_remaining,
                (unsigned)ds->lock_state,
-               (double)confidence,
-               (unsigned)ds->fault_flags);
+               (double)confidence);
     }
 }
 

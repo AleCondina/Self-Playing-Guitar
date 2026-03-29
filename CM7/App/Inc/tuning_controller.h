@@ -173,6 +173,7 @@ typedef struct {
     /* Controller state (microsteps) */
     float    ff_steps_abs;          /**< Feedforward absolute position        */
     float    integral_state;        /**< PI integrator accumulator (semi)     */
+    float    last_pi_delta;         /**< PI output from last hop (for logging)*/
 
     /* Commanded and actual positions */
     int32_t  cmd_steps_abs;         /**< Final integer command (microsteps)   */

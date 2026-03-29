@@ -115,26 +115,48 @@ static const SongNote_t song1_notes[] = {
      * ────────────────────────────────────────────────────────────────── */
 
     /* ── Measure 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    NOTE(0u, E2_HZ,   1000u,  72u),  /* #0  fret 0: cold start,   */
-    NOTE(0u, G2_HZ,   1000u,  72u),  /* #1  fret 3: G2,            */
-    NOTE(0u, A2_HZ,   1500u,  72u),  /* #2  fret 5: A2,            */
-    NOTE(0u, E2_HZ,   1000u,  72u),  /* #3  fret 0: E2,          */
-    
+    NOTE(0u, E2_HZ,   1000u,  125u),  /* #0  fret 0: cold start    */
+    NOTE(0u, G2_HZ,   1000u,  125u),  /* #1  fret 3: G2            */
+    NOTE(0u, A2_HZ,   1500u,  125u),  /* #2  fret 5: A2            */
+    NOTE(0u, E2_HZ,   1000u,  125u),  /* #3  fret 0: E2            */
+
     /* ── Measure 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
-    NOTE(0u, G2_HZ,   1000u,  72u),  /* #4  fret 3: G2,           */
-    NOTE(0u, As2_HZ,  500u,  72u),  /* #5  fret 6: As2,           */
-    NOTE(0u, A2_HZ,   2000u,  72u),  /* #6  fret 5: A2,           */
+    NOTE(0u, G2_HZ,   1000u,  125u),  /* #4  fret 3: G2            */
+    NOTE(0u, As2_HZ,  500u,   125u),  /* #5  fret 6: As2           */
+    NOTE(0u, A2_HZ,   2000u,  125u),  /* #6  fret 5: A2            */
 
     /* ── Measure 3: same as measure 1 ─────────────────────────────────── */
-    NOTE(0u, E2_HZ,   1000u,  72u),  /* #0  fret 0: E2,    */
-    NOTE(0u, G2_HZ,   1000u,  72u),  /* #1  fret 3: G2,            */
-    NOTE(0u, A2_HZ,   1500u,  72u),  /* #2  fret 5: A2,            */
-    NOTE(0u, G2_HZ,   1000u,  72u),  /* #10 fret 3: G2,           */
-    
+    NOTE(0u, E2_HZ,   1000u,  125u),  /* #7  fret 0: E2            */
+    NOTE(0u, G2_HZ,   1000u,  125u),  /* #8  fret 3: G2            */
+    NOTE(0u, A2_HZ,   1500u,  125u),  /* #9  fret 5: A2            */
+    NOTE(0u, G2_HZ,   1000u,  125u),  /* #10 fret 3: G2            */
+
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    
-     NOTE(0u, E2_HZ,   4000u,  72u),  /* #3  fret 0: E2,           */
+    NOTE(0u, E2_HZ,   4000u,  125u),  /* #11 fret 0: E2            */
               
+};
+
+/* =========================================================================
+ * Song 2: Test — single E2 hold (10 s)
+ * ========================================================================= */
+static const SongNote_t song2_notes[] = {
+    NOTE(0u, E2_HZ, 10000u, 125u),
+};
+
+/* =========================================================================
+ * Song 3: Test — E2 → G2 slow transition (5 s each)
+ * ========================================================================= */
+static const SongNote_t song3_notes[] = {
+    NOTE(0u, E2_HZ, 5000u, 125u),
+    NOTE(0u, G2_HZ, 5000u, 125u),
+};
+
+/* =========================================================================
+ * Song 4: Test — E2 → G2 fast transition (1 s each)
+ * ========================================================================= */
+static const SongNote_t song4_notes[] = {
+    NOTE(0u, E2_HZ, 1000u, 125u),
+    NOTE(0u, G2_HZ, 1000u, 125u),
 };
 
 /* =========================================================================
@@ -145,9 +167,14 @@ typedef struct {
     uint32_t          count;
 } SongDef_t;
 
+#define SONG_ENTRY(arr)  { (arr), (uint32_t)(sizeof(arr) / sizeof((arr)[0])) }
+
 static const SongDef_t s_songs[] = {
-    { song0_notes, (uint32_t)(sizeof(song0_notes) / sizeof(song0_notes[0])) },
-    { song1_notes, (uint32_t)(sizeof(song1_notes) / sizeof(song1_notes[0])) },
+    SONG_ENTRY(song0_notes),  /* play 0: Smoke chords (G3+D3)   */
+    SONG_ENTRY(song1_notes),  /* play 1: Smoke single E2        */
+    SONG_ENTRY(song2_notes),  /* play 2: Test — E2 10s hold     */
+    SONG_ENTRY(song3_notes),  /* play 3: Test — E2→G2 5s each   */
+    SONG_ENTRY(song4_notes),  /* play 4: Test — E2→G2 1s each   */
 };
 
 #define NUM_SONGS  ((uint32_t)(sizeof(s_songs) / sizeof(s_songs[0])))
@@ -294,6 +321,13 @@ uint32_t SongSched_GetElapsedMs(uint32_t now_ms)
 void SongSched_HoldNote(uint8_t hold)
 {
     s_hold_note = hold;
+}
+
+void SongSched_ResetNoteTimer(uint32_t now_ms)
+{
+    if (s_initialised && s_active) {
+        s_note_start_ms = now_ms;
+    }
 }
 
 const SongNote_t *SongSched_GetNoteAt(uint32_t idx)
