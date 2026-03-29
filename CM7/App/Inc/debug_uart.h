@@ -10,10 +10,13 @@
 #define DEBUG_UART_H
 
 #include <stdint.h>
+#include "stm32h7xx_hal.h"
+
+/* USART2 handle — defined in debug_uart.c */
+extern UART_HandleTypeDef hdebug_uart;
 
 /**
- * @brief Initialize debug UART
- * @note  Must be called after UART peripheral is initialized
+ * @brief Initialize USART2 for debug (PD5=TX, PD6=RX, 115200 8N1)
  * @return 0 on success, -1 on error
  */
 int32_t Debug_Init(void);
@@ -39,7 +42,7 @@ void Debug_PrintMotorStatus(uint8_t motor_id);
 
 /**
  * @brief Start UART RX interrupt reception
- * @note  Call once after BSP_COM_Init() to begin receiving characters
+ * @note  Call once after Debug_Init() to begin receiving characters
  */
 void Debug_UART_StartRx(void);
 

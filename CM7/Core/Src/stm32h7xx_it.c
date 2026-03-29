@@ -23,6 +23,7 @@
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
 #include "stm32h7xx_nucleo.h"
+#include "debug_uart.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -58,7 +59,7 @@
 /* External variables --------------------------------------------------------*/
 extern DMA_HandleTypeDef hdma_adc3;
 /* USER CODE BEGIN EV */
-extern UART_HandleTypeDef hcom_uart[];
+extern UART_HandleTypeDef hdebug_uart;
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -228,8 +229,8 @@ void BDMA_Channel0_IRQHandler(void)
 }
 
 /* USER CODE BEGIN 1 */
-void USART3_IRQHandler(void)
+void USART2_IRQHandler(void)
 {
-    HAL_UART_IRQHandler(&hcom_uart[COM1]);
+    HAL_UART_IRQHandler(&hdebug_uart);
 }
 /* USER CODE END 1 */

@@ -23,7 +23,7 @@
 #define DMA_BUFFER  __attribute__((section(".dma_buffer"))) __attribute__((aligned(32)))
 
 /* Hardware Semaphore IDs for inter-core synchronization */
-#define HSEM_ID_BOOT            0   /* Boot synchronization (existing pattern) */
+#define HSEM_ID_BOOT            3   /* Boot barrier — CM4 waits here until CM7 finishes GPIO init */
 #define HSEM_ID_CM7_TO_CM4      1   /* CM7 signals CM4 (new command available) */
 #define HSEM_ID_CM4_TO_CM7      2   /* CM4 signals CM7 (status update ready) */
 

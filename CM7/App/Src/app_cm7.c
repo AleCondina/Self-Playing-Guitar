@@ -25,7 +25,7 @@
 #include "lut_builder.h"
 #include "song_scheduler.h"
 #include "shared_memory.h"
-#include "stm32h755xx.h"
+#include "stm32h747xx.h"
 #include "stm32h7xx_hal.h"
 #include "stm32h7xx_hal_adc.h"
 #include "stm32h7xx_hal_tim.h"
@@ -78,7 +78,7 @@ void App_CM7_Main(void) {
 
     printf("\r\n\r\n");
     printf("=========================================\r\n");
-    printf("  STM32H755ZI Guitar Controller - CM7   \r\n");
+    printf("  STM32H747BIT6 Guitar Controller - CM7   \r\n");
     printf("  Firmware v%d.%d.%d                    \r\n",
            FIRMWARE_VERSION_MAJOR,
            FIRMWARE_VERSION_MINOR,

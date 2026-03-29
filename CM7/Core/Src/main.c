@@ -26,11 +26,13 @@
 #include "inter_core_cm7.h"
 #include "debug_uart.h"
 #include "app_cm7.h"
-#include "stm32h755xx.h"
+#include "stm32h747xx.h"
 #include "stm32h7xx_hal.h"
 #include "stm32h7xx_hal_adc.h"
 #include "stm32h7xx_hal_flash_ex.h"
 #include "stm32h7xx_hal_hsem.h"
+#include "stm32h7xx_hal_pwr_ex.h"
+#include "stm32h7xx_hal_rcc.h"
 #include "stm32h7xx_hal_tim.h"
 #include <string.h>
 /* USER CODE END Includes */
@@ -64,7 +66,6 @@
 
 /* Private variables ---------------------------------------------------------*/
 
-COM_InitTypeDef BspCOMInit;
 ADC_HandleTypeDef hadc3;
 DMA_HandleTypeDef hdma_adc3;
 
@@ -192,18 +193,6 @@ Error_Handler();
   /* Initialize USER push-button, will be used to trigger an interrupt each time it's pressed.*/
   BSP_PB_Init(BUTTON_USER, BUTTON_MODE_EXTI);
 
-  /* Initialize COM1 port (115200, 8 bits (7-bit data + 1 stop bit), no parity */
-  BspCOMInit.BaudRate   = 115200;
-  BspCOMInit.WordLength = COM_WORDLENGTH_8B;
-  BspCOMInit.StopBits   = COM_STOPBITS_1;
-  BspCOMInit.Parity     = COM_PARITY_NONE;
-  BspCOMInit.HwFlowCtl  = COM_HWCONTROL_NONE;
-  if (BSP_COM_Init(COM1, &BspCOMInit) != BSP_ERROR_NONE)
-  {
-    Error_Handler();
-  }
-
-
   /* USER CODE BEGIN 2 */
   /* Print startup banner */
   printf("\r\n[CM7] Initialization complete, starting application...\r\n");
@@ -237,7 +226,7 @@ void SystemClock_Config(void)
   RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
 
   /* Stay on SMPS (already configured in pre-init); step VOS2 → VOS1 */
-  HAL_PWREx_ConfigSupply(PWR_DIRECT_SMPS_SUPPLY);
+  HAL_PWREx_ConfigSupply(PWR_LDO_SUPPLY);
   __HAL_PWR_VOLTAGESCALING_CONFIG(PWR_REGULATOR_VOLTAGE_SCALE1);
   while(!__HAL_PWR_GET_FLAG(PWR_FLAG_VOSRDY)) {}
 

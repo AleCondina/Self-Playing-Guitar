@@ -7,15 +7,15 @@
 
 #include "debug_uart.h"
 #include "shared_memory.h"
+#include "stm32h747xx.h"
 #include "stm32h7xx_hal.h"
-#include "stm32h7xx_nucleo.h"
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
 #include <stdlib.h>
 
-/* Use BSP COM port (initialized in main.c) */
-extern UART_HandleTypeDef hcom_uart[COMn];
+/* ===== USART2 handle (PD5=TX, PD6=RX) ===== */
+UART_HandleTypeDef hdebug_uart;
 
 /* ===== UART RX State ===== */
 #define UART_RX_BUFFER_SIZE  128
@@ -26,12 +26,35 @@ static uint16_t rx_line_pos = 0;                     /* Current position in line
 static volatile uint8_t rx_line_ready = 0;           /* Flag: complete line available */
 
 /**
- * @brief Initialize debug UART
+ * @brief Initialize USART2 for debug (PD5=TX, PD6=RX, 115200 8N1)
  */
 int32_t Debug_Init(void)
 {
-    /* UART is initialized in main.c via BSP_COM_Init() */
-    /* This function is here for future expansion (e.g., DMA mode) */
+    /* --- GPIO & clock setup (MspInit equivalent) --- */
+    __HAL_RCC_GPIOD_CLK_ENABLE();
+    __HAL_RCC_USART2_CLK_ENABLE();
+
+    GPIO_InitTypeDef gpio = {0};
+    gpio.Pin       = GPIO_PIN_5 | GPIO_PIN_6;   /* PD5=TX, PD6=RX */
+    gpio.Mode      = GPIO_MODE_AF_PP;
+    gpio.Pull      = GPIO_PULLUP;
+    gpio.Speed     = GPIO_SPEED_FREQ_HIGH;
+    gpio.Alternate = GPIO_AF7_USART2;
+    HAL_GPIO_Init(GPIOD, &gpio);
+
+    /* --- UART peripheral setup --- */
+    hdebug_uart.Instance          = USART2;
+    hdebug_uart.Init.BaudRate     = 115200;
+    hdebug_uart.Init.WordLength   = UART_WORDLENGTH_8B;
+    hdebug_uart.Init.StopBits     = UART_STOPBITS_1;
+    hdebug_uart.Init.Parity       = UART_PARITY_NONE;
+    hdebug_uart.Init.Mode         = UART_MODE_TX_RX;
+    hdebug_uart.Init.HwFlowCtl    = UART_HWCONTROL_NONE;
+    hdebug_uart.Init.OverSampling = UART_OVERSAMPLING_8;
+
+    if (HAL_UART_Init(&hdebug_uart) != HAL_OK) {
+        return -1;
+    }
     return 0;
 }
 
@@ -43,8 +66,8 @@ int _write(int file, char *ptr, int len)
 {
     (void)file; /* Unused parameter */
 
-    /* Use BSP COM1 UART handle */
-    if (HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*)ptr, len, HAL_MAX_DELAY) == HAL_OK) {
+    /* Use USART2 debug handle */
+    if (HAL_UART_Transmit(&hdebug_uart, (uint8_t*)ptr, len, HAL_MAX_DELAY) == HAL_OK) {
         return len;
     } else {
         return -1;
@@ -108,9 +131,9 @@ void Debug_PrintMotorStatus(uint8_t motor_id)
  */
 void Debug_UART_StartRx(void)
 {
-    HAL_NVIC_SetPriority(USART3_IRQn, 5, 0);
-    HAL_NVIC_EnableIRQ(USART3_IRQn);
-    HAL_UART_Receive_IT(&hcom_uart[COM1], &rx_byte, 1);
+    HAL_NVIC_SetPriority(USART2_IRQn, 5, 0);
+    HAL_NVIC_EnableIRQ(USART2_IRQn);
+    HAL_UART_Receive_IT(&hdebug_uart, &rx_byte, 1);
 }
 
 /**
@@ -171,13 +194,13 @@ static inline void echo_put(char c)
 void Debug_UART_FlushEcho(void)
 {
     /* Re-arm RX if it was lost due to HAL lock conflict with TX */
-    if (hcom_uart[COM1].RxState == HAL_UART_STATE_READY) {
-        HAL_UART_Receive_IT(&hcom_uart[COM1], &rx_byte, 1);
+    if (hdebug_uart.RxState == HAL_UART_STATE_READY) {
+        HAL_UART_Receive_IT(&hdebug_uart, &rx_byte, 1);
     }
 
     while (echo_tail != echo_head) {
         char c = echo_buf[echo_tail];
-        HAL_UART_Transmit(&hcom_uart[COM1], (uint8_t*)&c, 1, 2);
+        HAL_UART_Transmit(&hdebug_uart, (uint8_t*)&c, 1, 2);
         echo_tail = (echo_tail + 1) % ECHO_BUF_SIZE;
     }
 }
@@ -192,16 +215,16 @@ void Debug_UART_FlushEcho(void)
 void Debug_UART_ResetRx(void)
 {
     /* Disable UART IRQ to prevent re-entrance while we reset state */
-    HAL_NVIC_DisableIRQ(USART3_IRQn);
+    HAL_NVIC_DisableIRQ(USART2_IRQn);
 
     /* Clear all UART error flags at register level */
-    __HAL_UART_CLEAR_FLAG(&hcom_uart[COM1],
+    __HAL_UART_CLEAR_FLAG(&hdebug_uart,
         UART_CLEAR_OREF | UART_CLEAR_NEF | UART_CLEAR_PEF | UART_CLEAR_FEF);
 
     /* Force HAL RxState to READY — AbortReceive_IT is async and leaves
      * RxState as BUSY_RX, causing the subsequent Receive_IT to fail.
      * Directly resetting the internal state is the only reliable way. */
-    hcom_uart[COM1].RxState = HAL_UART_STATE_READY;
+    hdebug_uart.RxState = HAL_UART_STATE_READY;
 
     /* Reset application-level buffers */
     rx_line_pos   = 0;
@@ -210,8 +233,8 @@ void Debug_UART_ResetRx(void)
     echo_tail     = 0;
 
     /* Re-enable IRQ and re-arm RX */
-    HAL_NVIC_EnableIRQ(USART3_IRQn);
-    HAL_UART_Receive_IT(&hcom_uart[COM1], &rx_byte, 1);
+    HAL_NVIC_EnableIRQ(USART2_IRQn);
+    HAL_UART_Receive_IT(&hdebug_uart, &rx_byte, 1);
 }
 
 /**
@@ -221,7 +244,7 @@ void Debug_UART_ResetRx(void)
  */
 void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == USART3) {
+    if (huart->Instance == USART2) {
         /* Clear all UART error flags */
         __HAL_UART_CLEAR_FLAG(huart, UART_CLEAR_OREF | UART_CLEAR_NEF |
                                      UART_CLEAR_PEF  | UART_CLEAR_FEF);
@@ -232,7 +255,7 @@ void HAL_UART_ErrorCallback(UART_HandleTypeDef *huart)
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
 {
-    if (huart->Instance == USART3) {
+    if (huart->Instance == USART2) {
         char c = (char)rx_byte;
 
         if (c == '\r' || c == '\n') {
@@ -257,6 +280,6 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         }
 
         /* Always re-arm RX — never skip this */
-        HAL_UART_Receive_IT(&hcom_uart[COM1], &rx_byte, 1);
+        HAL_UART_Receive_IT(&hdebug_uart, &rx_byte, 1);
     }
 }
