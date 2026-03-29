@@ -49,7 +49,7 @@
 #define CAL_NUM_FRETS                TUNING_FF_NUM_POINTS
 
 /** Motor speed used for fret-to-fret calibration moves. */
-#define CAL_MOTOR_SPEED              3000
+#define CAL_MOTOR_SPEED             10000
 
 /** Hops to let the motor settle after reaching the feed-forward estimate. */
 #define CAL_MOVE_SETTLE_HOPS         2u

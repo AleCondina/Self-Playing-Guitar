@@ -47,6 +47,7 @@ typedef struct {
     uint8_t  string_id2;       /**< Second string (valid when num_strings == 2)       */
     float    target_freq_hz2;  /**< Second pitch in Hz (valid when num_strings == 2)  */
     uint16_t burst_ms;         /**< Solenoid burst duration (ms), 0 = use default     */
+    uint16_t actuate_delay_ms; /**< Fire time from note start (ms), 0 = song default  */
 } SongNote_t;
 
 /* =========================================================================
@@ -150,9 +151,10 @@ void SongSched_HoldNote(uint8_t hold);
 const SongNote_t *SongSched_GetNoteAt(uint32_t idx);
 
 /**
- * @brief Return the BPM-scaled solenoid actuate delay (ms).
+ * @brief Return the BPM-scaled solenoid actuate delay for the current note (ms).
  *
- * At the reference BPM this equals SONG_ACTUATE_BASE_MS (1200 ms).
+ * At the reference BPM this equals the current note's configured actuation
+ * delay, or SONG_ACTUATE_BASE_MS (1200 ms) when no per-note override exists.
  * Higher BPM → shorter delay (less PI convergence time).
  * Lower BPM  → longer delay (more PI convergence time).
  */

@@ -11,7 +11,9 @@
  *   E2 = 82.41   A2 = 110.00   D3 = 146.83
  *   G3 = 196.00  B3 = 246.94   E4 = 329.63
  *
- * Chord fields: { string_id, freq_hz, duration_ms, num_strings, string_id2, freq_hz2 }
+ * Chord fields:
+ *   { string_id, freq_hz, duration_ms, num_strings, string_id2, freq_hz2,
+ *     burst_ms, actuate_delay_ms }
  * Set num_strings = 1 for a single note, 2 for a two-string chord.
  ******************************************************************************
  */
@@ -32,7 +34,9 @@
  *   scaled = ((duration_ms - burst_ms) * SONG_BPM_REF / SONG_BPM) + burst_ms
  *
  * The solenoid actuate delay also scales:
- *   scaled_actuate = SONG_ACTUATE_BASE_MS * SONG_BPM_REF / SONG_BPM
+ *   scaled_actuate = note_actuate_ms * SONG_BPM_REF / SONG_BPM
+ * where note_actuate_ms defaults to SONG_ACTUATE_BASE_MS when a note does
+ * not provide a per-note override.
  *
  * Example:  REF=47 BPM=60 → note 1635ms becomes 1298ms, actuate 940ms
  *           REF=47 BPM=35 → note 1635ms becomes 2169ms, actuate 1612ms
@@ -74,11 +78,13 @@
 
 /* Convenience macros for note entries */
 #define CHORD(g_hz, d_hz, dur_ms, burst) \
-    { 3u, (g_hz), (dur_ms), 2u, 2u, (d_hz), (burst) }
+    { 3u, (g_hz), (dur_ms), 2u, 2u, (d_hz), (burst), 0u }
 #define CHORD2(s1, hz1, s2, hz2, dur_ms, burst) \
-    { (s1), (hz1), (dur_ms), 2u, (s2), (hz2), (burst) }
+    { (s1), (hz1), (dur_ms), 2u, (s2), (hz2), (burst), 0u }
 #define NOTE(str, hz, dur_ms, burst) \
-    { (str), (hz), (dur_ms), 1u, 0u, 0.0f, (burst) }
+    { (str), (hz), (dur_ms), 1u, 0u, 0.0f, (burst), 0u }
+#define NOTE_AT(str, hz, dur_ms, burst, actuate_ms) \
+    { (str), (hz), (dur_ms), 1u, 0u, 0.0f, (burst), (actuate_ms) }
 
 /* =========================================================================
  * Song 0: Smoke on the Water – alternating E2 + G2 strings (key of E)
@@ -137,10 +143,10 @@ static const SongNote_t song0_notes[] = {
 static const SongNote_t song1_notes[] = {
 
     /* ── Timing budget per note ──────────────────────────────────────── *
-     *  1200ms PI + 100ms burst + rest                                        *
-     *  Notes 0,1,3,4,7,8,10: rest=400ms → total=1700ms                      *
-     *  Note 5:               rest=200ms → total=1500ms                      *
-     *  Notes 2,6,9,11:       rest=650ms → total=1950ms                      *
+     *  Standard notes:        1200ms converge + 100ms burst + 400ms ring = 1700ms *
+     *  Held notes 2,9,11:     1200ms converge + 100ms burst + 650ms ring = 1950ms *
+     *  Note 5:                1200ms converge + 100ms burst + 100ms ring = 1400ms *
+     *  Note 6:                 600ms converge + 100ms burst + 1250ms ring = 1950ms *
      * ────────────────────────────────────────────────────────────────── */
 
     /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
@@ -149,10 +155,10 @@ static const SongNote_t song1_notes[] = {
     NOTE(1u, D3_HZ,   1950u, 100u),  /* #2  fret 5: D3,  rest=650          */
 
     /* ── Phrase 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
-    NOTE(1u, A2_HZ,   1700u, 100u),  /* #3  fret 0: A2,  rest=400          */
-    NOTE(1u, C3_HZ,   1700u, 100u),  /* #4  fret 3: C3,  rest=400          */
-    NOTE(1u, Ds3_HZ,  1500u, 100u),  /* #5  fret 6: Ds3, rest=200          */
-    NOTE(1u, D3_HZ,   1950u, 100u),  /* #6  fret 5: D3,  rest=650          */
+    NOTE(1u, A2_HZ,   1700u, 100u),          /* #3  fret 0: A2,  rest=400          */
+    NOTE(1u, C3_HZ,   1700u, 100u),          /* #4  fret 3: C3,  rest=400          */
+    NOTE(1u, Ds3_HZ,  1400u, 100u),          /* #5  fret 6: Ds3, rest=100          */
+    NOTE_AT(1u, D3_HZ, 1950u, 100u, 600u),   /* #6  fret 5: D3,  converge=600      */
 
     /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
     NOTE(1u, A2_HZ,   1700u, 100u),  /* #7  fret 0: A2,  rest=400          */
@@ -243,6 +249,7 @@ static uint32_t          s_song_count = (uint32_t)(sizeof(song0_notes) / sizeof(
  * ========================================================================= */
 #define SONG_MAX_NOTES  16u
 static uint32_t s_scaled_durations[SONG_MAX_NOTES];
+static uint32_t s_scaled_actuate_delays[SONG_MAX_NOTES];
 
 /* =========================================================================
  * Scheduler state
@@ -253,7 +260,6 @@ static uint8_t  s_active        = 0u;
 static uint8_t  s_initialised   = 0u;
 static uint8_t  s_first_tick    = 1u;
 static uint8_t  s_hold_note     = 0u;
-static uint32_t s_scaled_actuate_delay_ms = SONG_ACTUATE_BASE_MS;
 
 /* =========================================================================
  * API implementation
@@ -267,10 +273,17 @@ void SongSched_Init(void)
         uint16_t burst    = s_song_ptr[i].burst_ms;
         uint32_t non_burst = s_song_ptr[i].duration_ms - burst;
         s_scaled_durations[i] = (non_burst * SONG_BPM_REF) / SONG_BPM + burst;
-    }
 
-    /* Scale the solenoid actuate delay (PI convergence budget) */
-    s_scaled_actuate_delay_ms = (SONG_ACTUATE_BASE_MS * SONG_BPM_REF) / SONG_BPM;
+        uint32_t act_ms = (s_song_ptr[i].actuate_delay_ms > 0u)
+                        ? (uint32_t)s_song_ptr[i].actuate_delay_ms
+                        : (uint32_t)SONG_ACTUATE_BASE_MS;
+        s_scaled_actuate_delays[i] = (act_ms * SONG_BPM_REF) / SONG_BPM;
+
+        /* Never allow the burst start time to fall after the note ends. */
+        if (s_scaled_actuate_delays[i] > s_scaled_durations[i]) {
+            s_scaled_actuate_delays[i] = s_scaled_durations[i];
+        }
+    }
 
     s_note_index    = 0u;
     s_note_start_ms = 0u;
@@ -386,5 +399,8 @@ const SongNote_t *SongSched_GetNoteAt(uint32_t idx)
 
 uint32_t SongSched_GetActuateDelayMs(void)
 {
-    return s_scaled_actuate_delay_ms;
+    if (!s_active || s_note_index >= s_song_count || s_note_index >= SONG_MAX_NOTES) {
+        return 0u;
+    }
+    return s_scaled_actuate_delays[s_note_index];
 }
