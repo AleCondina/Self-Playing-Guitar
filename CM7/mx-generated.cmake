@@ -4,8 +4,8 @@ cmake_minimum_required(VERSION 3.22)
 set(MX_Defines_Syms 
 	CORE_CM7 
 	USE_HAL_DRIVER 
-	STM32H755xx 
-	USE_PWR_DIRECT_SMPS_SUPPLY 
+	STM32H747xx
+	USE_PWR_DIRECT_SMPS_SUPPLY
 	USE_NUCLEO_144
     $<$<CONFIG:Debug>:DEBUG>
 )
@@ -26,7 +26,7 @@ set(MX_Application_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/stm32h7xx_hal_msp.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/sysmem.c
     ${CMAKE_CURRENT_SOURCE_DIR}/Core/Src/syscalls.c
-    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Startup/startup_stm32h755xx_CM7.s
+    ${CMAKE_CURRENT_SOURCE_DIR}/Core/Startup/startup_stm32h747xx_CM7.s
 )
 
 # STM32 HAL/LL Drivers

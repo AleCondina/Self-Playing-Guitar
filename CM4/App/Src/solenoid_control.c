@@ -10,10 +10,13 @@
 #include "application_config.h"
 #include "stm32h7xx_hal.h"
 
-/* External timer handles (defined in main.c) — D2-domain timers only */
-extern TIM_HandleTypeDef htim2;   /* Solenoid 2: A2 string (PA5) */
-extern TIM_HandleTypeDef htim3;   /* Solenoid 1: E2 string (PB5) */
-extern TIM_HandleTypeDef htim4;   /* Solenoid 3: D3 string (PB6) */
+/* External timer handles (defined in main.c) — one per solenoid */
+extern TIM_HandleTypeDef htim4;    /* Solenoid 4: B3 string (PB7, TIM4_CH2)  */
+extern TIM_HandleTypeDef htim5;    /* Solenoid 5: E4 string (PI0, TIM5_CH4)  */
+extern TIM_HandleTypeDef htim13;   /* Solenoid 0: E2 string (PF8, TIM13_CH1) */
+extern TIM_HandleTypeDef htim15;   /* Solenoid 1: A2 string (PE5, TIM15_CH1) */
+extern TIM_HandleTypeDef htim16;   /* Solenoid 3: G3 string (PB8, TIM16_CH1) */
+extern TIM_HandleTypeDef htim17;   /* Solenoid 2: D3 string (PB9, TIM17_CH1) */
 
 /**
  * @brief Solenoid state structure for multi-solenoid management
@@ -78,60 +81,69 @@ static const uint16_t SOLENOID_FREQ_TABLE[6][8] = {
  */
 int32_t Solenoid_Init(void)
 {
-    /* Verify available timer handles are initialized */
-    if (htim2.Instance != TIM2 || htim2.State == HAL_TIM_STATE_RESET) {
-        return -1;  /* TIM2 not initialized */
+    /* Verify all 6 timer handles are initialized */
+    if (htim13.Instance != TIM13 || htim13.State == HAL_TIM_STATE_RESET) {
+        return -1;  /* TIM13 not initialized */
     }
-    if (htim3.Instance != TIM3 || htim3.State == HAL_TIM_STATE_RESET) {
-        return -1;  /* TIM3 not initialized */
+    if (htim15.Instance != TIM15 || htim15.State == HAL_TIM_STATE_RESET) {
+        return -1;  /* TIM15 not initialized */
+    }
+    if (htim17.Instance != TIM17 || htim17.State == HAL_TIM_STATE_RESET) {
+        return -1;  /* TIM17 not initialized */
+    }
+    if (htim16.Instance != TIM16 || htim16.State == HAL_TIM_STATE_RESET) {
+        return -1;  /* TIM16 not initialized */
     }
     if (htim4.Instance != TIM4 || htim4.State == HAL_TIM_STATE_RESET) {
         return -1;  /* TIM4 not initialized */
     }
+    if (htim5.Instance != TIM5 || htim5.State == HAL_TIM_STATE_RESET) {
+        return -1;  /* TIM5 not initialized */
+    }
 
-    /* Initialize solenoid 0: TIM3 CH2 (E2 string) on PB5 */
-    solenoid_states[SOLENOID_STRING_E2].htim = &htim3;
-    solenoid_states[SOLENOID_STRING_E2].channel = TIM_CHANNEL_2;
+    /* Initialize solenoid 0: TIM13 CH1 (E2 string) on PF8 */
+    solenoid_states[SOLENOID_STRING_E2].htim = &htim13;
+    solenoid_states[SOLENOID_STRING_E2].channel = TIM_CHANNEL_1;
     solenoid_states[SOLENOID_STRING_E2].current_string = 0;
     solenoid_states[SOLENOID_STRING_E2].current_fret = 0;
     solenoid_states[SOLENOID_STRING_E2].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_E2].is_active = 0;
 
-    /* Initialize solenoid 1: TIM2 CH1 (A2 string) on PA5 */
-    solenoid_states[SOLENOID_STRING_A2].htim = &htim2;
+    /* Initialize solenoid 1: TIM15 CH1 (A2 string) on PE5 */
+    solenoid_states[SOLENOID_STRING_A2].htim = &htim15;
     solenoid_states[SOLENOID_STRING_A2].channel = TIM_CHANNEL_1;
     solenoid_states[SOLENOID_STRING_A2].current_string = 1;
     solenoid_states[SOLENOID_STRING_A2].current_fret = 0;
     solenoid_states[SOLENOID_STRING_A2].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_A2].is_active = 0;
 
-    /* Initialize solenoid 2: TIM4 CH1 (D3 string) on PB6 */
-    solenoid_states[SOLENOID_STRING_D3].htim = &htim4;
+    /* Initialize solenoid 2: TIM17 CH1 (D3 string) on PB9 */
+    solenoid_states[SOLENOID_STRING_D3].htim = &htim17;
     solenoid_states[SOLENOID_STRING_D3].channel = TIM_CHANNEL_1;
     solenoid_states[SOLENOID_STRING_D3].current_string = 2;
     solenoid_states[SOLENOID_STRING_D3].current_fret = 0;
     solenoid_states[SOLENOID_STRING_D3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_D3].is_active = 0;
 
-    /* Solenoid 3: G3 — no timer assigned */
-    solenoid_states[SOLENOID_STRING_G3].htim = NULL;
-    solenoid_states[SOLENOID_STRING_G3].channel = 0;
+    /* Initialize solenoid 3: TIM16 CH1 (G3 string) on PB8 */
+    solenoid_states[SOLENOID_STRING_G3].htim = &htim16;
+    solenoid_states[SOLENOID_STRING_G3].channel = TIM_CHANNEL_1;
     solenoid_states[SOLENOID_STRING_G3].current_string = 3;
     solenoid_states[SOLENOID_STRING_G3].current_fret = 0;
     solenoid_states[SOLENOID_STRING_G3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_G3].is_active = 0;
 
-    /* Solenoid 4: B3 — no timer assigned (TIM16 removed, D1 domain) */
-    solenoid_states[SOLENOID_STRING_B3].htim = NULL;
-    solenoid_states[SOLENOID_STRING_B3].channel = 0;
+    /* Initialize solenoid 4: TIM4 CH2 (B3 string) on PB7 */
+    solenoid_states[SOLENOID_STRING_B3].htim = &htim4;
+    solenoid_states[SOLENOID_STRING_B3].channel = TIM_CHANNEL_2;
     solenoid_states[SOLENOID_STRING_B3].current_string = 4;
     solenoid_states[SOLENOID_STRING_B3].current_fret = 0;
     solenoid_states[SOLENOID_STRING_B3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_B3].is_active = 0;
 
-    /* Solenoid 5: E4 — no timer assigned (TIM17 removed, D1 domain) */
-    solenoid_states[SOLENOID_STRING_E4].htim = NULL;
-    solenoid_states[SOLENOID_STRING_E4].channel = 0;
+    /* Initialize solenoid 5: TIM5 CH4 (E4 string) on PI0 */
+    solenoid_states[SOLENOID_STRING_E4].htim = &htim5;
+    solenoid_states[SOLENOID_STRING_E4].channel = TIM_CHANNEL_4;
     solenoid_states[SOLENOID_STRING_E4].current_string = 5;
     solenoid_states[SOLENOID_STRING_E4].current_fret = 0;
     solenoid_states[SOLENOID_STRING_E4].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
@@ -152,7 +164,7 @@ int32_t Solenoid_SetFrequency(uint8_t solenoid_id, uint8_t string, uint8_t fret)
 
     SolenoidState_t *state = &solenoid_states[solenoid_id];
 
-    /* Skip if no timer assigned (e.g. E2/B3/E4 without D2-domain timers) */
+    /* Skip if no timer assigned */
     if (state->htim == NULL) {
         state->current_string = string;
         state->current_fret = fret;

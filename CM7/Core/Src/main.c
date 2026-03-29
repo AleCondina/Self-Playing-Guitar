@@ -325,7 +325,7 @@ static void MX_ADC3_Init(void)
 
   /** Configure Regular Channel
   */
-  sConfig.Channel = ADC_CHANNEL_0;
+  sConfig.Channel = ADC_CHANNEL_5;
   sConfig.Rank = ADC_REGULAR_RANK_1;
   sConfig.SamplingTime = ADC_SAMPLETIME_810CYCLES_5;    // ADC 16B at 100MHz, 16.5 (processing) + 810.5 (sampling) cycles * 10ns/cycle = 8.27 us
   sConfig.SingleDiff = ADC_SINGLE_ENDED;

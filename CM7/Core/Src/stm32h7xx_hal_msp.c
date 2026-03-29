@@ -112,11 +112,10 @@ void HAL_ADC_MspInit(ADC_HandleTypeDef* hadc)
     /* Peripheral clock enable */
     __HAL_RCC_ADC3_CLK_ENABLE();
 
-    __HAL_RCC_GPIOC_CLK_ENABLE();
+    __HAL_RCC_GPIOF_CLK_ENABLE();
     /**ADC3 GPIO Configuration
-    PC2_C     ------> ADC3_INP0
+    PF3     ------> ADC3_INP5
     */
-    HAL_SYSCFG_AnalogSwitchConfig(SYSCFG_SWITCH_PC2, SYSCFG_SWITCH_PC2_OPEN);
 
     /* ADC3 DMA Init */
     /* ADC3 Init */

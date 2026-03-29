@@ -26,7 +26,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS TRUE)
 set(STM32_MCU_FLAGS  "-mcpu=cortex-m7 -mfpu=fpv5-d16 -mfloat-abi=hard " )
 
 #Linker options
-set(STM32_LINKER_SCRIPT stm32h755xx_flash_CM7.ld)
+set(STM32_LINKER_SCRIPT stm32h747xx_flash_CM7.ld)
 set(STM32_LINKER_OPTION "-u _printf_float" )
 
 # Set the project name

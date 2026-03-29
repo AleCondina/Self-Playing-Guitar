@@ -5,11 +5,12 @@
  * @note    Stepper motor control with acceleration limiting
  *
  *          DRV8825 Driver Pin Configuration (6 pins per motor):
- *          - Motor 0: STEP=PE10, DIR=PE11, M0=PE12, M1=PE13, M2=PE14, EN=PD11
- *          - Motor 1: STEP=PD12, DIR=PD13, M0=PE2,  M1=PE4,  M2=PE7,  EN=PC9  (ZIO CN10)
- *          - Motor 2: STEP=PA8,  DIR=PC7,  M0=PC6,  M1=PC8,  M2=PA3,  EN=PC0  
- *          - Motor 3: STEP=PC3,  DIR=PB1,  M0=PF10, M1=PG12, M2=PG14, EN=PG6
- *          - Motors 4-5: Not configured (structure ready, pins TBD)
+ *          - Motor 0: STEP=PH10, DIR=PH12, M0=PH9,  M1=PH8,  M2=PH7,  EN=PH11
+ *          - Motor 1: STEP=PE13, DIR=PE15, M0=PE12, M1=PE11, M2=PE10, EN=PE14
+ *          - Motor 2: STEP=PE7,  DIR=PE9,  M0=PF15, M1=PF14, M2=PF13, EN=PE8
+ *          - Motor 3: STEP=PA0,  DIR=PA2,  M0=PC2,  M1=PC1,  M2=PC0,  EN=PA1
+ *          - Motor 4: STEP=PD11, DIR=PD13, M0=PD10, M1=PB15, M2=PB13, EN=PD12
+ *          - Motor 5: STEP=PC6,  DIR=PC8,  M0=PG7,  M1=PG6,  M2=PG5,  EN=PC7
  *
  *          Microstepping Modes (M0, M1, M2):
  *          - 0,0,0 = Full step
@@ -25,7 +26,7 @@
 #include "stm32h7xx_hal.h"
 
 /* Number of motors currently configured with GPIO pins */
-#define NUM_CONFIGURED_MOTORS   4
+#define NUM_CONFIGURED_MOTORS   6
 
 /* Step pulse width in microseconds (DRV8825 minimum: 1.9us) */
 #define STEP_PULSE_US           2
@@ -106,13 +107,14 @@ int32_t Motor_Init(void)
     DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 
     /* Enable GPIO clocks for all configured motors */
-    __HAL_RCC_GPIOE_CLK_ENABLE();  /* Motor 0: PE10-PE14 */
-    __HAL_RCC_GPIOD_CLK_ENABLE();  /* Motor 0: PD11, Motor 1: PD12-13 */
-    __HAL_RCC_GPIOC_CLK_ENABLE();  /* Motor 1: PC9, Motor 2: PC7/PC6/PC8/PC0, Motor 3: PC3 */
-    __HAL_RCC_GPIOA_CLK_ENABLE();  /* Motor 2: PA8/PA3 */
-    __HAL_RCC_GPIOB_CLK_ENABLE();  /* Motor 3: PB1 */
-    __HAL_RCC_GPIOF_CLK_ENABLE();  /* Motor 3: PF10 */
-    __HAL_RCC_GPIOG_CLK_ENABLE();  /* Motor 3: PG12/PG14/PG6 */
+    __HAL_RCC_GPIOA_CLK_ENABLE();  /* Motor 3: PA0/PA1/PA2 */
+    __HAL_RCC_GPIOB_CLK_ENABLE();  /* Motor 4: PB13/PB15 */
+    __HAL_RCC_GPIOC_CLK_ENABLE();  /* Motor 3: PC0/PC1/PC2, Motor 5: PC6/PC7/PC8 */
+    __HAL_RCC_GPIOD_CLK_ENABLE();  /* Motor 4: PD10/PD11/PD12/PD13 */
+    __HAL_RCC_GPIOE_CLK_ENABLE();  /* Motor 1: PE10-PE15, Motor 2: PE7/PE8/PE9 */
+    __HAL_RCC_GPIOF_CLK_ENABLE();  /* Motor 2: PF13/PF14/PF15 */
+    __HAL_RCC_GPIOG_CLK_ENABLE();  /* Motor 5: PG5/PG6/PG7 */
+    __HAL_RCC_GPIOH_CLK_ENABLE();  /* Motor 0: PH7-PH12 */
 
     /* Initialize motor states and clear all pin configs */
     for (uint8_t i = 0; i < NUM_MOTORS; i++) {
@@ -133,40 +135,40 @@ int32_t Motor_Init(void)
     }
 
     /* ================================================================
-     * Configure Motor 0: DRV8825 driver
-     * STEP=PE10, DIR=PE11, M0=PE12, M1=PE13, M2=PE14, EN=PD11
+     * Configure Motor 0: DRV8825 driver (E2 string)
+     * STEP=PH10, DIR=PH12, M0=PH9, M1=PH8, M2=PH7, EN=PH11
      * ================================================================ */
 
-    /* STEP pin - PE10 */
-    motor_configs[0].pins.step_port = GPIOE;
+    /* STEP pin - PH10 */
+    motor_configs[0].pins.step_port = GPIOH;
     motor_configs[0].pins.step_pin = GPIO_PIN_10;
-    Motor_InitGPIO(GPIOE, GPIO_PIN_10);
+    Motor_InitGPIO(GPIOH, GPIO_PIN_10);
 
-    /* DIR pin - PE11 */
-    motor_configs[0].pins.dir_port = GPIOE;
-    motor_configs[0].pins.dir_pin = GPIO_PIN_11;
-    Motor_InitGPIO(GPIOE, GPIO_PIN_11);
+    /* DIR pin - PH12 */
+    motor_configs[0].pins.dir_port = GPIOH;
+    motor_configs[0].pins.dir_pin = GPIO_PIN_12;
+    Motor_InitGPIO(GPIOH, GPIO_PIN_12);
 
-    /* M0 microstep pin - PE12 */
-    motor_configs[0].pins.m0_port = GPIOE;
-    motor_configs[0].pins.m0_pin = GPIO_PIN_12;
-    Motor_InitGPIO(GPIOE, GPIO_PIN_12);
+    /* M0 microstep pin - PH9 */
+    motor_configs[0].pins.m0_port = GPIOH;
+    motor_configs[0].pins.m0_pin = GPIO_PIN_9;
+    Motor_InitGPIO(GPIOH, GPIO_PIN_9);
 
-    /* M1 microstep pin - PE13 */
-    motor_configs[0].pins.m1_port = GPIOE;
-    motor_configs[0].pins.m1_pin = GPIO_PIN_13;
-    Motor_InitGPIO(GPIOE, GPIO_PIN_13);
+    /* M1 microstep pin - PH8 */
+    motor_configs[0].pins.m1_port = GPIOH;
+    motor_configs[0].pins.m1_pin = GPIO_PIN_8;
+    Motor_InitGPIO(GPIOH, GPIO_PIN_8);
 
-    /* M2 microstep pin - PE14 */
-    motor_configs[0].pins.m2_port = GPIOE;
-    motor_configs[0].pins.m2_pin = GPIO_PIN_14;
-    Motor_InitGPIO(GPIOE, GPIO_PIN_14);
+    /* M2 microstep pin - PH7 */
+    motor_configs[0].pins.m2_port = GPIOH;
+    motor_configs[0].pins.m2_pin = GPIO_PIN_7;
+    Motor_InitGPIO(GPIOH, GPIO_PIN_7);
 
-    /* EN pin - PD11 (active LOW, start HIGH = disabled) */
-    motor_configs[0].pins.en_port = GPIOD;
+    /* EN pin - PH11 (active LOW, start HIGH = disabled) */
+    motor_configs[0].pins.en_port = GPIOH;
     motor_configs[0].pins.en_pin = GPIO_PIN_11;
-    Motor_InitGPIO(GPIOD, GPIO_PIN_11);
-    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_11, GPIO_PIN_SET);  /* Start disabled */
+    Motor_InitGPIO(GPIOH, GPIO_PIN_11);
+    HAL_GPIO_WritePin(GPIOH, GPIO_PIN_11, GPIO_PIN_SET);  /* Start disabled */
 
     /* Set motor parameters */
     motor_configs[0].max_speed = MOTOR_MAX_STEP_FREQ;
@@ -174,42 +176,40 @@ int32_t Motor_Init(void)
     motor_configs[0].configured = 1;
 
     /* ================================================================
-     * Configure Motor 1: DRV8825 driver
-     * STEP=PD12, DIR=PD13, M0=PE2, M1=PE4, M2=PE7, EN=PC9
-     * All pins on ZIO CN10: STEP=CN10-12, DIR=CN10-10, M0=CN10-16,
-     *                       M1=CN10-18, M2=PE7/CN10-20, EN=CN10-9
+     * Configure Motor 1: DRV8825 driver (A2 string)
+     * STEP=PE13, DIR=PE15, M0=PE12, M1=PE11, M2=PE10, EN=PE14
      * ================================================================ */
 
-    /* STEP pin - PD12 (ZIO CN10-12) */
-    motor_configs[1].pins.step_port = GPIOD;
-    motor_configs[1].pins.step_pin = GPIO_PIN_12;
-    Motor_InitGPIO(GPIOD, GPIO_PIN_12);
+    /* STEP pin - PE13 */
+    motor_configs[1].pins.step_port = GPIOE;
+    motor_configs[1].pins.step_pin = GPIO_PIN_13;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_13);
 
-    /* DIR pin - PD13 (ZIO CN10-10) */
-    motor_configs[1].pins.dir_port = GPIOD;
-    motor_configs[1].pins.dir_pin = GPIO_PIN_13;
-    Motor_InitGPIO(GPIOD, GPIO_PIN_13);
+    /* DIR pin - PE15 */
+    motor_configs[1].pins.dir_port = GPIOE;
+    motor_configs[1].pins.dir_pin = GPIO_PIN_15;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_15);
 
-    /* M0 microstep pin - PE2 (ZIO CN10-16) */
+    /* M0 microstep pin - PE12 */
     motor_configs[1].pins.m0_port = GPIOE;
-    motor_configs[1].pins.m0_pin = GPIO_PIN_2;
-    Motor_InitGPIO(GPIOE, GPIO_PIN_2);
+    motor_configs[1].pins.m0_pin = GPIO_PIN_12;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_12);
 
-    /* M1 microstep pin - PE4 (ZIO CN10-18) */
+    /* M1 microstep pin - PE11 */
     motor_configs[1].pins.m1_port = GPIOE;
-    motor_configs[1].pins.m1_pin = GPIO_PIN_4;
-    Motor_InitGPIO(GPIOE, GPIO_PIN_4);
+    motor_configs[1].pins.m1_pin = GPIO_PIN_11;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_11);
 
-    /* M2 microstep pin - PE7 (ZIO CN10-20) */
+    /* M2 microstep pin - PE10 */
     motor_configs[1].pins.m2_port = GPIOE;
-    motor_configs[1].pins.m2_pin = GPIO_PIN_7;
-    Motor_InitGPIO(GPIOE, GPIO_PIN_7);
+    motor_configs[1].pins.m2_pin = GPIO_PIN_10;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_10);
 
-    /* EN pin - PC9 (ZIO CN10-9, active LOW, start HIGH = disabled) */
-    motor_configs[1].pins.en_port = GPIOC;
-    motor_configs[1].pins.en_pin = GPIO_PIN_9;
-    Motor_InitGPIO(GPIOC, GPIO_PIN_9);
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_9, GPIO_PIN_SET);  /* Start disabled */
+    /* EN pin - PE14 (active LOW, start HIGH = disabled) */
+    motor_configs[1].pins.en_port = GPIOE;
+    motor_configs[1].pins.en_pin = GPIO_PIN_14;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_14);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_14, GPIO_PIN_SET);  /* Start disabled */
 
     /* Set motor parameters */
     motor_configs[1].max_speed = MOTOR_MAX_STEP_FREQ;
@@ -218,40 +218,39 @@ int32_t Motor_Init(void)
 
     /* ================================================================
      * Configure Motor 2: DRV8825 driver (D3 string)
-     * STEP=PA8, DIR=PC7, M0=PC6, M1=PC8, M2=PA3, EN=PC0
-     * ZIO CN9: D6=PA8, D4=PC7, D5=PC6, D7=PC8, A0=PA3, A1=PC0
+     * STEP=PE7, DIR=PE9, M0=PF15, M1=PF14, M2=PF13, EN=PE8
      * ================================================================ */
 
-    /* STEP pin - PA8 (ZIO CN9, D6) */
-    motor_configs[2].pins.step_port = GPIOA;
-    motor_configs[2].pins.step_pin = GPIO_PIN_8;
-    Motor_InitGPIO(GPIOA, GPIO_PIN_8);
+    /* STEP pin - PE7 */
+    motor_configs[2].pins.step_port = GPIOE;
+    motor_configs[2].pins.step_pin = GPIO_PIN_7;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_7);
 
-    /* DIR pin - PC7 (ZIO CN9, D4) */
-    motor_configs[2].pins.dir_port = GPIOC;
-    motor_configs[2].pins.dir_pin = GPIO_PIN_7;
-    Motor_InitGPIO(GPIOC, GPIO_PIN_7);
+    /* DIR pin - PE9 */
+    motor_configs[2].pins.dir_port = GPIOE;
+    motor_configs[2].pins.dir_pin = GPIO_PIN_9;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_9);
 
-    /* M0 microstep pin - PC6 (ZIO CN9, D5) */
-    motor_configs[2].pins.m0_port = GPIOC;
-    motor_configs[2].pins.m0_pin = GPIO_PIN_6;
-    Motor_InitGPIO(GPIOC, GPIO_PIN_6);
+    /* M0 microstep pin - PF15 */
+    motor_configs[2].pins.m0_port = GPIOF;
+    motor_configs[2].pins.m0_pin = GPIO_PIN_15;
+    Motor_InitGPIO(GPIOF, GPIO_PIN_15);
 
-    /* M1 microstep pin - PC8 (ZIO CN9, D7) */
-    motor_configs[2].pins.m1_port = GPIOC;
-    motor_configs[2].pins.m1_pin = GPIO_PIN_8;
-    Motor_InitGPIO(GPIOC, GPIO_PIN_8);
+    /* M1 microstep pin - PF14 */
+    motor_configs[2].pins.m1_port = GPIOF;
+    motor_configs[2].pins.m1_pin = GPIO_PIN_14;
+    Motor_InitGPIO(GPIOF, GPIO_PIN_14);
 
-    /* M2 microstep pin - PA3 (ZIO CN9, A0) */
-    motor_configs[2].pins.m2_port = GPIOA;
-    motor_configs[2].pins.m2_pin = GPIO_PIN_3;
-    Motor_InitGPIO(GPIOA, GPIO_PIN_3);
+    /* M2 microstep pin - PF13 */
+    motor_configs[2].pins.m2_port = GPIOF;
+    motor_configs[2].pins.m2_pin = GPIO_PIN_13;
+    Motor_InitGPIO(GPIOF, GPIO_PIN_13);
 
-    /* EN pin - PC0 (ZIO CN9, A1, active LOW, start HIGH = disabled) */
-    motor_configs[2].pins.en_port = GPIOC;
-    motor_configs[2].pins.en_pin = GPIO_PIN_0;
-    Motor_InitGPIO(GPIOC, GPIO_PIN_0);
-    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_0, GPIO_PIN_SET);  /* Start disabled */
+    /* EN pin - PE8 (active LOW, start HIGH = disabled) */
+    motor_configs[2].pins.en_port = GPIOE;
+    motor_configs[2].pins.en_pin = GPIO_PIN_8;
+    Motor_InitGPIO(GPIOE, GPIO_PIN_8);
+    HAL_GPIO_WritePin(GPIOE, GPIO_PIN_8, GPIO_PIN_SET);  /* Start disabled */
 
     /* Set motor parameters */
     motor_configs[2].max_speed = MOTOR_MAX_STEP_FREQ;
@@ -260,41 +259,39 @@ int32_t Motor_Init(void)
 
     /* ================================================================
      * Configure Motor 3: DRV8825 driver (G3 string)
-     * STEP=PC3, DIR=PB1, M0=PF10, M1=PG12, M2=PG14, EN=PG6
-     * ZIO CN9:  A2=PC3, A3=PB1
-     * ZIO CN10: A7=PF10, D7=PG12, D2=PG14, D26=PG6
+     * STEP=PA0, DIR=PA2, M0=PC2, M1=PC1, M2=PC0, EN=PA1
      * ================================================================ */
 
-    /* STEP pin - PC3 (ZIO CN9, A2) */
-    motor_configs[3].pins.step_port = GPIOC;
-    motor_configs[3].pins.step_pin = GPIO_PIN_3;
-    Motor_InitGPIO(GPIOC, GPIO_PIN_3);
+    /* STEP pin - PA0 */
+    motor_configs[3].pins.step_port = GPIOA;
+    motor_configs[3].pins.step_pin = GPIO_PIN_0;
+    Motor_InitGPIO(GPIOA, GPIO_PIN_0);
 
-    /* DIR pin - PB1 (ZIO CN9, A3) */
-    motor_configs[3].pins.dir_port = GPIOB;
-    motor_configs[3].pins.dir_pin = GPIO_PIN_1;
-    Motor_InitGPIO(GPIOB, GPIO_PIN_1);
+    /* DIR pin - PA2 */
+    motor_configs[3].pins.dir_port = GPIOA;
+    motor_configs[3].pins.dir_pin = GPIO_PIN_2;
+    Motor_InitGPIO(GPIOA, GPIO_PIN_2);
 
-    /* M0 microstep pin - PF10 (ZIO CN10, A7) */
-    motor_configs[3].pins.m0_port = GPIOF;
-    motor_configs[3].pins.m0_pin = GPIO_PIN_10;
-    Motor_InitGPIO(GPIOF, GPIO_PIN_10);
+    /* M0 microstep pin - PC2 */
+    motor_configs[3].pins.m0_port = GPIOC;
+    motor_configs[3].pins.m0_pin = GPIO_PIN_2;
+    Motor_InitGPIO(GPIOC, GPIO_PIN_2);
 
-    /* M1 microstep pin - PG12 (ZIO CN10, D7) */
-    motor_configs[3].pins.m1_port = GPIOG;
-    motor_configs[3].pins.m1_pin = GPIO_PIN_12;
-    Motor_InitGPIO(GPIOG, GPIO_PIN_12);
+    /* M1 microstep pin - PC1 */
+    motor_configs[3].pins.m1_port = GPIOC;
+    motor_configs[3].pins.m1_pin = GPIO_PIN_1;
+    Motor_InitGPIO(GPIOC, GPIO_PIN_1);
 
-    /* M2 microstep pin - PG14 (ZIO CN10, D2) */
-    motor_configs[3].pins.m2_port = GPIOG;
-    motor_configs[3].pins.m2_pin = GPIO_PIN_14;
-    Motor_InitGPIO(GPIOG, GPIO_PIN_14);
+    /* M2 microstep pin - PC0 */
+    motor_configs[3].pins.m2_port = GPIOC;
+    motor_configs[3].pins.m2_pin = GPIO_PIN_0;
+    Motor_InitGPIO(GPIOC, GPIO_PIN_0);
 
-    /* EN pin - PG6 (ZIO CN10, D26, active LOW, start HIGH = disabled) */
-    motor_configs[3].pins.en_port = GPIOG;
-    motor_configs[3].pins.en_pin = GPIO_PIN_6;
-    Motor_InitGPIO(GPIOG, GPIO_PIN_6);
-    HAL_GPIO_WritePin(GPIOG, GPIO_PIN_6, GPIO_PIN_SET);  /* Start disabled */
+    /* EN pin - PA1 (active LOW, start HIGH = disabled) */
+    motor_configs[3].pins.en_port = GPIOA;
+    motor_configs[3].pins.en_pin = GPIO_PIN_1;
+    Motor_InitGPIO(GPIOA, GPIO_PIN_1);
+    HAL_GPIO_WritePin(GPIOA, GPIO_PIN_1, GPIO_PIN_SET);  /* Start disabled */
 
     /* Set motor parameters */
     motor_configs[3].max_speed = MOTOR_MAX_STEP_FREQ;
@@ -302,9 +299,86 @@ int32_t Motor_Init(void)
     motor_configs[3].configured = 1;
 
     /* ================================================================
-     * Motors 4-5: Structure ready, pins not assigned
-     * To configure, assign ports/pins and set configured = 1
+     * Configure Motor 4: DRV8825 driver (B3 string)
+     * STEP=PD11, DIR=PD13, M0=PD10, M1=PB15, M2=PB13, EN=PD12
      * ================================================================ */
+
+    /* STEP pin - PD11 */
+    motor_configs[4].pins.step_port = GPIOD;
+    motor_configs[4].pins.step_pin = GPIO_PIN_11;
+    Motor_InitGPIO(GPIOD, GPIO_PIN_11);
+
+    /* DIR pin - PD13 */
+    motor_configs[4].pins.dir_port = GPIOD;
+    motor_configs[4].pins.dir_pin = GPIO_PIN_13;
+    Motor_InitGPIO(GPIOD, GPIO_PIN_13);
+
+    /* M0 microstep pin - PD10 */
+    motor_configs[4].pins.m0_port = GPIOD;
+    motor_configs[4].pins.m0_pin = GPIO_PIN_10;
+    Motor_InitGPIO(GPIOD, GPIO_PIN_10);
+
+    /* M1 microstep pin - PB15 */
+    motor_configs[4].pins.m1_port = GPIOB;
+    motor_configs[4].pins.m1_pin = GPIO_PIN_15;
+    Motor_InitGPIO(GPIOB, GPIO_PIN_15);
+
+    /* M2 microstep pin - PB13 */
+    motor_configs[4].pins.m2_port = GPIOB;
+    motor_configs[4].pins.m2_pin = GPIO_PIN_13;
+    Motor_InitGPIO(GPIOB, GPIO_PIN_13);
+
+    /* EN pin - PD12 (active LOW, start HIGH = disabled) */
+    motor_configs[4].pins.en_port = GPIOD;
+    motor_configs[4].pins.en_pin = GPIO_PIN_12;
+    Motor_InitGPIO(GPIOD, GPIO_PIN_12);
+    HAL_GPIO_WritePin(GPIOD, GPIO_PIN_12, GPIO_PIN_SET);  /* Start disabled */
+
+    /* Set motor parameters */
+    motor_configs[4].max_speed = MOTOR_MAX_STEP_FREQ;
+    motor_configs[4].max_accel = MOTOR_MAX_ACCEL;
+    motor_configs[4].configured = 1;
+
+    /* ================================================================
+     * Configure Motor 5: DRV8825 driver (E4 string)
+     * STEP=PC6, DIR=PC8, M0=PG7, M1=PG6, M2=PG5, EN=PC7
+     * ================================================================ */
+
+    /* STEP pin - PC6 */
+    motor_configs[5].pins.step_port = GPIOC;
+    motor_configs[5].pins.step_pin = GPIO_PIN_6;
+    Motor_InitGPIO(GPIOC, GPIO_PIN_6);
+
+    /* DIR pin - PC8 */
+    motor_configs[5].pins.dir_port = GPIOC;
+    motor_configs[5].pins.dir_pin = GPIO_PIN_8;
+    Motor_InitGPIO(GPIOC, GPIO_PIN_8);
+
+    /* M0 microstep pin - PG7 */
+    motor_configs[5].pins.m0_port = GPIOG;
+    motor_configs[5].pins.m0_pin = GPIO_PIN_7;
+    Motor_InitGPIO(GPIOG, GPIO_PIN_7);
+
+    /* M1 microstep pin - PG6 */
+    motor_configs[5].pins.m1_port = GPIOG;
+    motor_configs[5].pins.m1_pin = GPIO_PIN_6;
+    Motor_InitGPIO(GPIOG, GPIO_PIN_6);
+
+    /* M2 microstep pin - PG5 */
+    motor_configs[5].pins.m2_port = GPIOG;
+    motor_configs[5].pins.m2_pin = GPIO_PIN_5;
+    Motor_InitGPIO(GPIOG, GPIO_PIN_5);
+
+    /* EN pin - PC7 (active LOW, start HIGH = disabled) */
+    motor_configs[5].pins.en_port = GPIOC;
+    motor_configs[5].pins.en_pin = GPIO_PIN_7;
+    Motor_InitGPIO(GPIOC, GPIO_PIN_7);
+    HAL_GPIO_WritePin(GPIOC, GPIO_PIN_7, GPIO_PIN_SET);  /* Start disabled */
+
+    /* Set motor parameters */
+    motor_configs[5].max_speed = MOTOR_MAX_STEP_FREQ;
+    motor_configs[5].max_accel = MOTOR_MAX_ACCEL;
+    motor_configs[5].configured = 1;
 
     return 0;
 }

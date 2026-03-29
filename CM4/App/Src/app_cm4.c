@@ -14,10 +14,13 @@
 #include "stm32h7xx_hal.h"
 #include "stm32h7xx_hal_hsem.h"
 
-/* External timer handles for debug access (D2-domain timers) */
-extern TIM_HandleTypeDef htim2;   /* Solenoid 2: A2 (PA5)  - TIM2_CH1   */
-extern TIM_HandleTypeDef htim3;   /* Solenoid 1: E2 (PB5)  - TIM3_CH2   */
-extern TIM_HandleTypeDef htim4;   /* Solenoid 3: D3 (PB6)  - TIM4_CH1   */
+/* External timer handles for debug access */
+extern TIM_HandleTypeDef htim4;    /* Solenoid 4: B3 (PB7)  - TIM4_CH2   */
+extern TIM_HandleTypeDef htim5;    /* Solenoid 5: E4 (PI0)  - TIM5_CH4   */
+extern TIM_HandleTypeDef htim13;   /* Solenoid 0: E2 (PF8)  - TIM13_CH1  */
+extern TIM_HandleTypeDef htim15;   /* Solenoid 1: A2 (PE5)  - TIM15_CH1  */
+extern TIM_HandleTypeDef htim16;   /* Solenoid 3: G3 (PB8)  - TIM16_CH1  */
+extern TIM_HandleTypeDef htim17;   /* Solenoid 2: D3 (PB9)  - TIM17_CH1  */
 
 /* Control loop timing */
 #define CONTROL_LOOP_PERIOD_MS  1   /* 1ms = 1kHz control loop */
@@ -77,8 +80,8 @@ void App_CM4_Main(void)
     // Solenoid_Start(5);
 
     /* DEBUG: Read back all configuration */
-    volatile uint32_t debug_arr = __HAL_TIM_GET_AUTORELOAD(&htim2);
-    volatile uint32_t debug_ccr = __HAL_TIM_GET_COMPARE(&htim2, TIM_CHANNEL_1);
+    volatile uint32_t debug_arr = __HAL_TIM_GET_AUTORELOAD(&htim17);
+    volatile uint32_t debug_ccr = __HAL_TIM_GET_COMPARE(&htim17, TIM_CHANNEL_1);
     volatile float debug_freq = Solenoid_GetFrequency(SOLENOID_STRING_D3);
     volatile uint8_t debug_active = Solenoid_GetActiveMask();
 
