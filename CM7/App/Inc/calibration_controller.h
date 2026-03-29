@@ -104,7 +104,9 @@ void Cal_FitFromBaseLUT(void);
  * tuning_ff_steps_bp, and cal_poly_coeff are loaded from SRAM and the
  * function returns 1.  Otherwise returns 0 (tables unchanged).
  */
-uint8_t Cal_LoadFromSRAM(void);
+
+uint8_t Cal_LoadFromFlash(void);
+
 
 /**
  * @brief Start calibration for a bitmask of strings.

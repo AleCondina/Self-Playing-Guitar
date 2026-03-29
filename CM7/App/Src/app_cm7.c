@@ -120,7 +120,7 @@ void App_CM7_Main(void) {
         FFT_Init();
 
         /* Restore calibration LUT + polynomial from backup SRAM (VBAT-backed) */
-        if (Cal_LoadFromSRAM()) {
+        if (Cal_LoadFromFlash()) {
             printf("[CM7] Calibration restored from backup SRAM.\r\n");
         } else {
             Cal_FitFromBaseLUT();

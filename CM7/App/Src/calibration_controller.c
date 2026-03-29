@@ -216,8 +216,13 @@
 #define CAL_MIN_SAMPLES             ((uint16_t)TUNING_FF_NUM_POINTS)
 
 /* Backup SRAM base address and magic word (STM32H7, VBAT-backed, 4 KB). */
-#define CAL_BKPSRAM_BASE            ((uint32_t)0x38800000UL)
+
 #define CAL_PERSIST_MAGIC           0xCA115701UL
+
+
+//Moving to Flash
+#define CAL_FLASH_ADDR   ((uint32_t)0x080E0000)
+#define CAL_FLASH_SECTOR FLASH_SECTOR_7
 
 /* Open-string frequencies (Hz). Order: E2 A2 D3 G3 B3 E4. */
 static const float s_open_freq[NUM_STRINGS] = {
@@ -747,44 +752,80 @@ static void Cal_FitSemiPolynomial(uint8_t str)
  * Persistent storage
  * ========================================================================= */
 
-static void Cal_SaveToSRAM(void){
-    Cal_EnableBkpSRAM();
 
-    CalPersist_t *p = (CalPersist_t *)CAL_BKPSRAM_BASE;
 
-    p->magic = CAL_PERSIST_MAGIC;
-    memcpy(p->ff_freq,  tuning_ff_freq_bp,  sizeof(tuning_ff_freq_bp));
-    memcpy(p->ff_steps, tuning_ff_steps_bp, sizeof(tuning_ff_steps_bp));
+static void Cal_SaveToFlash(void)
+{
 
-    for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
-        p->poly_a[i] = cal_poly_coeff[i][0];
-        p->poly_b[i] = cal_poly_coeff[i][1];
-        p->poly_c[i] = cal_poly_coeff[i][2];
+    if (sizeof(CalPersist_t) > 128 * 1024) {
+        printf("[CAL] ERROR: struct too large for sector\n");
+        return;
     }
 
-    /* Semitone-domain coefficients */
-    memcpy(p->semi_ff,    tuning_ff_semi_coeff, sizeof(tuning_ff_semi_coeff));
-    memcpy(p->semi_plant, tuning_plant_coeff,   sizeof(tuning_plant_coeff));
 
-    __DSB();
-    p->checksum = CalChecksum(p);
-    __DSB();
+    HAL_FLASH_Unlock();
 
-    /* Verify immediately after write */
-    uint32_t verify = CalChecksum(p);
-    if (verify != p->checksum) {
-        printf("[CAL] VERIFY FAIL: wrote 0x%08lX, read-back 0x%08lX\r\n",
-               (unsigned long)p->checksum, (unsigned long)verify);
-    } else {
-        printf("[CAL] Saved & verified in backup SRAM (0x%08lX, %u bytes)\r\n",
-               (unsigned long)CAL_BKPSRAM_BASE, (unsigned)sizeof(CalPersist_t));
+    FLASH_EraseInitTypeDef erase;
+    uint32_t error;
+
+    erase.TypeErase    = FLASH_TYPEERASE_SECTORS;
+    erase.Sector       = CAL_FLASH_SECTOR;
+    erase.NbSectors    = 1;
+    erase.VoltageRange = FLASH_VOLTAGE_RANGE_3;
+
+    if (HAL_FLASHEx_Erase(&erase, &error) != HAL_OK) {
+        printf("[CAL] Flash erase failed\n");
+        HAL_FLASH_Lock();
+        return;
     }
+
+    CalPersist_t temp __attribute__((aligned(32)));
+
+    temp.magic = CAL_PERSIST_MAGIC;
+
+    memcpy(temp.ff_freq,  tuning_ff_freq_bp,  sizeof(temp.ff_freq));
+    memcpy(temp.ff_steps, tuning_ff_steps_bp, sizeof(temp.ff_steps));
+
+    for (uint8_t i = 0; i < NUM_STRINGS; i++) {
+        temp.poly_a[i] = cal_poly_coeff[i][0];
+        temp.poly_b[i] = cal_poly_coeff[i][1];
+        temp.poly_c[i] = cal_poly_coeff[i][2];
+    }
+
+    memcpy(temp.semi_ff,    tuning_ff_semi_coeff, sizeof(temp.semi_ff));
+    memcpy(temp.semi_plant, tuning_plant_coeff,   sizeof(temp.semi_plant));
+
+    temp.checksum = CalChecksum(&temp);
+
+
+uint8_t *src = (uint8_t*)&temp;
+uint32_t addr = CAL_FLASH_ADDR;
+
+for (uint32_t i = 0; i < sizeof(CalPersist_t); i += 32) {
+    if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_FLASHWORD,
+                          addr,
+                          (uint32_t)(src + i)) != HAL_OK) {
+        printf("[CAL] Flash write failed at block %lu\n", i/32);
+        break;
+    }
+    addr += 32;
 }
 
-uint8_t Cal_LoadFromSRAM(void){
-    Cal_EnableBkpSRAM();
+SCB_CleanDCache();
+SCB_InvalidateDCache();
 
-    const CalPersist_t *p = (const CalPersist_t *)CAL_BKPSRAM_BASE;
+    HAL_FLASH_Lock();
+
+    printf("[CAL] Saved to FLASH @ 0x%08lX\n", (unsigned long)CAL_FLASH_ADDR);
+}
+
+
+
+
+uint8_t Cal_LoadFromFlash(void){
+    
+
+   const CalPersist_t *p = (const CalPersist_t *)CAL_FLASH_ADDR;
 
     if (p->magic != CAL_PERSIST_MAGIC) {
         printf("[CAL] No stored calibration (magic 0x%08lX)\r\n",
@@ -832,11 +873,11 @@ uint8_t Cal_LoadFromSRAM(void){
             memcpy(tuning_plant_coeff,   p->semi_plant, sizeof(tuning_plant_coeff));
             printf("[CAL] Semitone-domain coefficients restored.\r\n");
         } else {
-            printf("[CAL] No semitone coefficients in SRAM — using defaults.\r\n");
+            printf("[CAL] No semitone coefficients in FLASH — using defaults.\r\n");
         }
     }
 
-    printf("[CAL] Calibration restored from backup SRAM.\r\n");
+    printf("[CAL] Calibration restored from FLASH.\r\n");
     return 1u;
 }
 
@@ -1635,7 +1676,7 @@ void Cal_Hop(void){
         Cal_BuildTable(s_str);
         Cal_FitPolynomial(s_str);
         Cal_FitSemiPolynomial(s_str);
-        Cal_SaveToSRAM();
+        Cal_SaveToFlash();
 
         /* Transition to PI-based acoustic homing — drive motor back to
          * the open-string position using FFT feedback instead of relying
