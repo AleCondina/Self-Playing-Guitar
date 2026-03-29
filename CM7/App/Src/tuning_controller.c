@@ -21,6 +21,7 @@
 #include "tuning_controller.h"
 #include "calibration_controller.h"
 #include "song_scheduler.h"
+#include "double_string.h"
 #include "fft_processing.h"
 #include "inter_core_cm7.h"
 #include "shared_memory.h"
@@ -39,7 +40,7 @@
 /* =========================================================================
  * Feed-forward LUT data (legacy — kept for SRAM calibration compat)
  * ========================================================================= */
-
+/* Standard tuning feed-forward breakpoints (active copy — overwritten by SetTuning) */
 float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     /* E2 frets 0-6 */ {  82.41f,  82.69f,  89.97f,  96.05f, 100.07f, 106.37f, 112.82f },
     /* A2 frets 0-6 */ { 110.00f, 115.54f, 121.57f, 127.57f, 139.23f, 145.69f, 151.22f },
@@ -58,36 +59,73 @@ float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
     /* E4 */ {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
 };
 
-/* =========================================================================
- * Semitone-domain polynomial coefficients
- *
- * Feedforward: steps = a·semi² + b·semi + c
- * Plant model: semi  = a·steps² + b·steps + c
- *
- * E2 (string 0) seeded from MATLAB identification.
- * Others seeded from legacy cal_poly_coeff via Cal_FitSemiPolynomial().
- * ========================================================================= */
-
-float tuning_ff_semi_coeff[NUM_STRINGS][3] = {
-    /* E2: from MATLAB system identification */
-    { 29.8134f, 424.929f, -70.6621f },
-    /* A2–E4: zeroed — seeded at boot from cal_poly_coeff or calibration */
-    { 0.0f, 0.0f, 0.0f },
-    { 0.0f, 0.0f, 0.0f },
-    { 0.0f, 0.0f, 0.0f },
-    { 0.0f, 0.0f, 0.0f },
-    { 0.0f, 0.0f, 0.0f },
+/* Backup copies of standard tuning (so we can restore after Drop D) */
+static const float s_std_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+    {  82.41f,  82.69f,  89.97f,  96.05f, 100.07f, 106.37f, 112.82f },
+    { 110.00f, 115.54f, 121.57f, 127.57f, 139.23f, 145.69f, 151.22f },
+    { 146.83f, 160.03f, 170.43f, 179.45f, 188.51f, 197.45f, 205.19f },
+    { 196.00f, 207.65f, 233.38f, 248.76f, 262.49f, 277.12f, 292.19f },
+    { 246.94f, 261.63f, 277.18f, 293.66f, 311.13f, 329.63f, 349.23f },
+    { 329.63f, 349.23f, 369.99f, 392.00f, 415.30f, 440.00f, 466.16f },
 };
 
-float tuning_plant_coeff[NUM_STRINGS][3] = {
-    /* E2: from MATLAB system identification */
-    { -1.2433e-07f, 2.0937e-03f, 0.1599f },
-    /* A2–E4: zeroed — seeded at boot from calibration */
-    { 0.0f, 0.0f, 0.0f },
-    { 0.0f, 0.0f, 0.0f },
-    { 0.0f, 0.0f, 0.0f },
-    { 0.0f, 0.0f, 0.0f },
-    { 0.0f, 0.0f, 0.0f },
+static const float s_std_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+    {   0.0f, 267.0f, 1080.0f, 1623.0f, 2029.0f, 2706.0f, 3385.0f },
+    {   0.0f,  751.0f, 1549.0f, 2370.0f, 4103.0f, 5013.0f, 5955.0f },
+    {   0.0f, 2331.0f, 3363.0f, 4417.0f, 5477.0f, 6533.0f, 7499.0f },
+    {   0.0f,  910.0f, 2583.0f, 3485.0f, 4480.0f, 5523.0f, 6646.0f },
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+};
+
+/* Drop D feed-forward breakpoints (PLACEHOLDER — calibrate with 'lutbuild' in Drop D) */
+static const float s_dropd_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+    /* D2 frets 0-6 (placeholder: equal temperament) */
+    { D2_HZ, Ds2_HZ, E2_HZ, F2_HZ, Fs2_HZ, G2_HZ, Gs2_HZ },
+    /* E2 frets 0-6 (placeholder: equal temperament) */
+    { E2_HZ, F2_HZ, Fs2_HZ, G2_HZ, Gs2_HZ, A2_HZ, As2_HZ },
+    /* D3-E4: same as standard */
+    { 146.83f, 160.03f, 170.43f, 179.45f, 188.51f, 197.45f, 205.19f },
+    { 196.00f, 207.65f, 233.38f, 248.76f, 262.49f, 277.12f, 292.19f },
+    { 246.94f, 261.63f, 277.18f, 293.66f, 311.13f, 329.63f, 349.23f },
+    { 329.63f, 349.23f, 369.99f, 392.00f, 415.30f, 440.00f, 466.16f },
+};
+
+static const float s_dropd_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+    /* D2: placeholder linear estimate (~10 steps/Hz) */
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    /* E2: placeholder linear estimate */
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    /* D3-E4: same as standard */
+    {   0.0f, 2331.0f, 3363.0f, 4417.0f, 5477.0f, 6533.0f, 7499.0f },
+    {   0.0f,  910.0f, 2583.0f, 3485.0f, 4480.0f, 5523.0f, 6646.0f },
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+};
+
+/* Drop G2 feed-forward breakpoints (PLACEHOLDER — calibrate with 'lutbuild' in Drop G2) */
+static const float s_dropg2_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+    /* E2: same as standard (measured LUT RUN 1) */
+    {  82.41f,  82.69f,  89.97f,  96.05f, 100.07f, 106.37f, 112.82f },
+    /* G2: placeholder equal temperament (calibrate with 'lutbuild') */
+    { G2_HZ, Gs2_HZ, A2_HZ, As2_HZ, B2_HZ, C3_HZ, Cs3_HZ },
+    /* D3-E4: same as standard */
+    { 146.83f, 160.03f, 170.43f, 179.45f, 188.51f, 197.45f, 205.19f },
+    { 196.00f, 207.65f, 233.38f, 248.76f, 262.49f, 277.12f, 292.19f },
+    { 246.94f, 261.63f, 277.18f, 293.66f, 311.13f, 329.63f, 349.23f },
+    { 329.63f, 349.23f, 369.99f, 392.00f, 415.30f, 440.00f, 466.16f },
+};
+
+static const float s_dropg2_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS] = {
+    /* E2: same as standard (measured LUT RUN 1) */
+    {   0.0f, 267.0f, 1080.0f, 1623.0f, 2029.0f, 2706.0f, 3385.0f },
+    /* G2: placeholder linear estimate (~10 steps/Hz) */
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    /* D3-E4: same as standard */
+    {   0.0f, 2331.0f, 3363.0f, 4417.0f, 5477.0f, 6533.0f, 7499.0f },
+    {   0.0f,  910.0f, 2583.0f, 3485.0f, 4480.0f, 5523.0f, 6646.0f },
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
+    {   0.0f, 100.0f,  200.0f,  300.0f,  400.0f,  500.0f,  600.0f },
 };
 
 /* =========================================================================
@@ -107,26 +145,9 @@ static uint8_t s_motor_enable_mask = 0u;
 static uint8_t s_song_first_note    = 1u;
 static uint8_t s_cold_start_pending = 0u;
 
-/* =========================================================================
- * Domain conversion helpers
- * ========================================================================= */
-
-static const float s_open_freq_hz[NUM_STRINGS] = {
-    E2_HZ, A2_HZ, D3_HZ, G3_HZ, B3_HZ, E4_HZ
-};
-
-/** Hz → semitones relative to string's open frequency. */
-static inline float freq_to_semi(uint8_t str, float freq_hz)
-{
-    if (freq_hz <= 0.0f) return 0.0f;
-    return 12.0f * log2f(freq_hz / s_open_freq_hz[str]);
-}
-
-/** Semitones → Hz. */
-static inline float semi_to_freq(uint8_t str, float semi)
-{
-    return s_open_freq_hz[str] * powf(2.0f, semi / 12.0f);
-}
+/* Dual-track mode: when enabled, RunHop drives both str0 and str1 using
+ * DblString targets instead of the sequential song_scheduler. */
+static uint8_t s_dual_track_mode = 0u;
 
 /* =========================================================================
  * Private helpers
@@ -558,35 +579,285 @@ void TuningCtrl_Update(uint8_t string_id,
     /* ------------------------------------------------------------------ */
     /* 9. Lock edge detection (for chord sync)                              */
     /* ------------------------------------------------------------------ */
-    s->prev_lock_state = s->lock_state;
-
-    /* ------------------------------------------------------------------ */
-    /* 10. Advance per-note wait counters                                   */
-    /* ------------------------------------------------------------------ */
-    if (s->state == TUNE_STATE_RESONANCE_WAIT &&
-        s->resonance_wait_hops_remaining > 0u) {
-        s->resonance_wait_hops_remaining--;
-    }
-
-    if (s->fft_clear_wait_hops_remaining > 0u) {
-        s->fft_clear_wait_hops_remaining--;
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* 11. Increment hop counter                                            */
-    /* ------------------------------------------------------------------ */
     s->hop_count++;
 }
 
-/* =========================================================================
- * TuningCtrl_RunHop — high-level entry point
+/**
+ * @brief Open-string frequencies for cross-string rejection.
  *
- * Reads song scheduler + FFT, calls TuningCtrl_Update() for each active
- * string, then issues inter-core motor and solenoid commands.
- * ========================================================================= */
+ * Any FFT peak within ±OPEN_STRING_REJECT_HZ of an open string that is NOT
+ * the string we're tracking gets rejected.  This prevents sympathetic
+ * resonance from B3 (246.94 Hz) hijacking the G3 fret 3-5 range, etc.
+ */
+static const float s_open_string_hz[NUM_TUNINGS][NUM_STRINGS] = {
+    [TUNING_STANDARD] = { 82.41f, 110.00f, 146.83f, 196.00f, 246.94f, 329.63f },
+    [TUNING_DROP_D]   = { 73.42f,  82.41f, 146.83f, 196.00f, 246.94f, 329.63f },
+    [TUNING_DROP_G2]  = { 82.41f,  98.00f, 146.83f, 196.00f, 246.94f, 329.63f },
+};
 
+/* Active tuning mode (set by TuningCtrl_SetTuning) */
+static uint8_t s_active_tuning = TUNING_STANDARD;
+#define OPEN_STRING_REJECT_HZ  5.0f   /* ±5 Hz around each open string */
+
+/**
+ * @brief Check whether a frequency is suspiciously close to an open string
+ *        OTHER than the one we're tracking.
+ *
+ * @param freq       Candidate FFT peak frequency
+ * @param string_id  The string we ARE tracking (don't reject its own open freq)
+ * @return 1 if the peak should be rejected, 0 if it's safe
+ */
+static uint8_t IsOpenStringInterference(float freq, uint8_t string_id)
+{
+    for (uint8_t s = 0u; s < NUM_STRINGS; s++) {
+        if (s == string_id) continue;               /* don't reject ourselves */
+        if (fabsf(freq - s_open_string_hz[s_active_tuning][s]) <= OPEN_STRING_REJECT_HZ)
+            return 1u;
+    }
+    return 0u;
+}
+
+/**
+ * @brief Sweeps the FFT array to find the best peak matching the target string.
+ *
+ * Search strategy (evaluated in a single pass):
+ *   1. Reject any peak within ±5 Hz of another string's open frequency.
+ *   2. Among remaining candidates within ±TUNE_SEARCH_WINDOW_HZ of either
+ *      the expected frequency OR the target frequency, pick the one with
+ *      the highest magnitude.  Magnitude is the best discriminator when
+ *      two candidates are close in frequency (e.g. B3 open at 247 Hz vs
+ *      G3 fret 5 at 261 Hz).
+ *
+ * @param string_id    Which string we're tracking (for open-string rejection)
+ * @param expected     Frequency predicted from commanded motor position
+ * @param target       Final target frequency from song scheduler
+ * @param out_measured  Detected frequency (0 if nothing found)
+ * @param out_confidence  Peak magnitude
+ */
+static void GetFFTRadarLock(uint8_t string_id,
+                            float expected, float target,
+                            float* out_measured, float* out_confidence)
+{
+    float best_measured = 0.0f;
+    float best_mag      = 0.0f;
+
+    /* Build the search window: accept peaks near expected OR near target */
+    for (uint8_t i = 0; i < active_string_count; i++) {
+        float freq = active_frequencies[i];
+        float mag  = active_magnitudes[i];
+
+        /* Reject sympathetic resonance from other open strings */
+        if (IsOpenStringInterference(freq, string_id))
+            continue;
+
+        /* Check if this peak is within the search window of either centre */
+        float err_exp = fabsf(freq - expected);
+        float err_tgt = fabsf(freq - target);
+        float min_err = (err_exp < err_tgt) ? err_exp : err_tgt;
+
+        if (min_err > TUNE_SEARCH_WINDOW_HZ)
+            continue;   /* too far from both centres */
+
+        /* Among valid candidates, pick the LOUDEST — magnitude is the
+         * most reliable discriminator when multiple peaks compete. */
+        if (mag > best_mag) {
+            best_mag      = mag;
+            best_measured = freq;
+        }
+    }
+
+    *out_measured   = best_measured;
+    *out_confidence = best_mag;
+}
+
+/* -------------------------------------------------------------------------
+ * DualTrack_RunHop
+ * Dual-string control path: drives both str0 and str1 every hop using
+ * targets from DblString.  Uses exclusive peak claiming + anti-swap to
+ * prevent the two FFT trackers from locking onto the same peak.
+ * --------------------------------------------------------------------- */
+static void DualTrack_RunHop(void)
+{
+    /* ---- Microstep safeguard (same as sequential path) ---- */
+    for (uint8_t m = 0u; m < 4u; m++) {
+        if (g_shared_memory.motor_microstep_status[m] != TUNING_REQUIRED_MICROSTEP_MODE) {
+            printf("[TC-DT] *** HALT: Motor %u microstep mode is %u, expected %u ***\r\n",
+                   (unsigned)m,
+                   (unsigned)g_shared_memory.motor_microstep_status[m],
+                   (unsigned)TUNING_REQUIRED_MICROSTEP_MODE);
+            if (s_motor_enable_mask != 0u) {
+                InterCore_SendMotorEnableMask(0u);
+                s_motor_enable_mask = 0u;
+            }
+            return;
+        }
+    }
+
+    /* ---- Check DblString is active ---- */
+    if (!DblString_IsActive()) {
+        if (s_motor_enable_mask != 0u) {
+            InterCore_SendMotorEnableMask(0u);
+            s_motor_enable_mask = 0u;
+        }
+        return;
+    }
+
+    /* ---- Enable both motors ---- */
+    uint8_t needed_mask = (1u << 0) | (1u << 1);  /* str0 + str1 */
+    if (needed_mask != s_motor_enable_mask) {
+        InterCore_SendMotorEnableMask(needed_mask);
+        s_motor_enable_mask = needed_mask;
+    }
+
+    /* ---- Get targets from DblString scheduler ---- */
+    float target[2];
+    target[0] = DblString_GetTargetFreq(0);
+    target[1] = DblString_GetTargetFreq(1);
+
+    /* ---- Two-pass FFT peak assignment with claiming + anti-swap ---- */
+    float measured[2]   = { 0.0f, 0.0f };
+    float confidence[2] = { 0.0f, 0.0f };
+    int8_t claimed_idx  = -1;  /* FFT peak index claimed by str0 */
+
+    for (uint8_t pass = 0; pass < 2u; pass++) {
+        uint8_t s = pass;  /* str0 first, then str1 */
+        float expected = s_state[s].expected_freq_hz;
+        float tgt      = target[s];
+        if (tgt < 1.0f) continue;  /* no target yet */
+
+        /* Other string's expected frequency (for anti-swap) */
+        uint8_t other = 1u - s;
+        float other_expected = s_state[other].expected_freq_hz;
+
+        float best_freq = 0.0f;
+        float best_mag  = 0.0f;
+        int8_t best_idx = -1;
+
+        for (uint8_t i = 0u; i < active_string_count; i++) {
+            float freq = active_frequencies[i];
+            float mag  = active_magnitudes[i];
+
+            /* Skip if claimed by previous pass */
+            if (pass == 1u && (int8_t)i == claimed_idx) continue;
+
+            /* Reject other open strings */
+            if (IsOpenStringInterference(freq, s)) continue;
+
+            /* Search window: near expected OR near target */
+            float err_exp = fabsf(freq - expected);
+            float err_tgt = fabsf(freq - tgt);
+            float min_err = (err_exp < err_tgt) ? err_exp : err_tgt;
+            if (min_err > TUNE_SEARCH_WINDOW_HZ) continue;
+
+            /* Anti-swap: if this peak is closer to the OTHER string's
+             * expected frequency than ours, it belongs to them. */
+            float dist_ours  = fabsf(freq - expected);
+            float dist_other = fabsf(freq - other_expected);
+            if (other_expected > 1.0f && dist_other < dist_ours) continue;
+
+            /* Pick loudest valid peak */
+            if (mag > best_mag) {
+                best_mag  = mag;
+                best_freq = freq;
+                best_idx  = (int8_t)i;
+            }
+        }
+
+        measured[s]   = best_freq;
+        confidence[s] = best_mag;
+
+        /* Claim: str0's peak is reserved so str1 won't use it */
+        if (pass == 0u && best_idx >= 0) {
+            claimed_idx = best_idx;
+        }
+    }
+
+    /* ---- Run PI controller for each string ---- */
+    for (uint8_t s = 0; s < 2u; s++) {
+        if (target[s] >= 1.0f) {
+            TuningCtrl_Update(s, target[s], measured[s], confidence[s]);
+        }
+    }
+
+    /* ---- Push motor commands for both strings ---- */
+    {
+        uint8_t move_mask = 0u;
+        int32_t positions[NUM_MOTORS] = {0};
+        for (uint8_t s = 0; s < 2u; s++) {
+            if (target[s] >= 1.0f) {
+                move_mask |= (1u << s);
+                positions[s] = s_state[s].cmd_steps_abs;
+            }
+        }
+        if (move_mask) {
+            InterCore_SendMotorGotoBatch(move_mask, positions);
+        }
+    }
+
+    /* ---- Solenoid actuation — edge-triggered from DblString ---- */
+    for (uint8_t s = 0; s < 2u; s++) {
+        if (DblString_ShouldFire(s)) {
+            uint16_t burst_ms = DblString_GetBurstMs(s);
+            float f = s_state[s].lock_state
+                    ? s_state[s].last_valid_freq_hz : target[s];
+
+            if (f >= 40.0f && f <= 800.0f) {
+                InterCore_TriggerSolenoidHz(s, f, SOLENOID_DEFAULT_DUTY_CYCLE,
+                                            SOLENOID_MODE_TIMED, burst_ms, 0u);
+            }
+            s_state[s].note_actuated = 1u;
+            s_state[s].note_plucked  = 1u;
+            printf("[TC-DT] Fire str%u: %.1f Hz burst=%u ms (lock=%u)\r\n",
+                   (unsigned)s, (double)f, (unsigned)burst_ms,
+                   (unsigned)s_state[s].lock_state);
+        }
+    }
+
+    /* Track pluck age */
+    for (uint8_t s = 0; s < 2u; s++) {
+        s_state[s].hops_since_pluck++;
+    }
+
+    /* ---- Debug CSV (decimated) ---- */
+    s_debug_counter++;
+    if (s_debug_counter >= DEBUG_DECIM_HOPS) {
+        s_debug_counter = 0u;
+        for (uint8_t s = 0; s < 2u; s++) {
+            if (target[s] < 1.0f) continue;
+            const TuningStringState_t *ds = &s_state[s];
+            float err_hz = target[s] - measured[s];
+            printf("[TC-DT] %lu,%u,%.2f,%.2f,%.3f,%.1f,%.1f,%ld,%ld,%u,%u,%u,%.0f,%u\r\n",
+                   (unsigned long)HAL_GetTick(),
+                   (unsigned int)s,
+                   (double)target[s],
+                   (double)measured[s],
+                   (double)err_hz,
+                   (double)ds->ff_steps_abs,
+                   (double)ds->trim_steps,
+                   (long)ds->cmd_steps_abs,
+                   (long)ds->current_abs_steps,
+                   (unsigned int)ds->lock_state,
+                   (unsigned int)ds->pi_enable,
+                   (unsigned int)ds->delay_hold_counter,
+                   (double)confidence[s],
+                   (unsigned int)ds->fault_flags);
+        }
+    }
+}
+
+/* -------------------------------------------------------------------------
+ * TuningCtrl_RunHop
+ * High-level entry point.  Reads from song scheduler and FFT, calls
+ * TuningCtrl_Update(), then issues inter-core commands.
+ * --------------------------------------------------------------------- */
 void TuningCtrl_RunHop(void)
 {
+    /* ---- Dual-track mode: use DblString scheduler ---- */
+    if (s_dual_track_mode && DblString_IsActive()) {
+        DualTrack_RunHop();
+        return;
+    }
+
     /* ------------------------------------------------------------------ */
     /* Microstep safeguard                                                  */
     /* ------------------------------------------------------------------ */
@@ -714,13 +985,24 @@ void TuningCtrl_RunHop(void)
     }
 
     /* ------------------------------------------------------------------ */
-    /* Solenoid actuation — fire immediately on note change                 */
-    /* Every new note bursts first, then waits one hop before FF starts.    */
+    /* Solenoid actuation — BPM-scheduled, not convergence-gated           */
+    /*                                                                      */
+    /* ALL strings for a note fire at the BPM-scaled actuate delay after    */
+    /* the note starts.  This keeps actuation locked to the song's BPM.    */
+    /*                                                                      */
+    /* If PI locks early, we wait.  If PI hasn't converged by the deadline  */
+    /* we fire anyway at the best position the controller reached.          */
+    /* Chord strings always fire simultaneously — same deadline.            */
     /* ------------------------------------------------------------------ */
-    if (!s_cold_start_pending && (new_note_primary || new_note_secondary) &&
-        !start_primary && !start_secondary) {
-        const SongNote_t *cur = SongSched_GetNoteAt(SongSched_GetNoteIndex());
-        uint16_t burst_ms = (cur && cur->burst_ms > 0u) ? cur->burst_ms : 72u;
+    {
+        uint32_t note_elapsed = SongSched_GetElapsedMs(HAL_GetTick());
+        uint8_t  time_to_fire = (note_elapsed >= SongSched_GetActuateDelayMs());
+
+        if (time_to_fire && !s_state[str].note_actuated) {
+
+            /* Burst duration: per-note from song data, default 175ms */
+            const SongNote_t *cur = SongSched_GetNoteAt(SongSched_GetNoteIndex());
+            uint16_t burst_ms = (cur && cur->burst_ms > 0u) ? cur->burst_ms : 175u;
 
         if (chord) {
             uint8_t sol_mask  = 0u;
@@ -915,4 +1197,42 @@ void TuningCtrl_ResetAll(void)
     s_motor_enable_mask  = 0u;
     s_song_first_note    = 1u;
     s_cold_start_pending = 0u;
+}
+
+void TuningCtrl_SetDualTrackMode(uint8_t enable)
+{
+    s_dual_track_mode = enable ? 1u : 0u;
+    printf("[TC] Dual-track mode %s\r\n", enable ? "ENABLED" : "DISABLED");
+}
+
+void TuningCtrl_SetTuning(uint8_t tuning_id)
+{
+    if (tuning_id >= NUM_TUNINGS) tuning_id = TUNING_STANDARD;
+    s_active_tuning = tuning_id;
+
+    /* Swap the feed-forward breakpoint tables */
+    const float (*src_freq)[TUNING_FF_NUM_POINTS];
+    const float (*src_steps)[TUNING_FF_NUM_POINTS];
+
+    if (tuning_id == TUNING_DROP_D) {
+        src_freq  = s_dropd_ff_freq_bp;
+        src_steps = s_dropd_ff_steps_bp;
+    } else if (tuning_id == TUNING_DROP_G2) {
+        src_freq  = s_dropg2_ff_freq_bp;
+        src_steps = s_dropg2_ff_steps_bp;
+    } else {
+        src_freq  = s_std_ff_freq_bp;
+        src_steps = s_std_ff_steps_bp;
+    }
+
+    memcpy(tuning_ff_freq_bp,  src_freq,  sizeof(tuning_ff_freq_bp));
+    memcpy(tuning_ff_steps_bp, src_steps, sizeof(tuning_ff_steps_bp));
+
+    /* Re-fit the polynomial coefficients from the new breakpoints */
+    Cal_FitFromBaseLUT();
+}
+
+uint8_t TuningCtrl_GetActiveTuning(void)
+{
+    return s_active_tuning;
 }

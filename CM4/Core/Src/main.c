@@ -208,6 +208,7 @@ static void MX_TIM3_Init(void)
     htim3.Init.Prescaler = 89;  /* 198 MHz / 90 = 2.2 MHz count frequency */
     htim3.Init.CounterMode = TIM_COUNTERMODE_UP;
     htim3.Init.Period = (uint16_t)(((TIM_PRESCALED_CLK_HZ / E2_HZ) - 1.0f) * TIMER_CALIBRATION_FACTOR + 0.5f);
+    htim3.Init.Period = (uint16_t)(((TIM_PRESCALED_CLK_HZ / E2_HZ) - 1.0f) * TIMER_CALIBRATION_FACTOR + 0.5f);
     htim3.Init.ClockDivision = TIM_CLOCKDIVISION_DIV1;
     htim3.Init.AutoReloadPreload = TIM_AUTORELOAD_PRELOAD_ENABLE;
 

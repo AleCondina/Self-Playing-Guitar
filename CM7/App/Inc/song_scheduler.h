@@ -166,6 +166,15 @@ void SongSched_ResetNoteTimer(uint32_t now_ms);
  */
 const SongNote_t *SongSched_GetNoteAt(uint32_t idx);
 
+/**
+ * @brief Return the BPM-scaled solenoid actuate delay (ms).
+ *
+ * At the reference BPM this equals SONG_ACTUATE_BASE_MS (1200 ms).
+ * Higher BPM → shorter delay (less PI convergence time).
+ * Lower BPM  → longer delay (more PI convergence time).
+ */
+uint32_t SongSched_GetActuateDelayMs(void);
+
 #ifdef __cplusplus
 }
 #endif

@@ -53,7 +53,7 @@ static SolenoidState_t solenoid_states[SOLENOID_COUNT];
  *   5    | E4        |  329.63   |   493.88
  */
 
-static const uint16_t SOLENOID_FREQ_TABLE[6][8] = {
+static const uint16_t SOLENOID_FREQ_TABLE_STANDARD[6][8] = {
     /* String 0: E2 (82.41 Hz) - Low E */
     {26694, 25196, 23783, 22447, 21187, 19999, 18876, 17816},  /* Frets 0-7 */
 
@@ -72,6 +72,57 @@ static const uint16_t SOLENOID_FREQ_TABLE[6][8] = {
     /* String 5: E4 (329.63 Hz) - High E */
     {6672, 6298, 5945, 5611, 5296, 4998, 4717, 4453},  /* Frets 0-7 */
 };
+
+/**
+ * @brief Drop D tuning: String 0 = D2, String 1 = E2, Strings 2-5 unchanged
+ * @note  ARR = round(2,200,000 / freq) - 1
+ */
+static const uint16_t SOLENOID_FREQ_TABLE_DROP_D[6][8] = {
+    /* String 0: D2 (73.42 Hz) - Drop D */
+    {29965, 28285, 26694, 25196, 23783, 22448, 21187, 19999},  /* Frets 0-7 */
+
+    /* String 1: E2 (82.41 Hz) - was A2 in standard */
+    {26694, 25196, 23783, 22447, 21187, 19999, 18876, 17816},  /* Frets 0-7 */
+
+    /* String 2: D3 (146.83 Hz) - unchanged */
+    {14982, 14141, 13347, 12598, 11891, 11223, 10594, 9999},  /* Frets 0-7 */
+
+    /* String 3: G3 (196.00 Hz) - unchanged */
+    {11223, 10594, 9999, 9438, 8907, 8407, 7936, 7491},  /* Frets 0-7 */
+
+    /* String 4: B3 (246.94 Hz) - unchanged */
+    {8907, 8407, 7936, 7491, 7069, 6672, 6298, 5945},  /* Frets 0-7 */
+
+    /* String 5: E4 (329.63 Hz) - unchanged */
+    {6672, 6298, 5945, 5611, 5296, 4998, 4717, 4453},  /* Frets 0-7 */
+};
+
+/**
+ * @brief Drop G2 tuning: String 1 = G2 (A2 tuned down), all others unchanged
+ * @note  ARR = round(2,200,000 / freq) - 1
+ */
+static const uint16_t SOLENOID_FREQ_TABLE_DROP_G2[6][8] = {
+    /* String 0: E2 (82.41 Hz) - unchanged */
+    {26694, 25196, 23783, 22447, 21187, 19999, 18876, 17816},  /* Frets 0-7 */
+
+    /* String 1: G2 (98.00 Hz) - was A2 in standard */
+    {22447, 21187, 19999, 18876, 17816, 16816, 15873, 14982},  /* Frets 0-7 */
+
+    /* String 2: D3 (146.83 Hz) - unchanged */
+    {14982, 14141, 13347, 12598, 11891, 11223, 10594, 9999},  /* Frets 0-7 */
+
+    /* String 3: G3 (196.00 Hz) - unchanged */
+    {11223, 10594, 9999, 9438, 8907, 8407, 7936, 7491},  /* Frets 0-7 */
+
+    /* String 4: B3 (246.94 Hz) - unchanged */
+    {8907, 8407, 7936, 7491, 7069, 6672, 6298, 5945},  /* Frets 0-7 */
+
+    /* String 5: E4 (329.63 Hz) - unchanged */
+    {6672, 6298, 5945, 5611, 5296, 4998, 4717, 4453},  /* Frets 0-7 */
+};
+
+/* Active frequency table pointer (switched by Solenoid_SetTuning) */
+static const uint16_t (*active_freq_table)[8] = SOLENOID_FREQ_TABLE_STANDARD;
 
 /**
  * @brief Initialize all solenoid PWM channels
@@ -152,15 +203,15 @@ int32_t Solenoid_SetFrequency(uint8_t solenoid_id, uint8_t string, uint8_t fret)
 
     SolenoidState_t *state = &solenoid_states[solenoid_id];
 
-    /* Skip if no timer assigned (e.g. E2/B3/E4 without D2-domain timers) */
+    /* Skip if no timer assigned (currently G3/B3/E4 in the 3-timer map) */
     if (state->htim == NULL) {
         state->current_string = string;
         state->current_fret = fret;
         return 0;
     }
 
-    /* Get new ARR value from lookup table */
-    uint16_t new_arr = SOLENOID_FREQ_TABLE[string][fret] * TIMER_CALIBRATION_FACTOR + 0.5f;
+    /* Get new ARR value from active tuning lookup table */
+    uint16_t new_arr = active_freq_table[string][fret] * TIMER_CALIBRATION_FACTOR + 0.5f;
 
     /* Calculate new CCR for current duty cycle */
     uint16_t new_ccr = ((new_arr + 1) * state->duty_cycle) / 100;
@@ -405,4 +456,19 @@ int32_t Solenoid_SetFrequencyHz(uint8_t solenoid_id, float freq_hz)
     __HAL_TIM_SET_COMPARE(state->htim, state->channel, new_ccr);
 
     return 0;
+}
+
+/**
+ * @brief Switch the active frequency lookup table between tuning modes
+ * @param tuning_id  TUNING_STANDARD (0), TUNING_DROP_D (1), or TUNING_DROP_G2 (2)
+ */
+void Solenoid_SetTuning(uint8_t tuning_id)
+{
+    if (tuning_id == TUNING_DROP_D) {
+        active_freq_table = SOLENOID_FREQ_TABLE_DROP_D;
+    } else if (tuning_id == TUNING_DROP_G2) {
+        active_freq_table = SOLENOID_FREQ_TABLE_DROP_G2;
+    } else {
+        active_freq_table = SOLENOID_FREQ_TABLE_STANDARD;
+    }
 }

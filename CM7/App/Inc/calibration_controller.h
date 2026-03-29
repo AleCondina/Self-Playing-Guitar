@@ -1,35 +1,28 @@
 /**
  ******************************************************************************
  * @file    calibration_controller.h
- * @brief   Guitar string fret calibration with PI lock-in and SRAM persistence
+ * @brief   Guitar string fret calibration with LUT feed-forward lock-in and SRAM persistence
  *
- * Calibration flow (per string, E2 → E4)
- * ----------------------------------------
- *  1. Print a prompt — user manually plucks the string so the system can
- *     detect the current open-string frequency and confirm the string is live.
- *  2. Motor moves to position 0 (open/unfretted) and settles.
- *  3. For each half-semitone target 1 … CAL_NUM_TARGETS (plus −1 fret):
- *     a. Motor advances toward the fret at CAL_MOTOR_SPEED_FAST, then
- *        decelerates in the final CAL_SLOW_ZONE steps at CAL_MOTOR_SPEED_SLOW
- *        for fine positioning.
- *     b. Solenoid fires for CAL_SOL_DURATION_MS at the fret's resonant
- *        frequency (f_open × 2^(fret/12)).  FFT sensing is inhibited
- *        (fft_sensing_enabled = 0) during the burst to block crosstalk.
- *     c. After CAL_BURST_WAIT_HOPS the FFT window is fully post-burst and
- *        sensing is re-enabled.
- *     d. An inline PI controller drives the motor to the exact frequency.
- *        Once locked (|error| ≤ CAL_LOCK_BAND_HZ for
- *        CAL_LOCK_CONSEC_HOPS consecutive hops), the actual motor position
- *        from shared memory is recorded.
- *     e. If the string decays before lock, the solenoid re-bursts (up to
- *        CAL_MAX_RETRIES times, with doubled burst energy on retry ≥ 2).
- *  4. A 7-point LUT and a quadratic least-squares polynomial
- *       steps = a + b·f + c·f²
- *     are derived from the 8 measured (steps, freq) pairs.
- *  5. Both LUT and polynomial are saved to backup SRAM (VBAT-backed,
- *     0x38800000) with a magic-number guard so they survive power cycles.
- *  6. After all frets are measured, that string's motor is returned to
- *     position 0 before calibration advances to the next string.
+ * Calibration flow (per commissioned string)
+ * ------------------------------------------
+ *  1. Selected string is driven back to position 0 (open/home reference).
+ *  2. Fret 0 is anchored at 0 steps.
+ *  3. For each remaining fret breakpoint:
+ *     a. The currently loaded tuning LUT (from SRAM or the hardcoded defaults)
+ *        provides the first motor-step estimate.
+ *     b. The motor moves to that estimate and settles.
+ *     c. The string is re-excited at the tracked FFT frequency when available,
+ *        otherwise at the target fret frequency. Strings without a live
+ *        solenoid fall back to manual plucks.
+ *     d. A tune-style PI loop runs with no timeout until the fret is
+ *        confirmed, then the actual motor position is recorded.
+ *  4. The measured fret points are written directly back into
+ *     `tuning_ff_freq_bp` / `tuning_ff_steps_bp`.
+ *  5. A quadratic least-squares polynomial `steps = a + b·f + c·f²` is
+ *     fit from the measured points.
+ *  6. LUT and polynomial are saved to backup SRAM (VBAT-backed, 0x38800000)
+ *     so they survive power cycles.
+ *  7. The motor returns to position 0 before calibration advances.
  *
  * Usage
  * -----
@@ -39,13 +32,14 @@
  *               Poll Cal_GetStatus() for completion.
  *
  * String mask: bit N = 1 → calibrate string N (0=E2, 1=A2, … 5=E4).
- * Only strings 1–3 have live solenoid hardware; string 0 relies on the
- * initial manual pluck (solenoid re-excitation is a safe no-op for it).
+ * Strings 0–2 have commissioned re-excite solenoids. String 3 can still be
+ * calibrated, but requires manual plucks when the string decays. Strings 4–5
+ * are currently filtered out because their stepper hardware is not wired.
  *
  * UART output format
- *   [CAL]      str, step, freq_hz         – raw measurement
- *   [CAL-LUT]  str, bp_idx, freq_hz, steps – LUT breakpoint
- *   [CAL-POLY] str: a=… b=… c=…           – polynomial coefficients
+ *   [CAL]      str, fret, step, meas_hz, target_hz  – confirmed fret point
+ *   [CAL-LUT]  str, bp_idx, freq_hz, steps          – direct LUT breakpoint
+ *   [CAL-POLY] str: a=… b=… c=…                     – polynomial coefficients
  ******************************************************************************
  */
 
@@ -112,7 +106,8 @@ uint8_t Cal_LoadFromSRAM(void);
  * @param string_mask  Bit N = 1 → calibrate string N (0=E2 … 5=E4).
  *                     Strings absent from the mask are skipped and their
  *                     existing LUT entries are preserved.
- * Motors for the selected strings must be enabled and at position 0.
+ * The calibration controller homes each selected string back to position 0
+ * before measuring fret breakpoints.
  */
 void Cal_Start(uint8_t string_mask);
 

@@ -57,8 +57,8 @@ void App_CM4_Main(void)
         g_shared_memory.motor_errors |= ERROR_INVALID_COMMAND;
     }
 
-    /* TEST: Initialize all 6 solenoids with their respective string frequencies */
-    /* Each solenoid now has its own independent timer for independent frequency control */
+    /* Seed all solenoid slots with open-string frequencies for debug visibility. */
+    /* Current hardware only commissions timers for solenoids 0-2. */
 
     /* Set frequencies for all 6 strings (open position, fret 0) */
     Solenoid_SetFrequency(0, 0, 0);  // Solenoid 0: E2 string (Low E), 82.41 Hz on PB5 (TIM3_CH2)
@@ -68,7 +68,7 @@ void App_CM4_Main(void)
     Solenoid_SetFrequency(4, 4, 0);  // Solenoid 4: B3 string, 246.94 Hz on PB8
     Solenoid_SetFrequency(5, 5, 0);  // Solenoid 5: E4 string (High E), 329.63 Hz on PB9
 
-    /* Start all 6 solenoids */
+    /* Debug-only start hooks */
     // Solenoid_Start(0);
     // Solenoid_Start(1);
     // Solenoid_Start(2);
@@ -348,6 +348,12 @@ void App_CM4_Main(void)
                     }
                 }
                 InterCore_AckCommand(CMD_TRIGGER_SOLENOID_HZ);
+            }
+
+            /* Process tuning mode change */
+            if (commands & CMD_SET_TUNING) {
+                Solenoid_SetTuning(g_shared_memory.tuning_id);
+                InterCore_AckCommand(CMD_SET_TUNING);
             }
         }
 

@@ -62,26 +62,80 @@ extern "C" {
  * Semitone-domain control constants (from MATLAB system identification)
  * ========================================================================= */
 
-/** Proportional gain (steps per semitone of error). */
-#define TUNING_KP              47.0f
+/**
+ * @brief PI hold hops when string is WARM (already vibrating).
+ *
+ * The FFT already has a live signal, so PI can start correcting after just
+ * 1 hop (~170 ms).  TUNE FOR HARDWARE — increase if PI overreacts.
+ */
+#define SONG_WARM_DELAY_FRAMES   1u
 
-/** Integral gain (steps per semitone per sample). */
-#define TUNING_KI_Z             4.699f
+/**
+ * @brief PI hold hops when string is COLD (at rest / first note).
+ *
+ * A solenoid burst fires first to excite the string; PI holds for 1 hop
+ * while the FFT acquires the resonance.  Reduced from 2 to match warm
+ * delay — with good feedforward the motor is already near the target.
+ */
+#define SONG_COLD_DELAY_FRAMES   1u
 
-/** Average plant gain for gain scheduling (semi/step at midrange). */
-#define TUNING_K_AVG            1.596e-03f
+/**
+ * @brief Consecutive silent hops before a string is declared cold.
+ *
+ * After this many hops with no FFT signal the string is considered to have
+ * fully decayed.  The next note change will trigger a cold-start burst.
+ * ~4 hops ≈ 680 ms.  TUNE FOR HARDWARE.
+ */
+#define SONG_DECAY_COLD_HOPS     4u
 
-/** Deadband: no correction when |error| < 5 cents = 0.05 semitones. */
-#define TUNING_DEADBAND_SEMI    0.05f
+/**
+ * @brief Chord synchronization: hops to wait for both strings to lock before
+ * firing.  If the slower string hasn't locked within this many hops after the
+ * faster one, fire both solenoids anyway so the chord is never silent.
+ * 2 hops ≈ 340 ms.  TUNE FOR HARDWARE.
+ */
+#define SONG_CHORD_PLUCK_TIMEOUT_HOPS   2u
 
-/** Re-trigger feedforward if |error| exceeds 0.5 semitones. */
-#define TUNING_FF_LOCK_SEMI     0.50f
+/**
+ * @brief Re-excite sustain: hops between sustain re-trigger attempts.
+ *
+ * Set to 0 (disabled): the solenoid fires once per note on PI lock and the
+ * string is allowed to ring and decay naturally.  Only enable if strings
+ * decay faster than the note duration and re-excitation is needed.
+ */
+#define SONG_SUSTAIN_REEXCITE_HOPS   0u
 
-/* =========================================================================
- * Mechanical limits and motor parameters
- * ========================================================================= */
+/* Solenoid actuate delay is now BPM-scaled at runtime.
+ * Use SongSched_GetActuateDelayMs() from song_scheduler.h.
+ * Base value (1200 ms at 47 BPM) defined as SONG_ACTUATE_BASE_MS
+ * in song_scheduler.c.  Higher BPM → shorter PI window. */
 
-/** Minimum change in step command to apply (defeats backlash dither). */
+/**
+ * @brief Duration of the very first pluck of the song (ms).
+ *
+ * A short initial burst gives the string enough energy to sustain
+ * through the first note while the motor settles.
+ */
+#define SONG_INITIAL_PLUCK_MS        35u
+
+/**
+ * @brief Lock-band thresholds expressed in Hz (absolute).
+ *
+ * Fixed Hz thresholds match the solenoid drive units and avoid the
+ * overly-tight bands that cents produce at low frequencies (the FFT
+ * resolution is ~2.93 Hz/bin, so sub-Hz bands are unreliable).
+ *
+ * 1.0 Hz enter / 2.0 Hz exit gives comfortable hysteresis across
+ * all commissioned strings (E2 82 Hz – G3 296 Hz).
+ */
+#define TUNING_LOCK_BAND_IN_HZ     0.2f    /**< Enter lock when |error| ≤ 0.2 Hz */
+#define TUNING_LOCK_BAND_OUT_HZ    0.5f    /**< Exit  lock when |error| ≥ 0.5 Hz */
+
+/**
+ * @brief Minimum change in trim_steps to apply (defeats backlash dither).
+ * If |new_trim - old_trim| < this, the trim is not updated this hop.
+ * Units: microsteps.  TUNE FOR HARDWARE.
+ */
 #define TUNING_MIN_MOVE_STEPS   4.0f
 
 /** Slew limit (steps/s). Per-hop max = this × TUNING_SAMPLE_TIME_S. */
@@ -220,14 +274,55 @@ int32_t TuningCtrl_GetCmdSteps(uint8_t string_id);
 /** Get the current lock state (1 = in-tune). */
 uint8_t TuningCtrl_GetLockState(uint8_t string_id);
 
-/** Get a read-only pointer to the full per-string state. */
+/**
+ * @brief  Get a read-only pointer to the full per-string state.
+ *
+ * Use for diagnostics and logging.  Do not modify through this pointer.
+ * @return NULL if string_id is out of range.
+ */
 const TuningStringState_t *TuningCtrl_GetStringState(uint8_t string_id);
 
-/** Force-reset a string's controller state. */
+/**
+ * @brief  Force-reset a string's PI integrator, lock state, and delay counter.
+ *
+ * Useful when an external event (emergency stop, re-home) invalidates the
+ * current control state.
+ */
 void TuningCtrl_ResetString(uint8_t string_id);
 
-/** Force-reset all strings. */
+/**
+ * @brief  Force-reset all strings.
+ */
 void TuningCtrl_ResetAll(void);
+
+/**
+ * @brief  Enable or disable dual-track mode for double_string playback.
+ *
+ * When enabled, TuningCtrl_RunHop() drives BOTH str0 and str1 motors
+ * every hop using targets from DblString_GetTargetFreq(), with exclusive
+ * FFT peak claiming and anti-swap tracking.
+ *
+ * @param enable  1 = dual-track, 0 = sequential (song_scheduler)
+ */
+void TuningCtrl_SetDualTrackMode(uint8_t enable);
+
+/**
+ * @brief  Switch tuning mode (standard / drop D).
+ *
+ * Swaps the feed-forward breakpoint tables, re-fits the polynomial
+ * coefficients, and updates the open-string rejection array.
+ * Does NOT reset controller state — call TuningCtrl_ResetAll() separately
+ * if a song restart is desired.
+ *
+ * @param  tuning_id  TUNING_STANDARD (0) or TUNING_DROP_D (1)
+ */
+void TuningCtrl_SetTuning(uint8_t tuning_id);
+
+/**
+ * @brief  Get the currently active tuning mode.
+ * @return TUNING_STANDARD (0) or TUNING_DROP_D (1)
+ */
+uint8_t TuningCtrl_GetActiveTuning(void);
 
 #ifdef __cplusplus
 }
