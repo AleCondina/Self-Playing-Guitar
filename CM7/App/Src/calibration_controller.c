@@ -359,6 +359,7 @@ static uint8_t     s_pluck_dead_hops   = 0u;   /* consecutive silent hops in col
 static uint8_t     s_home_timeout_cnt     = 0u;   /* Hops waited in WAIT_HOME             */
 static int32_t     s_open_position_offset = 0;    /* Measured open-string motor offset    */
 static int32_t     s_open_homing_target   = 0;    /* FF-estimated motor pos for open freq */
+static float       s_open_locked_freq     = 0.0f; /* Measured open-string lock frequency  */
 
 /* PI state (inline controller, reset per fret) */
 static float       s_pi_integral       = 0.0f;
@@ -500,6 +501,10 @@ static void Cal_EnableBkpSRAM(void){
  */
 static void Cal_BuildTable(uint8_t str){
     float open_f = s_open_freq[TuningCtrl_GetActiveTuning()][str];
+
+    if (s_open_locked_freq > 0.0f) {
+        open_f = s_open_locked_freq;
+    }
 
     if (s_buf_n < CAL_MIN_SAMPLES) {
         printf("[CAL] str%u WARN: only %u samples — LUT unchanged\r\n",
@@ -719,6 +724,7 @@ void Cal_Start(uint8_t string_mask){
     s_fret          = 1u;
     s_retry_cnt     = 0u;
     s_is_reexciting = 0u;
+    s_open_locked_freq = 0.0f;
     s_phase         = CAL_PHASE_STR_INIT;
     s_status        = CAL_STATUS_RUNNING;
 
@@ -772,6 +778,7 @@ void Cal_Hop(void){
         s_pluck_dead_hops    = 0u;
         s_home_timeout_cnt   = 0u;
         s_open_detected_freq = 0.0f;
+        s_open_locked_freq   = 0.0f;
         s_open_homing_target  = 0;
         s_last_valid_freq     = 0.0f;
         s_pi_last_abs_error   = 9999.0f;
@@ -1209,6 +1216,10 @@ void Cal_Hop(void){
         printf("[CAL] str%u: open locked at %.2f Hz, pos=%ld — re-zeroing motor\r\n",
                (unsigned)s_str, (double)s_last_valid_freq, (long)locked_pos);
 
+        s_open_locked_freq = (s_last_valid_freq > 0.0f)
+                             ? s_last_valid_freq
+                             : s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
+
         /* Re-zero: set the current physical position as the new software
          * position 0 on CM4.  After this, poly(open_freq) ≈ 0 steps is
          * accurate and all fret polynomial targets are correct.           */
@@ -1253,13 +1264,15 @@ void Cal_Hop(void){
 
             /* Fire solenoid at the string's ACTUAL current resonance.
              * – Fret 1 burst: use the measured open-string frequency from the
-             *   pluck detection step (falls back to nominal if not detected).
+             *   open lock step (falls back to pluck detection / nominal).
              * – Later frets: use the last recorded calibration measurement so
              *   the solenoid matches the string's current tension state.      */
             if (s_buf_n == 0u) {
-                s_burst_freq = (s_open_detected_freq > 0.0f)
-                               ? s_open_detected_freq
-                               : s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
+                s_burst_freq = (s_open_locked_freq > 0.0f)
+                               ? s_open_locked_freq
+                               : ((s_open_detected_freq > 0.0f)
+                                  ? s_open_detected_freq
+                                  : s_open_freq[TuningCtrl_GetActiveTuning()][s_str]);
             } else {
                 s_burst_freq = s_buf[s_buf_n - 1u].freq;
             }
@@ -1597,7 +1610,9 @@ void Cal_Hop(void){
         /* Use last measured fret frequency for excitation; fall back to
          * open-string frequency if no samples were recorded. */
         s_burst_freq = (s_buf_n > 0u) ? s_buf[s_buf_n - 1u].freq
-                                       : s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
+                                       : ((s_open_locked_freq > 0.0f)
+                                          ? s_open_locked_freq
+                                          : s_open_freq[TuningCtrl_GetActiveTuning()][s_str]);
 
         printf("[CAL] str%u: homing — burst %.2f Hz, motor → pos %ld\r\n",
                (unsigned)s_str, (double)s_burst_freq, (long)s_open_position_offset);
