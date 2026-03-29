@@ -5,8 +5,9 @@
  *
  * Calibration flow (per commissioned string)
  * ------------------------------------------
- *  1. Selected string is driven back to position 0 (open/home reference).
- *  2. Fret 0 is anchored at 0 steps.
+ *  1. Selected string is driven back to the current logical open/home area.
+ *  2. The open string is locked with the same tune-style FFT/PI flow, then
+ *     the motor position is zeroed at that locked point.
  *  3. For each remaining fret breakpoint:
  *     a. The currently loaded tuning LUT (from SRAM or the hardcoded defaults)
  *        provides the first motor-step estimate.
@@ -15,7 +16,8 @@
  *        otherwise at the target fret frequency. Strings without a live
  *        solenoid fall back to manual plucks.
  *     d. A tune-style PI loop runs with no timeout until the fret is
- *        confirmed, then the actual motor position is recorded.
+ *        confirmed, then the actual motor position and locked FFT frequency
+ *        are recorded.
  *  4. The measured fret points are written directly back into
  *     `tuning_ff_freq_bp` / `tuning_ff_steps_bp`.
  *  5. A quadratic least-squares polynomial `steps = a + b·f + c·f²` is

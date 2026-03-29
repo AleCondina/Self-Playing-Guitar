@@ -5,8 +5,9 @@
  *
  * Calibration flow
  * ----------------
- *  1. Start from motor position 0 (home / open-string reference).
- *  2. For each fret breakpoint:
+ *  1. Start in the current logical home area and lock the open string first.
+ *  2. Zero the motor at that locked open-string position.
+ *  3. For each fret breakpoint:
  *     a. Use the currently loaded LUT as the feed-forward estimate.
  *     b. Move to that estimate and let the motor settle.
  *     c. Re-excite the string at the tracked FFT frequency when available,
@@ -14,8 +15,8 @@
  *     d. Run the same PI-style lock logic used by the tune workflow until the
  *        fret is confirmed. There is no retry limit or timeout; the state
  *        machine keeps reacquiring until it locks.
- *     e. Record the actual motor steps for that fret.
- *  3. Write the measured fret points directly into tuning_ff_*_bp[].
+ *     e. Record the actual locked motor steps and locked FFT frequency.
+ *  4. Write the measured fret points directly into tuning_ff_*_bp[].
  *  4. Fit the quadratic feed-forward polynomial and save to backup SRAM.
  *
  * Open-string tuning
@@ -64,6 +65,9 @@
 
 /** Consecutive in-band hops required before a fret is accepted. */
 #define CAL_LOCK_CONFIRM_HOPS        4u
+
+/** Hops to wait after zeroing the open-string reference. */
+#define CAL_ZERO_SYNC_HOPS           2u
 
 /** Reminder cadence while waiting for a manual pluck. */
 #define CAL_PLUCK_PROMPT_HOPS        20u
@@ -172,8 +176,8 @@ typedef enum {
 
 typedef struct {
     float steps;         /**< Recorded motor steps for this fret          */
-    float freq;          /**< Target frequency used for polynomial / LUT  */
-    float measured_freq; /**< Last locked FFT frequency (diagnostic only) */
+    float freq;          /**< Locked FFT frequency used for polynomial/LUT */
+    float measured_freq; /**< Last locked FFT frequency (diagnostic only)  */
 } CalPoint_t;
 
 static CalPhase_t  s_phase         = CAL_PHASE_IDLE;
@@ -617,7 +621,7 @@ void Cal_Start(uint8_t string_mask)
     printf("[CAL] Feed-forward calibration started — mask 0x%02X\r\n",
            (unsigned)s_string_mask);
     printf("[CAL] Seed source: active tuning_ff tables (SRAM if loaded, otherwise hardcoded)\r\n");
-    printf("[CAL] Per-fret flow: LUT seed -> settle -> excite/pluck -> tune-style lock -> record\r\n");
+    printf("[CAL] Per-string flow: open lock -> zero -> LUT seed -> excite/pluck -> tune-style lock -> record\r\n");
     printf("[CAL] Output: str, fret, steps, measured_hz, target_hz\r\n");
     printf("[CAL] ================================================\r\n");
 }
@@ -655,13 +659,10 @@ void Cal_Hop(void)
         StopSolenoid(s_str);
 
         memset(s_buf, 0, sizeof(s_buf));
-        s_buf[0].freq          = open_f;
-        s_buf[0].measured_freq = open_f;
-        s_buf[0].steps         = 0.0f;
-        s_buf_n                = 1u;
+        s_buf_n                = 0u;
 
-        s_fret           = 1u;
-        s_target_freq    = 0.0f;
+        s_fret           = 0u;
+        s_target_freq    = open_f;
         s_steps_expected = 0;
         s_manual_prompt_hops = 0u;
         CalResetLockState(0.0f);
@@ -669,11 +670,12 @@ void Cal_Hop(void)
         printf("\r\n[CAL] ---- String %u (%s) ----\r\n",
                (unsigned)s_str,
                s_string_names[TuningCtrl_GetActiveTuning()][s_str]);
-        printf("[CAL] Fret 0 anchor: 0 steps @ %.2f Hz\r\n", (double)open_f);
+        printf("[CAL] Open-string reference: lock %.2f Hz, then zero motor there\r\n",
+               (double)open_f);
         printf("[CAL] Re-excitation: %s\r\n",
                CalStringHasSolenoid(s_str) ? "solenoid" : "manual pluck");
 
-        CalGotoThen(0, (CAL_NUM_FRETS > 1u) ? CAL_PHASE_NEXT_FRET : CAL_PHASE_BUILD);
+        CalGotoThen(0, CAL_PHASE_EXCITE);
         break;
     }
 
@@ -790,9 +792,12 @@ void Cal_Hop(void)
                     float delta_cmd = CalClampf(TUNE_PI_KP * error + s_pi_integral,
                                                 -step_cap,
                                                 step_cap);
+                    float cmd_lo = (s_fret == 0u)
+                                 ? (float)(-s_cal_steps_max[s_str])
+                                 : 0.0f;
                     int32_t cmd = (int32_t)CalClampf(
                         (float)s_pi_cmd_steps + delta_cmd,
-                        0.0f,
+                        cmd_lo,
                         (float)s_cal_steps_max[s_str]);
 
                     int32_t delta = cmd - s_pi_cmd_steps;
@@ -814,7 +819,15 @@ void Cal_Hop(void)
                        (double)meas_f,
                        (double)s_target_freq,
                        (long)g_shared_memory.current_positions[s_str]);
-                s_phase = CAL_PHASE_RECORD;
+                if (s_fret == 0u) {
+                    printf("[CAL] str%u open reference locked — zeroing at %.2f Hz\r\n",
+                           (unsigned)s_str,
+                           (double)meas_f);
+                    InterCore_SendMotorZero(s_str);
+                    WaitThen(CAL_ZERO_SYNC_HOPS, CAL_PHASE_RECORD);
+                } else {
+                    s_phase = CAL_PHASE_RECORD;
+                }
             }
         } else if (!motor_busy) {
             s_no_sig_cnt++;
@@ -831,10 +844,10 @@ void Cal_Hop(void)
 
     case CAL_PHASE_RECORD:
     {
-        int32_t actual_steps = g_shared_memory.current_positions[s_str];
+        int32_t actual_steps = (s_fret == 0u) ? 0 : g_shared_memory.current_positions[s_str];
         float measured_freq  = (s_last_valid_freq > 0.0f) ? s_last_valid_freq : s_target_freq;
 
-        s_buf[s_fret].freq          = s_target_freq;
+        s_buf[s_fret].freq          = measured_freq;
         s_buf[s_fret].measured_freq = measured_freq;
         s_buf[s_fret].steps         = (float)actual_steps;
 
