@@ -16,8 +16,8 @@
 
 /* External timer handles for debug access (D2-domain timers) */
 extern TIM_HandleTypeDef htim2;   /* Solenoid 2: D3 (PA5)  - TIM2_CH1   */
-extern TIM_HandleTypeDef htim3;   /* Solenoid 1: A2 (PB5)  - TIM3_CH2   */
-extern TIM_HandleTypeDef htim4;   /* Solenoid 0: E2/D2 (PB6) - TIM4_CH1 */
+extern TIM_HandleTypeDef htim3;   /* Solenoid 0: E2/D2 (PB5) - TIM3_CH2 */
+extern TIM_HandleTypeDef htim4;   /* Solenoid 1: A2/G2 (PB6) - TIM4_CH1 */
 
 /* Control loop timing */
 #define CONTROL_LOOP_PERIOD_MS  1   /* 1ms = 1kHz control loop */
@@ -57,18 +57,18 @@ void App_CM4_Main(void)
         g_shared_memory.motor_errors |= ERROR_INVALID_COMMAND;
     }
 
-    /* TEST: Initialize all 6 solenoids with their respective string frequencies */
-    /* Each solenoid now has its own independent timer for independent frequency control */
+    /* Seed all solenoid slots with open-string frequencies for debug visibility. */
+    /* Current hardware only commissions timers for solenoids 0-2. */
 
     /* Set frequencies for all 6 strings (open position, fret 0) */
-    Solenoid_SetFrequency(0, 0, 0);  // Solenoid 0: E2/D2 string (Low E), 82.41 Hz on PB6 (TIM4)
-    Solenoid_SetFrequency(1, 1, 0);  // Solenoid 1: A2 string, 110.00 Hz on PB5 (TIM3)
+    Solenoid_SetFrequency(0, 0, 0);  // Solenoid 0: E2/D2 string (Low E), 82.41 Hz on PB5 (TIM3)
+    Solenoid_SetFrequency(1, 1, 0);  // Solenoid 1: A2/G2 string, 110.00 Hz on PB6 (TIM4)
     Solenoid_SetFrequency(2, 2, 0);  // Solenoid 2: D3 string, 146.83 Hz on PA5 (TIM2)
     Solenoid_SetFrequency(3, 3, 0);  // Solenoid 3: G3 string — no timer assigned
     Solenoid_SetFrequency(4, 4, 0);  // Solenoid 4: B3 string — no timer assigned
     Solenoid_SetFrequency(5, 5, 0);  // Solenoid 5: E4 string — no timer assigned
 
-    /* Start all 6 solenoids */
+    /* Debug-only start hooks */
     // Solenoid_Start(0);
     // Solenoid_Start(1);
     // Solenoid_Start(2);

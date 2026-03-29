@@ -12,8 +12,8 @@
 
 /* External timer handles (defined in main.c) — D2-domain timers only */
 extern TIM_HandleTypeDef htim2;   /* Solenoid 2: D3 string (PA5) - TIM2_CH1 */
-extern TIM_HandleTypeDef htim3;   /* Solenoid 1: A2 string (PB5) - TIM3_CH2 */
-extern TIM_HandleTypeDef htim4;   /* Solenoid 0: E2/D2 string (PB6) - TIM4_CH1 */
+extern TIM_HandleTypeDef htim3;   /* Solenoid 0: E2/D2 string (PB5) - TIM3_CH2 */
+extern TIM_HandleTypeDef htim4;   /* Solenoid 1: A2/G2 string (PB6) - TIM4_CH1 */
 
 /**
  * @brief Solenoid state structure for multi-solenoid management
@@ -140,17 +140,17 @@ int32_t Solenoid_Init(void)
         return -1;  /* TIM4 not initialized */
     }
 
-    /* Initialize solenoid 0: TIM4 CH1 (E2/D2 string) on PB6 */
-    solenoid_states[SOLENOID_STRING_E2].htim = &htim4;
-    solenoid_states[SOLENOID_STRING_E2].channel = TIM_CHANNEL_1;
+    /* Initialize solenoid 0: TIM3 CH2 (E2/D2 string) on PB5 */
+    solenoid_states[SOLENOID_STRING_E2].htim = &htim3;
+    solenoid_states[SOLENOID_STRING_E2].channel = TIM_CHANNEL_2;
     solenoid_states[SOLENOID_STRING_E2].current_string = 0;
     solenoid_states[SOLENOID_STRING_E2].current_fret = 0;
     solenoid_states[SOLENOID_STRING_E2].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_E2].is_active = 0;
 
-    /* Initialize solenoid 1: TIM3 CH2 (A2 string) on PB5 */
-    solenoid_states[SOLENOID_STRING_A2].htim = &htim3;
-    solenoid_states[SOLENOID_STRING_A2].channel = TIM_CHANNEL_2;
+    /* Initialize solenoid 1: TIM4 CH1 (A2/G2 string) on PB6 */
+    solenoid_states[SOLENOID_STRING_A2].htim = &htim4;
+    solenoid_states[SOLENOID_STRING_A2].channel = TIM_CHANNEL_1;
     solenoid_states[SOLENOID_STRING_A2].current_string = 1;
     solenoid_states[SOLENOID_STRING_A2].current_fret = 0;
     solenoid_states[SOLENOID_STRING_A2].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
@@ -164,7 +164,7 @@ int32_t Solenoid_Init(void)
     solenoid_states[SOLENOID_STRING_D3].duty_cycle = SOLENOID_DEFAULT_DUTY_CYCLE;
     solenoid_states[SOLENOID_STRING_D3].is_active = 0;
 
-    /* Solenoid 3: G3 — no timer assigned (TIM4 moved to solenoid 0) */
+    /* Solenoid 3: G3 — no timer assigned (TIM4 moved to solenoid 1) */
     solenoid_states[SOLENOID_STRING_G3].htim = NULL;
     solenoid_states[SOLENOID_STRING_G3].channel = 0;
     solenoid_states[SOLENOID_STRING_G3].current_string = 3;
@@ -203,7 +203,7 @@ int32_t Solenoid_SetFrequency(uint8_t solenoid_id, uint8_t string, uint8_t fret)
 
     SolenoidState_t *state = &solenoid_states[solenoid_id];
 
-    /* Skip if no timer assigned (e.g. E2/B3/E4 without D2-domain timers) */
+    /* Skip if no timer assigned (currently G3/B3/E4 in the 3-timer map) */
     if (state->htim == NULL) {
         state->current_string = string;
         state->current_fret = fret;

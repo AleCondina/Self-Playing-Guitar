@@ -183,7 +183,8 @@ static const SongNote_t song1_notes[] = {
  *   D mid: open=146.83 Hz (D3)
  *   B:     open=246.94 Hz (B3)
  *
- * NOTE: Strings 0 and 4 have no solenoid timer — motor tunes but no pluck.
+ * NOTE: String 4 has no commissioned solenoid timer in the current hardware
+ *       map, so its motor can position but that note will not pluck.
  * ========================================================================= */
 static const SongNote_t song2_notes[] = {
 
