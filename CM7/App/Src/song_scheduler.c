@@ -5,7 +5,8 @@
  *
  * Edit the `song_notes[]` array below to change the song.
  * Duration values are in milliseconds at the reference tempo (SONG_BPM_REF).
- * Set SONG_BPM to a different value to scale the entire song faster or slower.
+ * Each song carries its own playback BPM; the scheduler scales durations on
+ * SongSched_Init().
  *
  * Standard open-string frequencies (Hz):
  *   E2 = 82.41   A2 = 110.00   D3 = 146.83
@@ -23,16 +24,15 @@
 /* =========================================================================
  * BPM configuration
  * =========================================================================
- * All note durations in song_notes[] are written at SONG_BPM_REF (112 BPM).
- * Change SONG_BPM to play slower (e.g. 80) or faster (e.g. 120).
- * The scheduler scales every duration proportionally on SongSched_Init().
+ * All note durations in song_notes[] are written at SONG_BPM_REF.
+ * Each song's play_bpm scales the full note table proportionally on
+ * SongSched_Init().
  *
- * Tip: if the guitar cannot achieve PI lock within a quarter note at 112 BPM,
- * drop SONG_BPM to 80 for more reliable note accuracy.  Enable
+ * Tip: if the guitar cannot achieve PI lock at a song's configured BPM,
+ * lower that song's play_bpm for more reliable note accuracy. Enable
  * SONG_LOCK_WAIT_MODE in app_cm7.c for guaranteed accuracy at any BPM.
  * ========================================================================= */
 #define SONG_BPM_REF        60u   /**< Reference BPM of the durations below     */
-#define SONG_BPM            60u   /**< Playback BPM — 1:1 with reference tempo   */
 #define SONG_LOOP_ENABLED    1u   /**< 1 = restart song automatically at end     */
 
 /* =========================================================================
@@ -140,16 +140,56 @@ static const SongNote_t song1_notes[] = {
 };
 
 /* =========================================================================
+ * Song 2: Smoke on the Water – four fixed open strings
+ * =========================================================================
+ * Pre-tuned open strings:
+ *   string 0 = E2   string 1 = A2   string 2 = G2   string 3 = As2
+ *
+ * Riff mapping:
+ *   0:E2, 2:G2, 1:A2, 0:E2, 2:G2, 3:As2,
+ *   1:A2, 0:E2, 2:G2, 1:A2, 2:G2, 0:E2
+ * ========================================================================= */
+static const SongNote_t song2_notes[] = {
+    NOTE(0u, E2_HZ,   1000u, 72u),  /* #0  E2  on string 0 */
+    NOTE(2u, G2_HZ,   1000u, 72u),  /* #1  G2  on string 2 */
+    NOTE(1u, A2_HZ,   1500u, 72u),  /* #2  A2  on string 1 */
+    NOTE(0u, E2_HZ,   1000u, 72u),  /* #3  E2  on string 0 */
+    NOTE(2u, G2_HZ,   1000u, 72u),  /* #4  G2  on string 2 */
+    NOTE(3u, As2_HZ,   500u, 72u),  /* #5  As2 on string 3 */
+    NOTE(1u, A2_HZ,   2000u, 72u),  /* #6  A2  on string 1 */
+    NOTE(0u, E2_HZ,   1000u, 72u),  /* #7  E2  on string 0 */
+    NOTE(2u, G2_HZ,   1000u, 72u),  /* #8  G2  on string 2 */
+    NOTE(1u, A2_HZ,   1500u, 72u),  /* #9  A2  on string 1 */
+    NOTE(2u, G2_HZ,   1000u, 72u),  /* #10 G2  on string 2 */
+    NOTE(0u, E2_HZ,   4000u, 72u),  /* #11 E2  on string 0 */
+};
+
+/* =========================================================================
  * Song table — add new songs here
  * ========================================================================= */
 typedef struct {
     const SongNote_t *notes;
     uint32_t          count;
+    uint32_t          play_bpm;
+    const float      *open_freq_hz;
+    uint8_t           restrike_on_note_edge;
 } SongDef_t;
 
+static const float s_standard_open_freq_hz[NUM_STRINGS] = {
+    E2_HZ, A2_HZ, D3_HZ, G3_HZ, B3_HZ, E4_HZ
+};
+
+static const float song2_open_freq_hz[NUM_STRINGS] = {
+    E2_HZ, A2_HZ, G2_HZ, As2_HZ, B3_HZ, E4_HZ
+};
+
 static const SongDef_t s_songs[] = {
-    { song0_notes, (uint32_t)(sizeof(song0_notes) / sizeof(song0_notes[0])) },
-    { song1_notes, (uint32_t)(sizeof(song1_notes) / sizeof(song1_notes[0])) },
+    { song0_notes, (uint32_t)(sizeof(song0_notes) / sizeof(song0_notes[0])),
+      SONG_BPM_REF, NULL, 0u },
+    { song1_notes, (uint32_t)(sizeof(song1_notes) / sizeof(song1_notes[0])),
+      SONG_BPM_REF, NULL, 0u },
+    { song2_notes, (uint32_t)(sizeof(song2_notes) / sizeof(song2_notes[0])),
+      110u, song2_open_freq_hz, 1u },
 };
 
 #define NUM_SONGS  ((uint32_t)(sizeof(s_songs) / sizeof(s_songs[0])))
@@ -157,9 +197,12 @@ static const SongDef_t s_songs[] = {
 /* Active song pointer + count (set by SongSched_InitSong) */
 static const SongNote_t *s_song_ptr   = song0_notes;
 static uint32_t          s_song_count = (uint32_t)(sizeof(song0_notes) / sizeof(song0_notes[0]));
+static uint32_t          s_song_bpm   = SONG_BPM_REF;
+static const float      *s_song_open_freq_hz = NULL;
+static uint8_t           s_song_restrike_on_note_edge = 0u;
 
 /* =========================================================================
- * Scaled duration table  (computed from SONG_BPM at init)
+ * Scaled duration table  (computed from the active song's BPM at init)
  * Max 16 notes per song — increase if needed.
  * ========================================================================= */
 #define SONG_MAX_NOTES  16u
@@ -181,10 +224,12 @@ static uint8_t  s_hold_note     = 0u;
 
 void SongSched_Init(void)
 {
+    uint32_t play_bpm = (s_song_bpm > 0u) ? s_song_bpm : SONG_BPM_REF;
+
     /* Pre-compute BPM-scaled durations for the active song */
     for (uint32_t i = 0u; i < s_song_count && i < SONG_MAX_NOTES; i++) {
         s_scaled_durations[i] =
-            (s_song_ptr[i].duration_ms * SONG_BPM_REF) / SONG_BPM;
+            (s_song_ptr[i].duration_ms * SONG_BPM_REF) / play_bpm;
     }
 
     s_note_index    = 0u;
@@ -198,8 +243,12 @@ void SongSched_Init(void)
 void SongSched_InitSong(uint8_t song_id)
 {
     if (song_id < NUM_SONGS) {
-        s_song_ptr   = s_songs[song_id].notes;
-        s_song_count = s_songs[song_id].count;
+        const SongDef_t *song = &s_songs[song_id];
+        s_song_ptr                   = song->notes;
+        s_song_count                 = song->count;
+        s_song_bpm                   = song->play_bpm;
+        s_song_open_freq_hz          = song->open_freq_hz;
+        s_song_restrike_on_note_edge = song->restrike_on_note_edge;
     }
     SongSched_Init();
 }
@@ -260,6 +309,23 @@ float SongSched_GetTargetFreq2(void)
 {
     if (!s_active) return 0.0f;
     return s_song_ptr[s_note_index].target_freq_hz2;
+}
+
+float SongSched_GetOpenFreqHz(uint8_t string_id)
+{
+    if (string_id >= NUM_STRINGS) return 0.0f;
+
+    if (s_active && (s_song_open_freq_hz != NULL)) {
+        return s_song_open_freq_hz[string_id];
+    }
+
+    return s_standard_open_freq_hz[string_id];
+}
+
+uint8_t SongSched_ShouldRestrikeOnNoteEdge(void)
+{
+    if (!s_active) return 0u;
+    return s_song_restrike_on_note_edge;
 }
 
 uint8_t SongSched_IsActive(void)

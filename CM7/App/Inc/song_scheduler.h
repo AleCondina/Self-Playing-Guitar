@@ -61,7 +61,9 @@ void SongSched_Init(void);
 
 /**
  * @brief Select a song and initialise the scheduler.
- * @param song_id  0 = Smoke on the Water (chords), 1 = Smoke on the Water (A2 single string)
+ * @param song_id  0 = Smoke on the Water (chords),
+ *                 1 = Smoke on the Water (single E2 string),
+ *                 2 = Smoke on the Water (4 fixed open strings)
  */
 void SongSched_InitSong(uint8_t song_id);
 
@@ -101,6 +103,18 @@ uint8_t SongSched_GetStringId2(void);
  * @brief Return the second target frequency in Hz (valid only when SongSched_GetStringCount() == 2).
  */
 float SongSched_GetTargetFreq2(void);
+
+/**
+ * @brief Return the effective open-string frequency for the active song (Hz).
+ *
+ * Returns the standard tuning frequency when no song-specific override is active.
+ */
+float SongSched_GetOpenFreqHz(uint8_t string_id);
+
+/**
+ * @brief Return 1 when the active song should re-strike on every note edge.
+ */
+uint8_t SongSched_ShouldRestrikeOnNoteEdge(void);
 
 /**
  * @brief Return 1 if the song is playing and a note is active, 0 otherwise.

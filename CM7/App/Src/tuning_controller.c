@@ -105,26 +105,28 @@ static uint8_t s_motor_enable_mask = 0u;
 #define COLD_START_DEFER_HOPS  2u
 static uint8_t s_song_first_note    = 1u;
 static uint8_t s_cold_start_pending = 0u;
+static uint32_t s_last_song_note_index = UINT32_MAX;
 
 /* =========================================================================
  * Domain conversion helpers
  * ========================================================================= */
 
-static const float s_open_freq_hz[NUM_STRINGS] = {
-    E2_HZ, A2_HZ, D3_HZ, G3_HZ, B3_HZ, E4_HZ
-};
+static inline float open_freq_hz(uint8_t str)
+{
+    return SongSched_GetOpenFreqHz(str);
+}
 
 /** Hz → semitones relative to string's open frequency. */
 static inline float freq_to_semi(uint8_t str, float freq_hz)
 {
     if (freq_hz <= 0.0f) return 0.0f;
-    return 12.0f * log2f(freq_hz / s_open_freq_hz[str]);
+    return 12.0f * log2f(freq_hz / open_freq_hz(str));
 }
 
 /** Semitones → Hz. */
 static inline float semi_to_freq(uint8_t str, float semi)
 {
-    return s_open_freq_hz[str] * powf(2.0f, semi / 12.0f);
+    return open_freq_hz(str) * powf(2.0f, semi / 12.0f);
 }
 
 /* =========================================================================
@@ -198,7 +200,7 @@ static uint8_t IsOpenStringInterference(float freq, uint8_t string_id)
 {
     for (uint8_t s = 0u; s < NUM_STRINGS; s++) {
         if (s == string_id) continue;
-        if (fabsf(freq - s_open_freq_hz[s]) <= OPEN_STRING_REJECT_HZ)
+        if (fabsf(freq - open_freq_hz(s)) <= OPEN_STRING_REJECT_HZ)
             return 1u;
     }
     return 0u;
@@ -263,13 +265,14 @@ void TuningCtrl_Init(void)
         s->target_semi        = 0.0f;
         s->measured_semi      = 0.0f;
         s->last_valid_freq_hz = 0.0f;
-        s->expected_freq_hz   = s_open_freq_hz[i];
+        s->expected_freq_hz   = open_freq_hz(i);
     }
 
     s_debug_counter      = 0u;
     s_motor_enable_mask  = 0u;
     s_song_first_note    = 1u;
     s_cold_start_pending = 0u;
+    s_last_song_note_index = UINT32_MAX;
 }
 
 /* =========================================================================
@@ -531,8 +534,13 @@ void TuningCtrl_RunHop(void)
             InterCore_SendMotorEnableMask(0u);
             s_motor_enable_mask = 0u;
         }
+        s_last_song_note_index = UINT32_MAX;
         return;
     }
+
+    uint32_t note_index = SongSched_GetNoteIndex();
+    uint8_t note_edge = (note_index != s_last_song_note_index);
+    uint8_t restrike_on_note_edge = SongSched_ShouldRestrikeOnNoteEdge();
 
     uint8_t str    = SongSched_GetStringId();
     float   target = SongSched_GetTargetFreq();
@@ -572,6 +580,16 @@ void TuningCtrl_RunHop(void)
                               > 0.02f);
     }
 
+    uint8_t actuate_primary = new_note_primary;
+    uint8_t actuate_secondary = new_note_secondary;
+
+    if (restrike_on_note_edge && note_edge) {
+        actuate_primary = 1u;
+        if (chord) {
+            actuate_secondary = 1u;
+        }
+    }
+
     /* ------------------------------------------------------------------ */
     /* FFT measurement + control update (primary)                           */
     /* ------------------------------------------------------------------ */
@@ -594,7 +612,7 @@ void TuningCtrl_RunHop(void)
     /* Cold-start burst — deferred for the very first note of the song      */
     /* Gives CM4 time to process motor-enable before solenoid fires.        */
     /* ------------------------------------------------------------------ */
-    if (s_song_first_note && (new_note_primary || new_note_secondary)) {
+    if (s_song_first_note && (actuate_primary || actuate_secondary)) {
         s_song_first_note    = 0u;
         s_cold_start_pending = COLD_START_DEFER_HOPS;
     }
@@ -642,7 +660,7 @@ void TuningCtrl_RunHop(void)
     /* during the burst.  No BPM-delayed actuation.                         */
     /* ------------------------------------------------------------------ */
     if (!s_cold_start_pending) {
-        if (new_note_primary || new_note_secondary) {
+        if (actuate_primary || actuate_secondary) {
             const SongNote_t *cur = SongSched_GetNoteAt(SongSched_GetNoteIndex());
             uint16_t burst_ms = (cur && cur->burst_ms > 0u) ? cur->burst_ms : 72u;
 
@@ -650,10 +668,10 @@ void TuningCtrl_RunHop(void)
                 uint8_t sol_mask  = 0u;
                 float   freqs[6] = {0.0f};
 
-                if (new_note_primary && target >= 40.0f && target <= 800.0f) {
+                if (actuate_primary && target >= 40.0f && target <= 800.0f) {
                     sol_mask |= (1u << str);  freqs[str]  = target;
                 }
-                if (new_note_secondary && target2 >= 40.0f && target2 <= 800.0f) {
+                if (actuate_secondary && target2 >= 40.0f && target2 <= 800.0f) {
                     sol_mask |= (1u << str2); freqs[str2] = target2;
                 }
                 if (sol_mask) {
@@ -663,7 +681,7 @@ void TuningCtrl_RunHop(void)
                     printf("[TC] Chord actuate: %.1f/%.1f Hz burst=%ums\r\n",
                            (double)target, (double)target2, (unsigned)burst_ms);
                 }
-            } else if (new_note_primary) {
+            } else if (actuate_primary) {
                 if (target >= 40.0f && target <= 800.0f) {
                     InterCore_TriggerSolenoidHz(str, target,
                                                 SOLENOID_DEFAULT_DUTY_CYCLE,
@@ -717,6 +735,8 @@ void TuningCtrl_RunHop(void)
                (double)confidence,
                (unsigned)ds->fault_flags);
     }
+
+    s_last_song_note_index = note_index;
 }
 
 /* =========================================================================
@@ -769,7 +789,7 @@ void TuningCtrl_ResetString(uint8_t string_id)
     s->target_semi        = 0.0f;
     s->measured_semi      = 0.0f;
     s->last_valid_freq_hz = 0.0f;
-    s->expected_freq_hz   = s_open_freq_hz[string_id];
+    s->expected_freq_hz   = open_freq_hz(string_id);
 }
 
 void TuningCtrl_ResetAll(void)
@@ -777,7 +797,8 @@ void TuningCtrl_ResetAll(void)
     for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
         TuningCtrl_ResetString(i);
     }
-    s_motor_enable_mask  = 0u;
-    s_song_first_note    = 1u;
-    s_cold_start_pending = 0u;
+    s_motor_enable_mask    = 0u;
+    s_song_first_note      = 1u;
+    s_cold_start_pending   = 0u;
+    s_last_song_note_index = UINT32_MAX;
 }
