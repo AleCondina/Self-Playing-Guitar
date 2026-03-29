@@ -1,6 +1,6 @@
 # Phase 4 Context
 
-Last verified against the codebase: 2026-03-18 (calibration section updated same date)
+Last verified against the codebase: 2026-03-28 (dual-track module added)
 
 ## Fast Mental Model
 
@@ -28,8 +28,8 @@ Last verified against the codebase: 2026-03-18 (calibration section updated same
 | Tuning control | Live FF + PI controller on CM7 with automatic motor power management, 1/16 microstep safeguard, and cents-based lock bands | Uses 7-point LUTs; all gains/limits calibrated for 1/16 microstepping; controller halts if motors are not in 1/16 mode |
 | Motor safeguard | `Motor_Update()` skips disabled motors — no stepping, no position drift | Software position freezes while disabled; may not match physical position on re-enable |
 | Motor power mgmt | Tuning controller auto-enables motors for active strings, disables when idle | Uses `CMD_MOTOR_ENABLE_MASK` bitmask via `InterCore_SendMotorEnableMask()` |
-| Playback | Hardcoded 12-note "Smoke on the Water" riff | No looping; only two-string D3/G3 chord data exists |
-| Calibration | Active PI-lock sweep with feedforward homing, SRAM persistence, polynomial fitting | Solenoid excitation only live for strings `1-3`; E2 relies on manual pluck ring-down |
+| Playback | Dual-track (double_string.c) for Song0 E2+G2 via `smoke` cmd; sequential (song_scheduler.c) for Song1 A2 via `smoke1`, Song2 Drop D via `song2` | Dual-track drives both motors every hop; dynamic BPM via `bpm` command; looping enabled |
+| Calibration | Active PI-lock sweep with feedforward homing, SRAM persistence, polynomial fitting | Solenoid excitation live for strings `0` (E2), `1` (A2/G2), `2` (D3); G3 solenoid lost TIM4 (moved to E2) |
 | LUT builder | Active fret-mapping state machine | Only supports configured motors `0-3` |
 | Persistence | Backup SRAM (`0x38800000`, VBAT-backed) via `Cal_SaveToSRAM()` / `Cal_LoadFromSRAM()` | Restored at boot; magic + XOR checksum guard |
 
@@ -48,7 +48,9 @@ If this file conflicts with older docs, trust the code below.
 - `CM7/App/Src/tuning_controller.c`
   Active closed-loop tuning logic and exact-Hz solenoid coordination.
 - `CM7/App/Src/song_scheduler.c`
-  Hardcoded song data and playback scheduler.
+  Hardcoded song data and sequential playback scheduler (songs 1, 2).
+- `CM7/App/Src/double_string.c`
+  Beat-based dual-string scheduler for Smoke on the Water (song 0 replacement).
 - `CM7/App/Src/calibration_controller.c`
   Automatic sweep-based LUT calibration.
 - `CM7/App/Src/lut_builder.c`
@@ -70,7 +72,7 @@ If this file conflicts with older docs, trust the code below.
 
 - Audio and pitch path: `CM7/Core/Src/main.c`, `CM7/App/Src/audio_input.c`, `CM7/App/Src/fft_processing.c`
 - Tuning behavior: `CM7/App/Src/tuning_controller.c`
-- Playback behavior: `CM7/App/Src/song_scheduler.c`, `CM7/App/Src/app_cm7.c`
+- Playback behavior: `CM7/App/Src/double_string.c` (dual-track), `CM7/App/Src/song_scheduler.c` (sequential), `CM7/App/Src/app_cm7.c`
 - Calibration, tuning, and commissioning: `CM7/App/Src/calibration_controller.c` (includes both calibration and tune state machines), `CM7/App/Src/lut_builder.c`
 - Manual commands and workflows: `CM7/App/Src/serial_cmd.c`
 - Stepper hardware/runtime: `CM4/App/Src/motor_control.c`
@@ -182,12 +184,85 @@ The active measurement path is `fft_processing.c`.
 
 ### Song scheduler
 
-`song_scheduler.c` contains one hardcoded song:
+`song_scheduler.c` contains three songs. Triggered via `smoke`, `smoke1`, `song2` serial commands.
 
-- "Smoke on the Water" intro
-- 12 note events
-- all notes are D3 + G3 two-string power chords
-- no loop/repeat logic
+**Song 0 — legacy `song0_notes[]` in `song_scheduler.c` (kept as fallback)**
+- 12 note events at SONG_BPM = 47, sequential single-motor-at-a-time playback
+- Superseded by the dual-track module below; `smoke` command now uses `double_string.c`
+
+### Dual-track playback module (NEW)
+
+`double_string.c` / `double_string.h` — beat-based dual-string song scheduler.
+
+**Key innovation:** Commands BOTH str0 and str1 motors every hop simultaneously. While one string is playing (solenoid fired + resting), the other string's motor is already moving to its next target. This maximizes PI convergence time per string.
+
+**Architecture:**
+- Song defined as beat positions (not milliseconds): `fire_time = beat_pos * (60000 / BPM)`
+- Rest time and burst stay constant; only convergence time scales with BPM
+- Rest times: 355ms (quarter note), 155ms (eighth note), 605ms (half/held)
+- Burst: 80ms (constant for all notes)
+- State machine: IDLE -> PREROLL (1500ms) -> PLAYING -> loop
+
+**Song data — Smoke on the Water, E root, 12 notes:**
+
+| Note | Str | Freq | Beat | Rest | Type |
+|------|-----|------|------|------|------|
+| #0 | 0 | E2 82Hz | 0.0 | 355ms | quarter |
+| #1 | 1 | G2 98Hz | 1.0 | 355ms | quarter |
+| #2 | 0 | A2 110Hz | 2.0 | 605ms | half (held) |
+| #3 | 0 | E2 82Hz | 4.0 | 355ms | quarter |
+| #4 | 1 | G2 98Hz | 5.0 | 355ms | quarter |
+| #5 | 0 | As2 117Hz | 6.0 | 155ms | eighth (short) |
+| #6 | 1 | A2 110Hz | 6.5 | 605ms | dotted quarter |
+| #7 | 0 | E2 82Hz | 8.0 | 355ms | quarter |
+| #8 | 1 | G2 98Hz | 9.0 | 355ms | quarter |
+| #9 | 0 | A2 110Hz | 10.0 | 605ms | half (held) |
+| #10 | 1 | G2 98Hz | 12.0 | 355ms | quarter |
+| #11 | 0 | E2 82Hz | 13.0 | 605ms | dotted half |
+
+**Convergence at 60 BPM (most notes get 1300-3500ms vs old flat 1200ms):**
+
+| Note | Convergence |
+|------|-------------|
+| #0 | pre-roll |
+| #1 | 1000ms (cold start) |
+| #2 | 1565ms |
+| #3 | 1315ms |
+| #4 | 3565ms |
+| #5 | 1565ms |
+| #6 | 1065ms |
+| #7 | 1765ms |
+| #8 | 1815ms |
+| #9 | 1565ms |
+| #10 | 2565ms |
+| #11 | 2315ms |
+
+**Serial commands:**
+- `smoke` — auto-sets Drop G2 tuning, starts dual-track playback
+- `bpm [value]` — get/set BPM (20-200), applied at next loop boundary
+- `smoke1` — stops dual-track, reverts to sequential single-string mode
+
+**Dual-track FFT tracking (in `tuning_controller.c`):**
+- When `s_dual_track_mode` is enabled, `DualTrack_RunHop()` replaces the sequential path
+- Uses exclusive peak claiming + anti-swap to prevent both trackers from locking onto the same FFT peak
+- Expected frequency from motor position (`FF_InverseInterpolate`) updated every hop as the motor moves
+- Anti-swap: if a peak is closer to the other string's expected frequency, it's skipped
+- No solenoid blanking needed: narrow search window around expected frequency naturally rejects broadband solenoid noise
+
+**Drop G2 tuning and calibration:**
+- `TUNING_DROP_G2 = 2` in `application_config.h`
+- `dropg2` command switches both CM7 (LUT tables, open-string rejection) and CM4 (solenoid ARR values)
+- `tune 1` in Drop G2 mode targets G2 (98 Hz) using `s_open_freq[TUNING_DROP_G2][1]`
+- `calibrate 1` in Drop G2 mode uses correct G2 fret frequencies from `cal_theoretical_freq[TUNING_DROP_G2][1]`
+- Calibration data persists to backup SRAM; restored at boot via `Cal_LoadFromSRAM()`
+- String 1 has placeholder feed-forward (linear estimate) until calibrated — PI works harder but still functional
+- **Recommended calibration workflow:** `dropg2` -> `calibrate 1` -> power cycle -> `dropg2` again (restores calibrated data from SRAM)
+
+**Song 1 — "Smoke on the Water" (single A2 string) — `smoke1` command**
+- 12 note events on str1 (A2) only, same timing structure as Song 0
+
+**Song 2 — Drop D fingerpicking — `song2` command**
+- 14 note events across str0 (D2), str1 (A2), str2 (D3), str4 (B3)
 
 ### Tuning controller
 
@@ -414,14 +489,14 @@ The code consistently uses:
 
 ### Solenoids
 
-Logical solenoid IDs still run from `0` to `5`, but only three are timer-backed in the current CM4 runtime.
+Logical solenoid IDs still run from `0` to `5`, but only three are timer-backed in the current CM4 runtime. **TIM4 was reassigned from G3 to E2.**
 
 | Solenoid ID | Logical string | Timer / channel | Pin | Runtime status |
 | --- | --- | --- | --- | --- |
-| 0 | E2 | None | None | No PWM timer assigned |
-| 1 | A2 | `TIM3_CH2` | `PB5` | Live |
+| 0 | E2 | `TIM4_CH1` | `PB6` | **Live** |
+| 1 | A2 / G2 (Drop G2) | `TIM3_CH2` | `PB5` | Live |
 | 2 | D3 | `TIM2_CH1` | `PA5` | Live |
-| 3 | G3 | `TIM4_CH1` | `PB6` | Live |
+| 3 | G3 | None | None | No PWM timer assigned (TIM4 moved to solenoid 0) |
 | 4 | B3 | None | None | No PWM timer assigned |
 | 5 | E4 | None | None | No PWM timer assigned |
 
@@ -429,7 +504,7 @@ Why this is true:
 
 - `TIM1` was moved to CM7 and is used as the ADC trigger timer.
 - `TIM16` and `TIM17` still appear in `CM4/Core/Src/stm32h7xx_hal_msp.c`, but CM4 `main.c` only initializes `TIM2`, `TIM3`, and `TIM4`.
-- `solenoid_control.c` sets `htim = NULL` for logical solenoids `0`, `4`, and `5`.
+- `solenoid_control.c` assigns `TIM4` to solenoid 0 (E2) and sets `htim = NULL` for solenoids `3`, `4`, and `5`.
 
 ## CM4 Actuation Behavior
 
@@ -537,16 +612,15 @@ These are real current behaviors or mismatches that future sessions should keep 
 
 ### 3. `calibrate all` is partially misaligned with current hardware
 
-- Strings `1` (A2), `2` (D3), `3` (G3): fully automatic with solenoid excitation. **Use these.**
-- String `0` (E2): motor is configured but solenoid `0` has no timer (`htim = NULL`). Calibration proceeds but relies entirely on the decay of the initial manual pluck. Works but is less reliable — solenoid re-excites during `OPEN_PI_LOCK`, `PI_LOCK`, and `HOME_PI_LOCK` are silent no-ops.
+- Strings `0` (E2), `1` (A2/G2), `2` (D3): fully automatic with solenoid excitation. **Use these.**
+- String `3` (G3): motor is configured but solenoid `3` now has **no timer** (`htim = NULL`) — TIM4 was moved to solenoid 0 (E2). Calibration proceeds but solenoid re-excites are silent no-ops; relies on manual pluck ring-down.
 - Strings `4` (B3) and `5` (E4): motors not configured, no solenoids. **Do not calibrate.**
-- Recommended: `calibrate 1`, `calibrate 2`, `calibrate 3` individually, or mask `0x0E` for A2+D3+G3.
+- Recommended: `calibrate 0`, `calibrate 1`, `calibrate 2` individually, or mask `0x07` for E2+A2+D3.
 
 ### 4. `demo` is stale relative to current solenoid mapping
 
 - The demo uses solenoid `0` for E2.
-- Solenoid `0` has no timer assigned.
-- So the demo sequence no longer matches live hardware support.
+- Solenoid `0` now has TIM4 assigned and is **live** — demo should work for the E2 strum steps.
 
 ### 5. Replay state in the song scheduler is not fully reset-safe
 

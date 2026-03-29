@@ -31,6 +31,7 @@
 #include "tuning_controller.h"
 #include "calibration_controller.h"
 #include "song_scheduler.h"
+#include "double_string.h"
 #include "fft_processing.h"
 #include "inter_core_cm7.h"
 #include "shared_memory.h"
@@ -172,6 +173,10 @@ static uint8_t s_song_first_note = 1u;
  * time to process the motor-enable command before the solenoid fires. */
 #define COLD_START_DEFER_HOPS  2u
 static uint8_t s_cold_start_pending = 0u;
+
+/* Dual-track mode: when enabled, RunHop drives both str0 and str1 using
+ * DblString targets instead of the sequential song_scheduler. */
+static uint8_t s_dual_track_mode = 0u;
 
 /* =========================================================================
  * Private helpers
@@ -616,12 +621,193 @@ static void GetFFTRadarLock(uint8_t string_id,
 }
 
 /* -------------------------------------------------------------------------
+ * DualTrack_RunHop
+ * Dual-string control path: drives both str0 and str1 every hop using
+ * targets from DblString.  Uses exclusive peak claiming + anti-swap to
+ * prevent the two FFT trackers from locking onto the same peak.
+ * --------------------------------------------------------------------- */
+static void DualTrack_RunHop(void)
+{
+    /* ---- Microstep safeguard (same as sequential path) ---- */
+    for (uint8_t m = 0u; m < 4u; m++) {
+        if (g_shared_memory.motor_microstep_status[m] != TUNING_REQUIRED_MICROSTEP_MODE) {
+            printf("[TC-DT] *** HALT: Motor %u microstep mode is %u, expected %u ***\r\n",
+                   (unsigned)m,
+                   (unsigned)g_shared_memory.motor_microstep_status[m],
+                   (unsigned)TUNING_REQUIRED_MICROSTEP_MODE);
+            if (s_motor_enable_mask != 0u) {
+                InterCore_SendMotorEnableMask(0u);
+                s_motor_enable_mask = 0u;
+            }
+            return;
+        }
+    }
+
+    /* ---- Check DblString is active ---- */
+    if (!DblString_IsActive()) {
+        if (s_motor_enable_mask != 0u) {
+            InterCore_SendMotorEnableMask(0u);
+            s_motor_enable_mask = 0u;
+        }
+        return;
+    }
+
+    /* ---- Enable both motors ---- */
+    uint8_t needed_mask = (1u << 0) | (1u << 1);  /* str0 + str1 */
+    if (needed_mask != s_motor_enable_mask) {
+        InterCore_SendMotorEnableMask(needed_mask);
+        s_motor_enable_mask = needed_mask;
+    }
+
+    /* ---- Get targets from DblString scheduler ---- */
+    float target[2];
+    target[0] = DblString_GetTargetFreq(0);
+    target[1] = DblString_GetTargetFreq(1);
+
+    /* ---- Two-pass FFT peak assignment with claiming + anti-swap ---- */
+    float measured[2]   = { 0.0f, 0.0f };
+    float confidence[2] = { 0.0f, 0.0f };
+    int8_t claimed_idx  = -1;  /* FFT peak index claimed by str0 */
+
+    for (uint8_t pass = 0; pass < 2u; pass++) {
+        uint8_t s = pass;  /* str0 first, then str1 */
+        float expected = s_state[s].expected_freq_hz;
+        float tgt      = target[s];
+        if (tgt < 1.0f) continue;  /* no target yet */
+
+        /* Other string's expected frequency (for anti-swap) */
+        uint8_t other = 1u - s;
+        float other_expected = s_state[other].expected_freq_hz;
+
+        float best_freq = 0.0f;
+        float best_mag  = 0.0f;
+        int8_t best_idx = -1;
+
+        for (uint8_t i = 0u; i < active_string_count; i++) {
+            float freq = active_frequencies[i];
+            float mag  = active_magnitudes[i];
+
+            /* Skip if claimed by previous pass */
+            if (pass == 1u && (int8_t)i == claimed_idx) continue;
+
+            /* Reject other open strings */
+            if (IsOpenStringInterference(freq, s)) continue;
+
+            /* Search window: near expected OR near target */
+            float err_exp = fabsf(freq - expected);
+            float err_tgt = fabsf(freq - tgt);
+            float min_err = (err_exp < err_tgt) ? err_exp : err_tgt;
+            if (min_err > TUNE_SEARCH_WINDOW_HZ) continue;
+
+            /* Anti-swap: if this peak is closer to the OTHER string's
+             * expected frequency than ours, it belongs to them. */
+            float dist_ours  = fabsf(freq - expected);
+            float dist_other = fabsf(freq - other_expected);
+            if (other_expected > 1.0f && dist_other < dist_ours) continue;
+
+            /* Pick loudest valid peak */
+            if (mag > best_mag) {
+                best_mag  = mag;
+                best_freq = freq;
+                best_idx  = (int8_t)i;
+            }
+        }
+
+        measured[s]   = best_freq;
+        confidence[s] = best_mag;
+
+        /* Claim: str0's peak is reserved so str1 won't use it */
+        if (pass == 0u && best_idx >= 0) {
+            claimed_idx = best_idx;
+        }
+    }
+
+    /* ---- Run PI controller for each string ---- */
+    for (uint8_t s = 0; s < 2u; s++) {
+        if (target[s] >= 1.0f) {
+            TuningCtrl_Update(s, target[s], measured[s], confidence[s]);
+        }
+    }
+
+    /* ---- Push motor commands for both strings ---- */
+    {
+        uint8_t move_mask = 0u;
+        int32_t positions[NUM_MOTORS] = {0};
+        for (uint8_t s = 0; s < 2u; s++) {
+            if (target[s] >= 1.0f) {
+                move_mask |= (1u << s);
+                positions[s] = s_state[s].cmd_steps_abs;
+            }
+        }
+        if (move_mask) {
+            InterCore_SendMotorGotoBatch(move_mask, positions);
+        }
+    }
+
+    /* ---- Solenoid actuation — edge-triggered from DblString ---- */
+    for (uint8_t s = 0; s < 2u; s++) {
+        if (DblString_ShouldFire(s)) {
+            uint16_t burst_ms = DblString_GetBurstMs(s);
+            float f = s_state[s].lock_state
+                    ? s_state[s].last_valid_freq_hz : target[s];
+
+            if (f >= 40.0f && f <= 800.0f) {
+                InterCore_TriggerSolenoidHz(s, f, SOLENOID_DEFAULT_DUTY_CYCLE,
+                                            SOLENOID_MODE_TIMED, burst_ms, 0u);
+            }
+            s_state[s].note_actuated = 1u;
+            s_state[s].note_plucked  = 1u;
+            printf("[TC-DT] Fire str%u: %.1f Hz burst=%u ms (lock=%u)\r\n",
+                   (unsigned)s, (double)f, (unsigned)burst_ms,
+                   (unsigned)s_state[s].lock_state);
+        }
+    }
+
+    /* Track pluck age */
+    for (uint8_t s = 0; s < 2u; s++) {
+        s_state[s].hops_since_pluck++;
+    }
+
+    /* ---- Debug CSV (decimated) ---- */
+    s_debug_counter++;
+    if (s_debug_counter >= DEBUG_DECIM_HOPS) {
+        s_debug_counter = 0u;
+        for (uint8_t s = 0; s < 2u; s++) {
+            if (target[s] < 1.0f) continue;
+            const TuningStringState_t *ds = &s_state[s];
+            float err_hz = target[s] - measured[s];
+            printf("[TC-DT] %lu,%u,%.2f,%.2f,%.3f,%.1f,%.1f,%ld,%ld,%u,%u,%u,%.0f,%u\r\n",
+                   (unsigned long)HAL_GetTick(),
+                   (unsigned int)s,
+                   (double)target[s],
+                   (double)measured[s],
+                   (double)err_hz,
+                   (double)ds->ff_steps_abs,
+                   (double)ds->trim_steps,
+                   (long)ds->cmd_steps_abs,
+                   (long)ds->current_abs_steps,
+                   (unsigned int)ds->lock_state,
+                   (unsigned int)ds->pi_enable,
+                   (unsigned int)ds->delay_hold_counter,
+                   (double)confidence[s],
+                   (unsigned int)ds->fault_flags);
+        }
+    }
+}
+
+/* -------------------------------------------------------------------------
  * TuningCtrl_RunHop
  * High-level entry point.  Reads from song scheduler and FFT, calls
  * TuningCtrl_Update(), then issues inter-core commands.
  * --------------------------------------------------------------------- */
 void TuningCtrl_RunHop(void)
 {
+    /* ---- Dual-track mode: use DblString scheduler ---- */
+    if (s_dual_track_mode && DblString_IsActive()) {
+        DualTrack_RunHop();
+        return;
+    }
+
     /* ------------------------------------------------------------------ */
     /* Microstep safeguard: verify all configured motors are in 1/16 mode.  */
     /* If any motor is wrong, halt the controller and warn over UART.       */
@@ -780,7 +966,7 @@ void TuningCtrl_RunHop(void)
     /* ------------------------------------------------------------------ */
     /* Solenoid actuation — BPM-scheduled, not convergence-gated           */
     /*                                                                      */
-    /* ALL strings for a note fire at exactly SONG_ACTUATE_DELAY_MS after   */
+    /* ALL strings for a note fire at the BPM-scaled actuate delay after    */
     /* the note starts.  This keeps actuation locked to the song's BPM.    */
     /*                                                                      */
     /* If PI locks early, we wait.  If PI hasn't converged by the deadline  */
@@ -789,7 +975,7 @@ void TuningCtrl_RunHop(void)
     /* ------------------------------------------------------------------ */
     {
         uint32_t note_elapsed = SongSched_GetElapsedMs(HAL_GetTick());
-        uint8_t  time_to_fire = (note_elapsed >= SONG_ACTUATE_DELAY_MS);
+        uint8_t  time_to_fire = (note_elapsed >= SongSched_GetActuateDelayMs());
 
         if (time_to_fire && !s_state[str].note_actuated) {
 
@@ -938,6 +1124,12 @@ void TuningCtrl_ResetAll(void)
     s_motor_enable_mask  = 0u;
     s_song_first_note    = 1u;
     s_cold_start_pending = 0u;
+}
+
+void TuningCtrl_SetDualTrackMode(uint8_t enable)
+{
+    s_dual_track_mode = enable ? 1u : 0u;
+    printf("[TC] Dual-track mode %s\r\n", enable ? "ENABLED" : "DISABLED");
 }
 
 void TuningCtrl_SetTuning(uint8_t tuning_id)

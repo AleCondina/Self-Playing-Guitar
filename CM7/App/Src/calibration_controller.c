@@ -2232,7 +2232,7 @@ void Cal_TuneHop(void)
 
         if (arrived || s_tune_motor_cnt >= TUNE_MOTOR_WAIT_HOPS) {
             /* Decide whether to fire solenoid or go straight to PI */
-            uint8_t has_solenoid = (s_tune_str >= 1u && s_tune_str <= 3u);
+            uint8_t has_solenoid = (s_tune_str <= 2u);
             if (has_solenoid) {
                 s_tune_phase = TUNE_PHASE_SOL_BURST;
             } else {
@@ -2361,7 +2361,7 @@ void Cal_TuneHop(void)
                 s_tune_retry_cnt++;
 
                 if (s_tune_retry_cnt < TUNE_MAX_RETRIES) {
-                    uint8_t has_solenoid = (s_tune_str >= 1u && s_tune_str <= 3u);
+                    uint8_t has_solenoid = (s_tune_str <= 2u);
                     if (has_solenoid) {
                         printf("[TUNE] str%u: signal lost — re-excite (retry %u/%u)\r\n",
                                (unsigned)s_tune_str,
@@ -2394,7 +2394,7 @@ void Cal_TuneHop(void)
             s_tune_retry_cnt++;
 
             if (s_tune_retry_cnt < TUNE_MAX_RETRIES) {
-                uint8_t has_solenoid = (s_tune_str >= 1u && s_tune_str <= 3u);
+                uint8_t has_solenoid = (s_tune_str <= 2u);
                 if (has_solenoid) {
                     printf("[TUNE] str%u: lock timeout — re-excite (retry %u/%u)\r\n",
                            (unsigned)s_tune_str,

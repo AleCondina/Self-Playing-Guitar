@@ -114,21 +114,10 @@ extern "C" {
  */
 #define SONG_SUSTAIN_REEXCITE_HOPS   0u
 
-/**
- * @brief Fixed actuation delay from note start (milliseconds).
- *
- * All strings (single or chord) fire their solenoid at exactly this
- * time after the note begins, regardless of whether PI has locked.
- * This keeps actuation locked to the song's BPM timing.
- *
- * If PI converges early, the controller waits.  If PI hasn't converged
- * by this deadline, it fires anyway at the best position reached.
- *
- * 1200 ms gives the motor/PI time to settle with the aggressive PI
- * tuning (wider step caps, integral enable at 5 Hz, cold delay = 1).
- * TUNE FOR HARDWARE.
- */
-#define SONG_ACTUATE_DELAY_MS        1200u
+/* Solenoid actuate delay is now BPM-scaled at runtime.
+ * Use SongSched_GetActuateDelayMs() from song_scheduler.h.
+ * Base value (1200 ms at 47 BPM) defined as SONG_ACTUATE_BASE_MS
+ * in song_scheduler.c.  Higher BPM → shorter PI window. */
 
 /**
  * @brief Duration of the very first pluck of the song (ms).
@@ -372,6 +361,17 @@ void TuningCtrl_ResetString(uint8_t string_id);
  * @brief  Force-reset all strings.
  */
 void TuningCtrl_ResetAll(void);
+
+/**
+ * @brief  Enable or disable dual-track mode for double_string playback.
+ *
+ * When enabled, TuningCtrl_RunHop() drives BOTH str0 and str1 motors
+ * every hop using targets from DblString_GetTargetFreq(), with exclusive
+ * FFT peak claiming and anti-swap tracking.
+ *
+ * @param enable  1 = dual-track, 0 = sequential (song_scheduler)
+ */
+void TuningCtrl_SetDualTrackMode(uint8_t enable);
 
 /**
  * @brief  Switch tuning mode (standard / drop D).

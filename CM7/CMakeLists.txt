@@ -75,6 +75,7 @@ target_sources(${CMAKE_PROJECT_NAME} PRIVATE
     # ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/goertzel_processing.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/tuning_controller.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/song_scheduler.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/double_string.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/calibration_controller.c
     ${CMAKE_CURRENT_SOURCE_DIR}/App/Src/lut_builder.c
 

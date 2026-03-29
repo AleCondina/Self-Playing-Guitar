@@ -28,6 +28,7 @@
 #include "app_cm7.h"
 #include "tuning_controller.h"
 #include "calibration_controller.h"
+#include "double_string.h"
 #include "fft_processing.h"
 #include "debug_uart.h"
 #include "inter_core_cm7.h"
@@ -121,6 +122,7 @@ static void Cmd_Debug(char *args);
 static void Cmd_DropD(char *args);
 static void Cmd_DropG2(char *args);
 static void Cmd_Standard(char *args);
+static void Cmd_Bpm(char *args);
 static void Demo_Tick(void);
 
 /* Command table entry */
@@ -151,7 +153,7 @@ static const CmdEntry_t command_table[] = {
     { "calibrate", Cmd_Calibrate, "calibrate [str ...]      Sweep strings and fill tuning LUT (e.g. 'calibrate 2 3')" },
     { "mapfrets",  Cmd_MapFrets,  "mapfrets [str ...]       Measure fret step positions for LUT (e.g. 'mapfrets 0 1')" },
     { "printlut",  Cmd_PrintLut,  "printlut                 Print current feed-forward LUT values" },
-    { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water (chords)" },
+    { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water (E2+G2 split, Drop G2)" },
     { "smoke1",    Cmd_Smoke1,    "smoke1                   Play Smoke on the Water (A2 single string)" },
     { "song2",     Cmd_Song2,     "song2                    Play Drop D fingerpicking" },
     { "tune",      Cmd_Tune,      "tune [str ...]            Tune open strings 0-3 to standard pitch" },
@@ -164,6 +166,7 @@ static const CmdEntry_t command_table[] = {
     { "dropd",     Cmd_DropD,     "dropd                   Switch to Drop D tuning" },
     { "dropg2",    Cmd_DropG2,    "dropg2                  Switch to Drop G2 tuning (str1=G2)" },
     { "standard",  Cmd_Standard,  "standard                Switch to standard tuning" },
+    { "bpm",       Cmd_Bpm,       "bpm [value]             Get/set dual-track playback BPM (20-200)" },
     { NULL, NULL, NULL }
 };
 
@@ -672,7 +675,7 @@ static void Cmd_Sol(char *args)
     }
 
     /* Warn if solenoid has no timer assigned (E2=0, B3=4, E4=5) */
-    if (id == 0 || id == 4 || id == 5) {
+    if (id == 4 || id == 5) {
         printf("  Warning: Solenoid %d has no timer assigned (no PWM output)\r\n", (int)id);
         return;
     }
@@ -886,13 +889,27 @@ static void Cmd_Debug(char *args)
 static void Cmd_Smoke(char *args)
 {
     (void)args;
-    printf("  Starting Smoke on the Water (chords G3+D3)...\r\n");
-    App_RequestPlay();
+    /* Dual-track mode requires Drop G2 tuning — set it automatically */
+    if (TuningCtrl_GetActiveTuning() != TUNING_DROP_G2) {
+        g_shared_memory.tuning_id = TUNING_DROP_G2;
+        g_shared_memory.motor_command_flags |= CMD_SET_TUNING;
+        InterCore_NotifyCM4();
+        TuningCtrl_SetTuning(TUNING_DROP_G2);
+        TuningCtrl_ResetAll();
+        printf("  Auto-switched to Drop G2 tuning (str0=E2, str1=G2)\r\n");
+    }
+    printf("  Starting Smoke on the Water (dual-track, %lu BPM, Drop G2)...\r\n",
+           (unsigned long)DblString_GetBpm());
+    App_RequestPlayDual();
 }
 
 static void Cmd_Smoke1(char *args)
 {
     (void)args;
+    /* Stop dual-track if running */
+    if (DblString_IsActive()) {
+        DblString_Stop();
+    }
     printf("  Starting Smoke on the Water (single A2 string)...\r\n");
     App_RequestPlaySong(1u);
 }
@@ -1146,4 +1163,23 @@ static void Cmd_Standard(char *args)
     TuningCtrl_ResetAll();
 
     printf("  Tuning: Standard (str0=E2, str1=A2)\r\n> ");
+}
+
+static void Cmd_Bpm(char *args)
+{
+    (void)args;
+    char *tok = strtok(NULL, " \t");
+    if (tok == NULL) {
+        /* No argument — print current BPM */
+        printf("  BPM: %lu\r\n> ", (unsigned long)DblString_GetBpm());
+        return;
+    }
+    int val = atoi(tok);
+    if (val < (int)DBL_BPM_MIN || val > (int)DBL_BPM_MAX) {
+        printf("  Error: BPM must be %u-%u\r\n> ",
+               (unsigned)DBL_BPM_MIN, (unsigned)DBL_BPM_MAX);
+        return;
+    }
+    DblString_SetBpm((uint32_t)val);
+    printf("  BPM set to %d (takes effect at next loop boundary)\r\n> ", val);
 }
