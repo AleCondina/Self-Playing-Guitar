@@ -34,6 +34,7 @@
 
 /* FFT search window (Hz) — accept peaks within this radius of expected/target */
 #define TUNE_SEARCH_WINDOW_HZ  15.0f
+#define NOTE_CHANGE_SEMI       0.02f   /* ~2 cents threshold */
 
 /* =========================================================================
  * Feed-forward LUT data (legacy — kept for SRAM calibration compat)
@@ -136,6 +137,58 @@ static inline float Clampf(float v, float lo, float hi)
     if (v < lo) return lo;
     if (v > hi) return hi;
     return v;
+}
+
+static uint8_t StringCanTriggerSolenoid(uint8_t string_id, float target_hz)
+{
+    return (string_id < NUM_SOLENOIDS &&
+            target_hz >= 40.0f &&
+            target_hz <= 800.0f);
+}
+
+static uint8_t IsNewNoteTarget(uint8_t string_id, float target_freq_hz)
+{
+    float prev_target_semi = s_state[string_id].prev_target_semi;
+    float new_target_semi  = freq_to_semi(string_id, target_freq_hz);
+    return (fabsf(new_target_semi - prev_target_semi) > NOTE_CHANGE_SEMI);
+}
+
+static uint8_t BurstClearWaitHops(uint16_t burst_ms)
+{
+    float fft_window_ms = ((float)FFT_SIZE * 1000.0f)
+                        / (float)AUDIO_SAMPLE_RATE_HZ;
+    float hop_ms = TUNING_SAMPLE_TIME_S * 1000.0f;
+    float wait_hops = ceilf((((float)burst_ms) + fft_window_ms) / hop_ms);
+
+    wait_hops = Clampf(wait_hops, 0.0f, 255.0f);
+    return (uint8_t)wait_hops;
+}
+
+static void StartNoteTransition(uint8_t string_id,
+                                float   target_freq_hz,
+                                uint8_t burst_fired,
+                                uint16_t burst_ms)
+{
+    TuningStringState_t *s = &s_state[string_id];
+    float target_semi = freq_to_semi(string_id, target_freq_hz);
+
+    s->integral_state                = 0.0f;
+    s->lock_state                    = 0u;
+    s->prev_lock_state               = 0u;
+    s->stall_counter                 = 0u;
+    s->fault_flags                   = 0u;
+    s->hop_count                     = 0u;
+    s->prev_target_semi              = target_semi;
+    s->resonance_wait_hops_remaining = 0u;
+    s->fft_clear_wait_hops_remaining = 0u;
+
+    if (burst_fired) {
+        s->state = TUNE_STATE_RESONANCE_WAIT;
+        s->resonance_wait_hops_remaining = TUNING_RESONANCE_WAIT_HOPS;
+        s->fft_clear_wait_hops_remaining = BurstClearWaitHops(burst_ms);
+    } else {
+        s->state = TUNE_STATE_FF_MOVE;
+    }
 }
 
 /**
@@ -252,6 +305,8 @@ void TuningCtrl_Init(void)
         memset(s, 0, sizeof(TuningStringState_t));
 
         s->state              = TUNE_STATE_IDLE;
+        s->resonance_wait_hops_remaining = 0u;
+        s->fft_clear_wait_hops_remaining = 0u;
         s->cmd_steps_abs      = 0;
         s->prev_cmd_steps_abs = 0;
         s->current_abs_steps  = 0;
@@ -275,7 +330,9 @@ void TuningCtrl_Init(void)
 /* =========================================================================
  * TuningCtrl_Update — single-string per-hop update (all maths, no HAL)
  *
- * State machine: IDLE → FF_MOVE → FF_WAIT → PI_ACTIVE ↔ IN_TUNE
+ * State machine:
+ *   IDLE → RESONANCE_WAIT → FF_MOVE → FF_WAIT → PI_ACTIVE ↔ IN_TUNE
+ *   IDLE → FF_MOVE → FF_WAIT → PI_ACTIVE ↔ IN_TUNE   (no solenoid fired)
  * ========================================================================= */
 
 void TuningCtrl_Update(uint8_t string_id,
@@ -284,6 +341,7 @@ void TuningCtrl_Update(uint8_t string_id,
                        float   confidence)
 {
     if (string_id >= NUM_STRINGS) return;
+    (void)confidence;
 
     TuningStringState_t *s = &s_state[string_id];
 
@@ -294,14 +352,19 @@ void TuningCtrl_Update(uint8_t string_id,
     s->target_semi    = target_semi;
 
     uint8_t measurement_trusted = (measured_freq_hz > 0.0f);
+    uint8_t measurement_blocked = (s->fft_clear_wait_hops_remaining > 0u);
+    uint8_t motor_busy          = g_shared_memory.motor_is_moving[string_id];
     float   meas_semi = 0.0f;
 
-    if (measurement_trusted) {
+    if (measurement_trusted && !measurement_blocked) {
         meas_semi             = freq_to_semi(string_id, measured_freq_hz);
         s->measured_semi      = meas_semi;
         s->last_valid_freq_hz = measured_freq_hz;
         s->silent_hop_count   = 0u;
         s->string_warm        = 1u;
+    } else if (measurement_blocked) {
+        measurement_trusted = 0u;
+        meas_semi = s->measured_semi;  /* freeze accepted state until FFT clears */
     } else {
         meas_semi = s->measured_semi;  /* hold last valid */
         s->silent_hop_count++;
@@ -311,31 +374,10 @@ void TuningCtrl_Update(uint8_t string_id,
     }
 
     /* ------------------------------------------------------------------ */
-    /* 2. Note-change detection → FF_MOVE                                   */
-    /* ------------------------------------------------------------------ */
-    const float NOTE_CHANGE_SEMI = 0.02f;  /* ~2 cents threshold */
-    uint8_t is_new_note = (fabsf(target_semi - s->prev_target_semi)
-                           > NOTE_CHANGE_SEMI);
-
-    if (is_new_note) {
-        /* Reset controller for new note */
-        s->integral_state   = 0.0f;
-        s->lock_state       = 0u;
-        s->prev_lock_state  = 0u;
-        s->stall_counter    = 0u;
-        s->fault_flags      = 0u;
-        s->hop_count        = 0u;
-        s->prev_target_semi = target_semi;
-
-        /* Compute feedforward position */
-        s->ff_steps_abs = feedforward_steps(string_id, target_semi);
-        s->state        = TUNE_STATE_FF_MOVE;
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* 3. State machine                                                     */
+    /* 2. State machine                                                     */
     /* ------------------------------------------------------------------ */
     float pi_delta = 0.0f;  /* PI output (steps), added to FF position */
+    uint8_t ff_command_issued = 0u;
 
     switch (s->state) {
 
@@ -343,18 +385,28 @@ void TuningCtrl_Update(uint8_t string_id,
         /* No target — nothing to do */
         break;
 
+    case TUNE_STATE_RESONANCE_WAIT:
+        /* Hold the current motor target while the burst rings freely. */
+        if (s->resonance_wait_hops_remaining > 0u) {
+            break;
+        }
+
+        s->state = TUNE_STATE_FF_MOVE;
+        /* Fall through once the breathing delay has expired. */
+
     case TUNE_STATE_FF_MOVE:
-        /* FF position was set above (new note) or by re-trigger below.
-         * Transition to FF_WAIT — wait for first valid FFT measurement. */
+        /* Compute and issue the new ballistic target, then wait for the
+         * first clean post-burst, post-motion FFT measurement. */
         s->integral_state = 0.0f;
-        s->state = TUNE_STATE_FF_WAIT;
+        s->ff_steps_abs   = feedforward_steps(string_id, target_semi);
+        s->state          = TUNE_STATE_FF_WAIT;
+        ff_command_issued = 1u;
         break;
 
     case TUNE_STATE_FF_WAIT:
-        /* Wait for first valid FFT after the FF move.  The motor is
-         * transiting to the FF position; the first FFT reading tells us
-         * how close we got. */
-        if (measurement_trusted) {
+        /* Wait for the burst-clear window to expire and for CM4 to report
+         * that the motor has stopped before enabling PI. */
+        if (measurement_trusted && !motor_busy) {
             s->state = TUNE_STATE_PI_ACTIVE;
         }
         break;
@@ -367,9 +419,10 @@ void TuningCtrl_Update(uint8_t string_id,
 
         /* Re-trigger feedforward if error is too large */
         if (abs_e > TUNING_FF_LOCK_SEMI) {
-            s->integral_state = 0.0f;
-            s->ff_steps_abs   = feedforward_steps(string_id, target_semi);
-            s->state          = TUNE_STATE_FF_MOVE;
+            s->integral_state                = 0.0f;
+            s->resonance_wait_hops_remaining = 0u;
+            s->fft_clear_wait_hops_remaining = 0u;
+            s->state                         = TUNE_STATE_FF_MOVE;
             break;
         }
 
@@ -429,39 +482,44 @@ void TuningCtrl_Update(uint8_t string_id,
     }
 
     /* ------------------------------------------------------------------ */
-    /* 4. Compute raw commanded position: FF + PI output                    */
+    /* 3. Compute raw commanded position                                     */
     /* ------------------------------------------------------------------ */
+    int32_t last_cmd_steps = s->cmd_steps_abs;
     float raw_cmd = s->ff_steps_abs + pi_delta;
 
-    /* ------------------------------------------------------------------ */
-    /* 5. Minimum move threshold (defeats backlash dither)                   */
-    /* ------------------------------------------------------------------ */
-    float delta_from_prev = raw_cmd - (float)s->prev_cmd_steps_abs;
-    if (fabsf(delta_from_prev) < TUNING_MIN_MOVE_STEPS &&
-        s->state != TUNE_STATE_FF_MOVE) {
-        raw_cmd = (float)s->prev_cmd_steps_abs;
+    if (s->state == TUNE_STATE_IDLE ||
+        s->state == TUNE_STATE_RESONANCE_WAIT) {
+        raw_cmd = (float)last_cmd_steps;
     }
 
     /* ------------------------------------------------------------------ */
-    /* 6. Slew limit                                                        */
+    /* 4. Minimum move threshold (defeats backlash dither)                   */
+    /* ------------------------------------------------------------------ */
+    float delta_from_prev = raw_cmd - (float)last_cmd_steps;
+    if (!ff_command_issued && fabsf(delta_from_prev) < TUNING_MIN_MOVE_STEPS) {
+        raw_cmd = (float)last_cmd_steps;
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* 5. Slew limit                                                        */
     /* ------------------------------------------------------------------ */
     float max_delta = TUNING_MAX_STEP_RATE_SPS * TUNING_SAMPLE_TIME_S;
-    float prev_cmd_f = (float)s->prev_cmd_steps_abs;
+    float prev_cmd_f = (float)last_cmd_steps;
     float delta      = raw_cmd - prev_cmd_f;
     delta            = Clampf(delta, -max_delta, max_delta);
     float slewed_cmd = prev_cmd_f + delta;
 
     /* ------------------------------------------------------------------ */
-    /* 7. Mechanical bounds                                                  */
+    /* 6. Mechanical bounds                                                  */
     /* ------------------------------------------------------------------ */
     slewed_cmd = Clampf(slewed_cmd,
                         (float)TUNING_STEPS_MIN_DEFAULT,
                         (float)TUNING_STEPS_MAX_DEFAULT);
 
     /* ------------------------------------------------------------------ */
-    /* 8. Store final command                                               */
+    /* 7. Store final command                                               */
     /* ------------------------------------------------------------------ */
-    s->prev_cmd_steps_abs = s->cmd_steps_abs;
+    s->prev_cmd_steps_abs = last_cmd_steps;
     s->cmd_steps_abs      = (int32_t)roundf(slewed_cmd);
 
     /* Mirror actual motor position from shared memory */
@@ -473,7 +531,7 @@ void TuningCtrl_Update(uint8_t string_id,
     s->expected_freq_hz = semi_to_freq(string_id, pred_semi);
 
     /* ------------------------------------------------------------------ */
-    /* 9. Stall detection                                                   */
+    /* 8. Stall detection                                                   */
     /* ------------------------------------------------------------------ */
     if (s->state == TUNE_STATE_PI_ACTIVE && measurement_trusted) {
         float freq_delta = fabsf(measured_freq_hz - s->last_valid_freq_hz);
@@ -495,9 +553,21 @@ void TuningCtrl_Update(uint8_t string_id,
     }
 
     /* ------------------------------------------------------------------ */
-    /* 10. Lock edge detection (for chord sync)                             */
+    /* 9. Lock edge detection (for chord sync)                              */
     /* ------------------------------------------------------------------ */
     s->prev_lock_state = s->lock_state;
+
+    /* ------------------------------------------------------------------ */
+    /* 10. Advance per-note wait counters                                   */
+    /* ------------------------------------------------------------------ */
+    if (s->state == TUNE_STATE_RESONANCE_WAIT &&
+        s->resonance_wait_hops_remaining > 0u) {
+        s->resonance_wait_hops_remaining--;
+    }
+
+    if (s->fft_clear_wait_hops_remaining > 0u) {
+        s->fft_clear_wait_hops_remaining--;
+    }
 
     /* ------------------------------------------------------------------ */
     /* 11. Increment hop counter                                            */
@@ -566,19 +636,130 @@ void TuningCtrl_RunHop(void)
     }
 
     /* ------------------------------------------------------------------ */
-    /* Note-change detection (for solenoid fire)                            */
+    /* Note-change detection + note-start ownership                         */
     /* ------------------------------------------------------------------ */
-    float prev_target_semi_1 = s_state[str].prev_target_semi;
-    float new_target_semi_1  = freq_to_semi(str, target);
-    uint8_t new_note_primary = (fabsf(new_target_semi_1 - prev_target_semi_1)
-                                > 0.02f);
-
+    uint8_t new_note_primary   = IsNewNoteTarget(str, target);
     uint8_t new_note_secondary = 0u;
+    uint8_t can_burst_primary  = 0u;
+    uint8_t can_burst_secondary = 0u;
+    uint8_t start_primary      = 0u;
+    uint8_t start_secondary    = 0u;
+    uint8_t burst_fired_primary = 0u;
+    uint8_t burst_fired_secondary = 0u;
+    uint16_t burst_ms_for_start = 0u;
+
     if (chord) {
-        float prev_target_semi_2 = s_state[str2].prev_target_semi;
-        float new_target_semi_2  = freq_to_semi(str2, target2);
-        new_note_secondary = (fabsf(new_target_semi_2 - prev_target_semi_2)
-                              > 0.02f);
+        new_note_secondary = IsNewNoteTarget(str2, target2);
+    }
+
+    can_burst_primary = (new_note_primary && StringCanTriggerSolenoid(str, target));
+    can_burst_secondary = (new_note_secondary &&
+                           StringCanTriggerSolenoid(str2, target2));
+
+    /* ------------------------------------------------------------------ */
+    /* Cold-start burst — deferred for the very first note of the song      */
+    /* Gives CM4 time to process motor-enable before the first burst.       */
+    /* ------------------------------------------------------------------ */
+    if (s_song_first_note && (new_note_primary || new_note_secondary)) {
+        s_song_first_note = 0u;
+        if (can_burst_primary || can_burst_secondary) {
+            s_cold_start_pending = COLD_START_DEFER_HOPS;
+        }
+    }
+
+    if (s_cold_start_pending > 0u) {
+        s_cold_start_pending--;
+
+        if (s_cold_start_pending == 0u) {
+            const SongNote_t *cur = SongSched_GetNoteAt(SongSched_GetNoteIndex());
+            uint16_t burst_ms = (cur && cur->burst_ms > 0u) ? cur->burst_ms : 175u;
+
+            if (chord) {
+                uint8_t sol_mask  = 0u;
+                float   freqs[6] = {0.0f};
+
+                if (can_burst_primary) {
+                    sol_mask |= (1u << str);
+                    freqs[str] = target;
+                    burst_fired_primary = 1u;
+                }
+                if (can_burst_secondary) {
+                    sol_mask |= (1u << str2);
+                    freqs[str2] = target2;
+                    burst_fired_secondary = 1u;
+                }
+                if (sol_mask) {
+                    InterCore_TriggerSolenoidHzBatch(sol_mask, freqs,
+                                                     SOLENOID_DEFAULT_DUTY_CYCLE,
+                                                     SOLENOID_MODE_TIMED, burst_ms);
+                }
+            } else if (can_burst_primary) {
+                InterCore_TriggerSolenoidHz(str, target,
+                                            SOLENOID_DEFAULT_DUTY_CYCLE,
+                                            SOLENOID_MODE_TIMED, burst_ms, 0u);
+                burst_fired_primary = 1u;
+            }
+
+            burst_ms_for_start = burst_ms;
+            start_primary      = new_note_primary;
+            start_secondary    = new_note_secondary;
+
+            printf("[TC] Cold-start burst: %u ms at %.1f Hz (deferred %u hops)\r\n",
+                   (unsigned)burst_ms, (double)target,
+                   (unsigned)COLD_START_DEFER_HOPS);
+        }
+    }
+
+    /* ------------------------------------------------------------------ */
+    /* Solenoid actuation — fire immediately on note change                 */
+    /* Every new note bursts first, then waits one hop before FF starts.    */
+    /* ------------------------------------------------------------------ */
+    if (!s_cold_start_pending && (new_note_primary || new_note_secondary) &&
+        !start_primary && !start_secondary) {
+        const SongNote_t *cur = SongSched_GetNoteAt(SongSched_GetNoteIndex());
+        uint16_t burst_ms = (cur && cur->burst_ms > 0u) ? cur->burst_ms : 72u;
+
+        if (chord) {
+            uint8_t sol_mask  = 0u;
+            float   freqs[6] = {0.0f};
+
+            if (can_burst_primary) {
+                sol_mask |= (1u << str);
+                freqs[str] = target;
+                burst_fired_primary = 1u;
+            }
+            if (can_burst_secondary) {
+                sol_mask |= (1u << str2);
+                freqs[str2] = target2;
+                burst_fired_secondary = 1u;
+            }
+            if (sol_mask) {
+                InterCore_TriggerSolenoidHzBatch(sol_mask, freqs,
+                                                 SOLENOID_DEFAULT_DUTY_CYCLE,
+                                                 SOLENOID_MODE_TIMED, burst_ms);
+                printf("[TC] Chord actuate: %.1f/%.1f Hz burst=%ums\r\n",
+                       (double)target, (double)target2, (unsigned)burst_ms);
+            }
+        } else if (can_burst_primary) {
+            InterCore_TriggerSolenoidHz(str, target,
+                                        SOLENOID_DEFAULT_DUTY_CYCLE,
+                                        SOLENOID_MODE_TIMED, burst_ms, 0u);
+            burst_fired_primary = 1u;
+            printf("[TC] Actuate str%u: %.1f Hz burst=%ums\r\n",
+                   (unsigned)str, (double)target, (unsigned)burst_ms);
+        }
+
+        burst_ms_for_start = burst_ms;
+        start_primary      = new_note_primary;
+        start_secondary    = new_note_secondary;
+    }
+
+    if (start_primary) {
+        StartNoteTransition(str, target, burst_fired_primary, burst_ms_for_start);
+    }
+    if (chord && start_secondary) {
+        StartNoteTransition(str2, target2,
+                            burst_fired_secondary, burst_ms_for_start);
     }
 
     /* ------------------------------------------------------------------ */
@@ -602,91 +783,6 @@ void TuningCtrl_RunHop(void)
         GetFFTRadarLock(str2, s_state[str2].expected_freq_hz, target2,
                         &measured2, &confidence2);
         TuningCtrl_Update(str2, target2, measured2, confidence2);
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* Cold-start burst — deferred for the very first note of the song      */
-    /* Gives CM4 time to process motor-enable before solenoid fires.        */
-    /* ------------------------------------------------------------------ */
-    if (s_song_first_note && (new_note_primary || new_note_secondary)) {
-        s_song_first_note    = 0u;
-        s_cold_start_pending = COLD_START_DEFER_HOPS;
-    }
-
-    if (s_cold_start_pending > 0u) {
-        s_cold_start_pending--;
-
-        if (s_cold_start_pending == 0u) {
-            /* Fire the initial burst */
-            const SongNote_t *cur = SongSched_GetNoteAt(SongSched_GetNoteIndex());
-            uint16_t burst_ms = (cur && cur->burst_ms > 0u) ? cur->burst_ms : 175u;
-
-            if (chord) {
-                uint8_t sol_mask    = 0u;
-                float   freqs[6]   = {0.0f};
-                if (target  >= 40.0f && target  <= 800.0f) {
-                    sol_mask |= (1u << str);  freqs[str]  = target;
-                }
-                if (target2 >= 40.0f && target2 <= 800.0f) {
-                    sol_mask |= (1u << str2); freqs[str2] = target2;
-                }
-                if (sol_mask) {
-                    InterCore_TriggerSolenoidHzBatch(sol_mask, freqs,
-                                                     SOLENOID_DEFAULT_DUTY_CYCLE,
-                                                     SOLENOID_MODE_TIMED, burst_ms);
-                }
-            } else {
-                if (target >= 40.0f && target <= 800.0f) {
-                    InterCore_TriggerSolenoidHz(str, target,
-                                                SOLENOID_DEFAULT_DUTY_CYCLE,
-                                                SOLENOID_MODE_TIMED, burst_ms, 0u);
-                }
-            }
-            printf("[TC] Cold-start burst: %u ms at %.1f Hz (deferred %u hops)\r\n",
-                   (unsigned)burst_ms, (double)target,
-                   (unsigned)COLD_START_DEFER_HOPS);
-        }
-    }
-
-    /* ------------------------------------------------------------------ */
-    /* Solenoid actuation — fire immediately on note change                 */
-    /*                                                                      */
-    /* Every new note gets a solenoid burst at the TARGET frequency.         */
-    /* The burst fires on the same hop as the FF move — motor transits      */
-    /* during the burst.  No BPM-delayed actuation.                         */
-    /* ------------------------------------------------------------------ */
-    if (!s_cold_start_pending) {
-        if (new_note_primary || new_note_secondary) {
-            const SongNote_t *cur = SongSched_GetNoteAt(SongSched_GetNoteIndex());
-            uint16_t burst_ms = (cur && cur->burst_ms > 0u) ? cur->burst_ms : 72u;
-
-            if (chord) {
-                uint8_t sol_mask  = 0u;
-                float   freqs[6] = {0.0f};
-
-                if (new_note_primary && target >= 40.0f && target <= 800.0f) {
-                    sol_mask |= (1u << str);  freqs[str]  = target;
-                }
-                if (new_note_secondary && target2 >= 40.0f && target2 <= 800.0f) {
-                    sol_mask |= (1u << str2); freqs[str2] = target2;
-                }
-                if (sol_mask) {
-                    InterCore_TriggerSolenoidHzBatch(sol_mask, freqs,
-                                                     SOLENOID_DEFAULT_DUTY_CYCLE,
-                                                     SOLENOID_MODE_TIMED, burst_ms);
-                    printf("[TC] Chord actuate: %.1f/%.1f Hz burst=%ums\r\n",
-                           (double)target, (double)target2, (unsigned)burst_ms);
-                }
-            } else if (new_note_primary) {
-                if (target >= 40.0f && target <= 800.0f) {
-                    InterCore_TriggerSolenoidHz(str, target,
-                                                SOLENOID_DEFAULT_DUTY_CYCLE,
-                                                SOLENOID_MODE_TIMED, burst_ms, 0u);
-                    printf("[TC] Actuate str%u: %.1f Hz burst=%ums\r\n",
-                           (unsigned)str, (double)target, (unsigned)burst_ms);
-                }
-            }
-        }
     }
 
     /* ------------------------------------------------------------------ */
@@ -766,6 +862,8 @@ void TuningCtrl_ResetString(uint8_t string_id)
     TuningStringState_t *s = &s_state[string_id];
 
     s->state              = TUNE_STATE_IDLE;
+    s->resonance_wait_hops_remaining = 0u;
+    s->fft_clear_wait_hops_remaining = 0u;
     s->integral_state     = 0.0f;
     s->ff_steps_abs       = 0.0f;
     s->lock_state         = 0u;

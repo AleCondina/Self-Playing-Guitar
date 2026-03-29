@@ -13,12 +13,15 @@
  *  2. Computes a feedforward step command from a per-string quadratic
  *     polynomial in the semitone domain (steps = a·semi² + b·semi + c).
  *  3. Runs a gain-scheduled PI controller in the semitone domain with
- *     anti-windup.  The PI only activates after the first valid FFT
- *     measurement arrives following a feedforward move.
+ *     anti-windup.  On note changes that fire a solenoid, the controller
+ *     inserts a fixed resonance wait before feedforward, then only enables
+ *     PI after the burst-clear window has expired and the motor has stopped.
  *  4. Fires the solenoid immediately on each note change (burst duration
- *     from song data), not on a delayed timer.
+ *     from song data), then lets the string breathe for one hop before FF.
  *
- * State machine: IDLE → FF_MOVE → FF_WAIT → PI_ACTIVE ↔ IN_TUNE
+ * State machine:
+ *   IDLE → RESONANCE_WAIT → FF_MOVE → FF_WAIT → PI_ACTIVE ↔ IN_TUNE
+ *   IDLE → FF_MOVE → FF_WAIT → PI_ACTIVE ↔ IN_TUNE   (no solenoid fired)
  *   - FF_MOVE re-triggers if |error| > FF_LOCK threshold (0.5 semi)
  *   - IN_TUNE monitors for drift back above deadband (5 cents)
  *
@@ -51,6 +54,9 @@ extern "C" {
  */
 #define TUNING_SAMPLE_TIME_S \
     ((float)(FFT_SIZE / 2) / (float)AUDIO_SAMPLE_RATE_HZ)
+
+/** Fixed post-burst breathing time before feedforward starts. */
+#define TUNING_RESONANCE_WAIT_HOPS  1u
 
 /* =========================================================================
  * Semitone-domain control constants (from MATLAB system identification)
@@ -132,11 +138,12 @@ extern float tuning_plant_coeff[NUM_STRINGS][3];    /**< [str][a,b,c] plant */
  * ========================================================================= */
 
 typedef enum {
-    TUNE_STATE_IDLE,       /**< No target, waiting for command               */
-    TUNE_STATE_FF_MOVE,    /**< Feedforward move executing, integrator reset  */
-    TUNE_STATE_FF_WAIT,    /**< Waiting for first valid FFT measurement       */
-    TUNE_STATE_PI_ACTIVE,  /**< PI feedback running, correcting residual      */
-    TUNE_STATE_IN_TUNE     /**< Within deadband, monitoring for drift         */
+    TUNE_STATE_IDLE,            /**< No target, waiting for command            */
+    TUNE_STATE_RESONANCE_WAIT,  /**< Post-burst breathing delay before FF      */
+    TUNE_STATE_FF_MOVE,         /**< Feedforward move executing, integrator reset */
+    TUNE_STATE_FF_WAIT,         /**< Waiting for clean FFT + motor stop        */
+    TUNE_STATE_PI_ACTIVE,       /**< PI feedback running, correcting residual   */
+    TUNE_STATE_IN_TUNE          /**< Within deadband, monitoring for drift      */
 } TuneState_t;
 
 /* =========================================================================
@@ -150,7 +157,9 @@ typedef enum {
 
 typedef struct {
     /* State machine */
-    TuneState_t state;              /**< Current control phase                */
+    TuneState_t state;                       /**< Current control phase          */
+    uint8_t     resonance_wait_hops_remaining; /**< Hops left in post-burst wait */
+    uint8_t     fft_clear_wait_hops_remaining; /**< Hops left before FFT is trusted */
 
     /* Semitone-domain tracking */
     float    target_semi;           /**< Target pitch (semitones from open)   */

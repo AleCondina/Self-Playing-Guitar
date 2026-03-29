@@ -52,14 +52,13 @@
  *   fret 0 = 146.83 Hz   fret 3 = 174.61 Hz
  *   fret 5 = 196.00 Hz   fret 6 = 207.65 Hz
  *
- * Note timing (durations encode the full note lifecycle):
- *   Song0: unchanged from original (1063/1625/1313 ms, fires at 600 ms)
+ * Note timing:
+ *   Song0: scheduler hold times are encoded directly in song0_notes[]
  *   Song1: see per-note comments in song1_notes[] below
  *
- * The solenoid fires once per note at SONG_ACTUATE_DELAY_MS (1200 ms).
- * String carries energy from the previous burst — no re-excitation on
- * note change.  Motor moves via LUT immediately, PI refines, then
- * solenoid fires at the converged pitch.
+ * Each note now follows the live tuning-controller pipeline:
+ * solenoid burst at note onset, one-hop resonance wait, feedforward move,
+ * then PI only after the post-burst FFT window is clean and the motor stops.
  * ========================================================================= */
 
 /* Convenience macros for note entries */
@@ -73,10 +72,10 @@
  * ========================================================================= */
 static const SongNote_t song0_notes[] = {
 
-    /* ── Timing budget per note ──────────────────────────────────────── *
-     *  Note 0 (cold start): 1200ms PI + 300ms burst + rest  = 1363ms   *
-     *  Whole notes:  1200ms PI + 250ms burst + 475ms rest   = 1925ms   *
-     *  Half  notes:  1200ms PI + 125ms burst + 288ms rest   = 1613ms   *
+    /* ── Timing note ─────────────────────────────────────────────────── *
+     *  Durations below are scheduler hold times only. Runtime note flow  *
+     *  is: burst -> 1 hop breathe -> FF -> PI after clean FFT + motor    *
+     *  done. Longer bursts consume more of the available PI window.      *
      * ────────────────────────────────────────────────────────────────── */
 
     /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
@@ -109,11 +108,10 @@ static const SongNote_t song0_notes[] = {
  * ========================================================================= */
 static const SongNote_t song1_notes[] = {
 
-    /* ── Timing budget per note ──────────────────────────────────────── *
-     *  1000ms total: 72 burst, max 520 FF, 340 PI                                         *
-     *  Notes 0,1,3,4,7,8,10: rest=400ms → total=1635ms                      *
-     *  Note 5:               rest=200ms → total=1435ms                      *
-     *  Notes 2,6,9,11:       rest=650ms → total=1885ms                      *
+    /* ── Timing note ─────────────────────────────────────────────────── *
+     *  These durations are scheduler hold times. Runtime note flow is    *
+     *  burst -> 1 hop breathe -> FF -> PI after clean FFT + motor done.  *
+     *  Short notes may stay mostly feedforward-dominant by design.       *
      * ────────────────────────────────────────────────────────────────── */
 
     /* ── Measure 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
