@@ -195,8 +195,9 @@ static inline float Clampf(float v, float lo, float hi)
 /**
  * @brief Look up absolute feed-forward steps for a given target frequency.
  *
- * Performs linear interpolation between the nearest breakpoints.
- * Clips to the first or last breakpoint value if outside the table range.
+ * Performs piecewise-linear interpolation between the nearest measured LUT
+ * breakpoints. Clips to the first or last breakpoint value if outside the
+ * calibrated table range.
  *
  * @param  str  String index 0–5
  * @param  freq Target frequency in Hz
@@ -204,14 +205,38 @@ static inline float Clampf(float v, float lo, float hi)
  */
 static float FF_Interpolate(uint8_t str, float freq)
 {
-    /* Evaluate the calibrated quadratic: steps = a + b·f + c·f²
-     * cal_poly_coeff is seeded at boot from the base LUT (Cal_FitFromBaseLUT)
-     * and updated after each calibration run (Cal_FitPolynomial). */
-    float a     = cal_poly_coeff[str][0];
-    float b     = cal_poly_coeff[str][1];
-    float c     = cal_poly_coeff[str][2];
-    float steps = a + b * freq + c * freq * freq;
-    if (steps < 0.0f) steps = 0.0f;
+    const float *freq_bp  = tuning_ff_freq_bp[str];
+    const float *steps_bp = tuning_ff_steps_bp[str];
+    float steps;
+
+    if (freq <= freq_bp[0]) {
+        steps = steps_bp[0];
+    } else if (freq >= freq_bp[TUNING_FF_NUM_POINTS - 1u]) {
+        steps = steps_bp[TUNING_FF_NUM_POINTS - 1u];
+    } else {
+        uint32_t i;
+        for (i = 0u; i < (TUNING_FF_NUM_POINTS - 1u); i++) {
+            if (freq <= freq_bp[i + 1u]) {
+                float x0 = freq_bp[i];
+                float x1 = freq_bp[i + 1u];
+                float y0 = steps_bp[i];
+                float y1 = steps_bp[i + 1u];
+                float span = x1 - x0;
+
+                if (span <= 1e-6f) {
+                    steps = y0;
+                } else {
+                    float t = (freq - x0) / span;
+                    steps = y0 + t * (y1 - y0);
+                }
+                break;
+            }
+        }
+
+        if (i >= (TUNING_FF_NUM_POINTS - 1u)) {
+            steps = steps_bp[TUNING_FF_NUM_POINTS - 1u];
+        }
+    }
 
     /* Apply tune offset — compensates for string being flat or sharp
      * relative to standard tuning.  Set by the 'tune' command. */
@@ -221,12 +246,12 @@ static float FF_Interpolate(uint8_t str, float freq)
 }
 
 /**
- * @brief Inverse polynomial: given a motor position in microsteps, estimate
- *        the frequency the string should be producing.
+ * @brief Inverse LUT interpolation: given a motor position in microsteps,
+ *        estimate the frequency the string should be producing.
  *
- * Solves:  steps = a + b·f + c·f²  →  c·f² + b·f + (a - steps) = 0
- * Returns the positive root via the quadratic formula, or a linear
- * fallback when c ≈ 0.
+ * Uses the same measured LUT breakpoints as FF_Interpolate(), including the
+ * active tune offset in the step domain, and linearly interpolates the
+ * frequency between the two nearest surrounding step breakpoints.
  *
  * @param  str   String index 0–5
  * @param  steps Current absolute motor position (microsteps)
@@ -234,34 +259,35 @@ static float FF_Interpolate(uint8_t str, float freq)
  */
 static float FF_InverseInterpolate(uint8_t str, float steps)
 {
-    float a = cal_poly_coeff[str][0];
-    float b = cal_poly_coeff[str][1];
-    float c = cal_poly_coeff[str][2];
+    const float *freq_bp  = tuning_ff_freq_bp[str];
+    const float *steps_bp = tuning_ff_steps_bp[str];
+    float offset = (float)Cal_TuneGetOffset(str);
 
-    /* Open-string frequency is the minimum possible */
-    float f_open = tuning_ff_freq_bp[str][0];
-
-    if (fabsf(c) < 1e-9f) {
-        /* Linear: steps = a + b·f  →  f = (steps - a) / b */
-        if (fabsf(b) < 1e-9f) return f_open;
-        float f = (steps - a) / b;
-        return (f > f_open) ? f : f_open;
+    if (steps <= (steps_bp[0] + offset)) {
+        return freq_bp[0];
+    }
+    if (steps >= (steps_bp[TUNING_FF_NUM_POINTS - 1u] + offset)) {
+        return freq_bp[TUNING_FF_NUM_POINTS - 1u];
     }
 
-    /* Quadratic: c·f² + b·f + (a - steps) = 0 */
-    float disc = b * b - 4.0f * c * (a - steps);
-    if (disc < 0.0f) return f_open;
+    for (uint32_t i = 0u; i < (TUNING_FF_NUM_POINTS - 1u); i++) {
+        float x0 = steps_bp[i] + offset;
+        float x1 = steps_bp[i + 1u] + offset;
+        float y0 = freq_bp[i];
+        float y1 = freq_bp[i + 1u];
 
-    float sqrt_disc = sqrtf(disc);
-    /* Take the root that gives a positive, physically meaningful frequency */
-    float f1 = (-b + sqrt_disc) / (2.0f * c);
-    float f2 = (-b - sqrt_disc) / (2.0f * c);
+        if (steps <= x1) {
+            float span = x1 - x0;
+            if (fabsf(span) <= 1e-6f) {
+                return y0;
+            }
 
-    /* Pick the root closest to the open-string range */
-    float f = (f1 >= f_open) ? f1 : f2;
-    if (f < f_open) f = f_open;
+            float t = (steps - x0) / span;
+            return y0 + t * (y1 - y0);
+        }
+    }
 
-    return f;
+    return freq_bp[TUNING_FF_NUM_POINTS - 1u];
 }
 
 /* =========================================================================
