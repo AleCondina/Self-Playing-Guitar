@@ -98,13 +98,22 @@
  * Calibration parameters
  * ========================================================================= */
 
-/** Number of frets measured per string (open=0 is the anchor; we measure 1–7). */
+/** Size of the open-to-fret7 equal-temperament tables below. */
 #define CAL_NUM_FRETS               8u
+
+/** Number of whole-semitone measurement iterations in the fret loop.
+ *  idx 0 = +1 st, idx 1 = +2 st, …, idx 5 = +6 st.
+ *  The open-string anchor (0 st) and −1-fret point are recorded separately. */
+#define CAL_NUM_TARGETS             6u
+
+/** Hops to wait after FFT re-enable before recording measurement.
+ *  Lets the string vibration stabilise after motor arrival. */
+#define CAL_SETTLE_HOPS             4u
 
 /** Motor max speed (steps/sec) during the inter-fret transit.
  *  At 3000 steps/sec a 1600-step move takes ≈ 533 ms — well within the
  *  1360 ms burst+wait window before the PI starts. */
-#define CAL_MOTOR_SPEED_FAST        3000
+#define CAL_MOTOR_SPEED_FAST        5000
 
 /** Hops to wait after homing before listening for the initial pluck. */
 #define CAL_HOME_SETTLE_HOPS        6u
@@ -137,7 +146,7 @@
 #define CAL_PLUCK_VOTE_BAND_HZ      5.0f
 
 /** Primary solenoid burst duration (ms): 1 s gives long ring energy. */
-#define CAL_SOL_DURATION_MS         1000u
+#define CAL_SOL_DURATION_MS         500u
 
 /** Re-excite burst duration (ms): shorter, just enough to restart ring. */
 #define CAL_REEXCITE_DURATION_MS    300u
@@ -151,14 +160,16 @@
 #define CAL_BURST_WAIT_HOPS         8u
 
 /** Hops to wait after re-excite burst before re-enabling FFT.
- *  = ceil((300 + 341) / 170) = 4. */
-#define CAL_REEXCITE_WAIT_HOPS      4u
+ *  ceil((300 + 341) / 170) = 4 is the theoretical minimum but leaves
+ *  no settle margin — the first FFT window still contains solenoid
+ *  energy.  Add 2 extra hops so the string rings freely before PI reads. */
+#define CAL_REEXCITE_WAIT_HOPS      6u
 
 /** PI proportional gain (microsteps / Hz). */
-#define CAL_PI_KP                   3.0f
+#define CAL_PI_KP                   75.0f
 
 /** PI integral gain (microsteps / Hz / s). */
-#define CAL_PI_KI                   1.5f
+#define CAL_PI_KI                   40.0f
 
 /** Maximum PI trim authority (±microsteps). */
 #define CAL_PI_MAX_TRIM             600.0f
@@ -173,7 +184,7 @@
 #define CAL_LOCK_CONSEC_HOPS        2u
 
 /** Max re-excite retries per fret before accepting a best-estimate recording. */
-#define CAL_MAX_RETRIES             3u
+#define CAL_MAX_RETRIES             5u
 
 /** Max re-excite retries during HOME_PI_LOCK. */
 #define CAL_HOME_MAX_RETRIES        5u
@@ -198,8 +209,11 @@
 /** Motor-position error (steps) that triggers a stall warning. */
 #define CAL_STALL_WARN_STEPS        250
 
-/** Sample buffer capacity.  7 fret measurements + headroom. */
-#define CAL_MAX_SAMPLES             8u
+/** Sample buffer capacity.  1 open + 1 neg + 12 fret recordings + headroom. */
+#define CAL_MAX_SAMPLES             10u
+
+/** Equal-temperament ratio for one semitone. */
+#define CAL_ONE_SEMITONE_RATIO      1.0594631f
 
 /** Minimum valid samples required to build the LUT. */
 #define CAL_MIN_SAMPLES             ((uint16_t)TUNING_FF_NUM_POINTS)
@@ -229,11 +243,6 @@ static const int32_t s_cal_steps_max[NUM_STRINGS] = {
     2200,  /* E4 — placeholder (motor unconfigured) */
 };
 
-/**
- * Theoretical equal-temperament fret frequencies [string][fret 0..7].
- * Derived from the named Hz constants in application_config.h — identical
- * to the values used by the CM4 solenoid controller's ARR table.
- */
 static const float cal_theoretical_freq[NUM_TUNINGS][NUM_STRINGS][CAL_NUM_FRETS] = {
     [TUNING_STANDARD] = {
         /* String 0: E2  frets 0-7 */
@@ -276,6 +285,21 @@ static const float cal_theoretical_freq[NUM_TUNINGS][NUM_STRINGS][CAL_NUM_FRETS]
 /* Forward declaration: calibration invalidates tune offsets for reworked strings. */
 static uint8_t Tune_ClearOffsetsMask(uint8_t string_mask);
 
+static inline float Cal_OpenFreq(uint8_t str)
+{
+    return s_open_freq[TuningCtrl_GetActiveTuning()][str];
+}
+
+static inline float Cal_TargetFreq(uint8_t str, uint8_t idx)
+{
+    return cal_theoretical_freq[TuningCtrl_GetActiveTuning()][str][idx + 1u];
+}
+
+static inline float Cal_NegTargetFreq(uint8_t str)
+{
+    return Cal_OpenFreq(str) / CAL_ONE_SEMITONE_RATIO;
+}
+
 /* =========================================================================
  * Persistent storage layout
  * ========================================================================= */
@@ -287,6 +311,9 @@ typedef struct {
     float    poly_a  [NUM_STRINGS];
     float    poly_b  [NUM_STRINGS];
     float    poly_c  [NUM_STRINGS];
+    /* Semitone-domain coefficients (added for v2 controller) */
+    float    semi_ff  [NUM_STRINGS][3];   /**< tuning_ff_semi_coeff[str][a,b,c] */
+    float    semi_plant[NUM_STRINGS][3];  /**< tuning_plant_coeff[str][a,b,c]   */
     uint32_t checksum;
 } __attribute__((packed)) CalPersist_t;
 
@@ -307,7 +334,11 @@ typedef enum {
     CAL_PHASE_OPEN_SOL_BURST, /**< Fire solenoid at nominal open freq        */
     CAL_PHASE_OPEN_BURST_REENABLE, /**< Restore FFT for open lock            */
     CAL_PHASE_OPEN_PI_LOCK,   /**< PI targets open freq, finds true pos 0    */
-    CAL_PHASE_OPEN_DONE,      /**< Record offset, proceed to fret cal        */
+    CAL_PHASE_OPEN_DONE,      /**< Record offset, proceed to −1 fret         */
+    CAL_PHASE_NEG_SOL_BURST,  /**< Fire solenoid, move motor negative        */
+    CAL_PHASE_NEG_BURST_REENABLE, /**< Restore FFT after neg burst           */
+    CAL_PHASE_NEG_PI_LOCK,    /**< PI locks to 1 semitone below open         */
+    CAL_PHASE_NEG_RECORD,     /**< Record (−steps, freq) into s_buf          */
     CAL_PHASE_WAIT,           /**< Generic hop-count wait                    */
     CAL_PHASE_SOL_BURST,      /**< Fire solenoid + start motor transit       */
     CAL_PHASE_BURST_REENABLE, /**< Restore FFT, reset PI                     */
@@ -334,10 +365,9 @@ static uint8_t     s_str               = 0u;
 static uint8_t     s_string_mask       = 0x0Fu;
 
 /* Per-fret state
- * s_fret is the measurement TARGET (1..CAL_NUM_FRETS-1).
- * The solenoid fires at fret (s_fret-1) to excite the string,
- * and the motor moves to s_fret's LUT position. */
-static uint8_t     s_fret              = 1u;
+ * s_fret is the fret-loop measurement index (0..5, mapping to +1..+6 st).
+ * idx 0 = −0.5 st, idx 1 = 0.0 st (skip record), idx 2..13 = +0.5..+6.0 st. */
+static uint8_t     s_fret              = 0u;
 static int32_t     s_steps_expected    = 0;   /* LUT target steps for s_fret */
 
 /* Burst control */
@@ -499,7 +529,14 @@ static void Cal_EnableBkpSRAM(void){
  * frequency range using nearest-neighbour selection.
  */
 static void Cal_BuildTable(uint8_t str){
-    float open_f = s_open_freq[TuningCtrl_GetActiveTuning()][str];
+    float open_f = Cal_OpenFreq(str);
+    float open_steps = 0.0f;
+
+    if (s_buf_n > 0u && fabsf(s_buf[0].steps) <= 1.0f) {
+        /* Prefer the measured open-string anchor when this run captured it. */
+        open_f     = s_buf[0].freq;
+        open_steps = s_buf[0].steps;
+    }
 
     if (s_buf_n < CAL_MIN_SAMPLES) {
         printf("[CAL] str%u WARN: only %u samples — LUT unchanged\r\n",
@@ -520,8 +557,9 @@ static void Cal_BuildTable(uint8_t str){
 
         if (bp == 0u) {
             tuning_ff_freq_bp [str][0] = open_f;
-            tuning_ff_steps_bp[str][0] = 0.0f;
-            printf("[CAL-LUT] %u, 0, %.2f, 0\r\n", (unsigned)str, (double)open_f);
+            tuning_ff_steps_bp[str][0] = open_steps;
+            printf("[CAL-LUT] %u, 0, %.2f, %.0f\r\n",
+                   (unsigned)str, (double)open_f, (double)open_steps);
             continue;
         }
 
@@ -616,6 +654,138 @@ static void Cal_FitPolynomial(uint8_t str){
            (double)coeff[0], (double)coeff[1], (double)coeff[2]);
 }
 
+/**
+ * @brief Fit semitone-domain polynomials from s_buf[] data.
+ *
+ * Converts (steps, freq) → (steps, semi) using freq_to_semi, then fits:
+ *   Feedforward: steps = a·semi² + b·semi + c   (tuning_ff_semi_coeff)
+ *   Plant model: semi  = a·steps² + b·steps + c (tuning_plant_coeff)
+ *
+ * Uses the same Gaussian elimination approach as Cal_FitPolynomial.
+ */
+static void Cal_FitSemiPolynomial(uint8_t str)
+{
+    if (s_buf_n < 3u) {
+        printf("[CAL-SEMI] str%u: too few samples for semitone fit\r\n",
+               (unsigned)str);
+        return;
+    }
+
+    float open_f = Cal_OpenFreq(str);
+
+    /* --- Feedforward fit: steps = a·semi² + b·semi + c --- */
+    {
+        double S0=0, S1=0, S2=0, S3=0, S4=0, T0=0, T1=0, T2=0;
+
+        for (uint16_t i = 0u; i < s_buf_n; i++) {
+            double semi = 12.0 * log2((double)s_buf[i].freq / (double)open_f);
+            double y    = (double)s_buf[i].steps;
+            double x2   = semi * semi;
+            S0 += 1.0;   S1 += semi;     S2 += x2;
+            S3 += x2*semi; S4 += x2*x2;
+            T0 += y;     T1 += semi*y;   T2 += x2*y;
+        }
+
+        double A[3][4] = {
+            { S0, S1, S2, T0 },
+            { S1, S2, S3, T1 },
+            { S2, S3, S4, T2 }
+        };
+
+        uint8_t ok = 1u;
+        for (int piv = 0; piv < 3; piv++) {
+            int maxRow = piv;
+            for (int r = piv + 1; r < 3; r++) {
+                if (fabs(A[r][piv]) > fabs(A[maxRow][piv])) maxRow = r;
+            }
+            for (int c = 0; c < 4; c++) {
+                double tmp = A[piv][c]; A[piv][c] = A[maxRow][c]; A[maxRow][c] = tmp;
+            }
+            if (fabs(A[piv][piv]) < 1e-12) { ok = 0u; break; }
+            for (int r = piv + 1; r < 3; r++) {
+                double factor = A[r][piv] / A[piv][piv];
+                for (int c = piv; c < 4; c++) A[r][c] -= factor * A[piv][c];
+            }
+        }
+
+        if (ok) {
+            double coeff[3];
+            for (int i = 2; i >= 0; i--) {
+                coeff[i] = A[i][3];
+                for (int j = i + 1; j < 3; j++) coeff[i] -= A[i][j] * coeff[j];
+                coeff[i] /= A[i][i];
+            }
+            /* Solver yields coeff[0]=const, [1]=linear, [2]=quadratic.
+             * Downstream uses c[0]*x² + c[1]*x + c[2], so swap order. */
+            tuning_ff_semi_coeff[str][0] = (float)coeff[2];  /* a (semi²) */
+            tuning_ff_semi_coeff[str][1] = (float)coeff[1];  /* b (semi)  */
+            tuning_ff_semi_coeff[str][2] = (float)coeff[0];  /* c (const) */
+
+            printf("[CAL-SEMI-FF] str%u: steps = %.4f·s² + %.3f·s + %.3f\r\n",
+                   (unsigned)str, coeff[2], coeff[1], coeff[0]);
+        } else {
+            printf("[CAL-SEMI-FF] str%u: singular — keeping existing\r\n",
+                   (unsigned)str);
+        }
+    }
+
+    /* --- Plant model fit: semi = a·steps² + b·steps + c --- */
+    {
+        double S0=0, S1=0, S2=0, S3=0, S4=0, T0=0, T1=0, T2=0;
+
+        for (uint16_t i = 0u; i < s_buf_n; i++) {
+            double x    = (double)s_buf[i].steps;
+            double semi = 12.0 * log2((double)s_buf[i].freq / (double)open_f);
+            double x2   = x * x;
+            S0 += 1.0;   S1 += x;      S2 += x2;
+            S3 += x2*x;  S4 += x2*x2;
+            T0 += semi;  T1 += x*semi;  T2 += x2*semi;
+        }
+
+        double A[3][4] = {
+            { S0, S1, S2, T0 },
+            { S1, S2, S3, T1 },
+            { S2, S3, S4, T2 }
+        };
+
+        uint8_t ok = 1u;
+        for (int piv = 0; piv < 3; piv++) {
+            int maxRow = piv;
+            for (int r = piv + 1; r < 3; r++) {
+                if (fabs(A[r][piv]) > fabs(A[maxRow][piv])) maxRow = r;
+            }
+            for (int c = 0; c < 4; c++) {
+                double tmp = A[piv][c]; A[piv][c] = A[maxRow][c]; A[maxRow][c] = tmp;
+            }
+            if (fabs(A[piv][piv]) < 1e-12) { ok = 0u; break; }
+            for (int r = piv + 1; r < 3; r++) {
+                double factor = A[r][piv] / A[piv][piv];
+                for (int c = piv; c < 4; c++) A[r][c] -= factor * A[piv][c];
+            }
+        }
+
+        if (ok) {
+            double coeff[3];
+            for (int i = 2; i >= 0; i--) {
+                coeff[i] = A[i][3];
+                for (int j = i + 1; j < 3; j++) coeff[i] -= A[i][j] * coeff[j];
+                coeff[i] /= A[i][i];
+            }
+            /* Same swap: solver [0]=const, [1]=linear, [2]=quadratic
+             * → storage [0]=quadratic, [1]=linear, [2]=const. */
+            tuning_plant_coeff[str][0] = (float)coeff[2];  /* a (steps²) */
+            tuning_plant_coeff[str][1] = (float)coeff[1];  /* b (steps)  */
+            tuning_plant_coeff[str][2] = (float)coeff[0];  /* c (const)  */
+
+            printf("[CAL-SEMI-PLANT] str%u: semi = %.4e·s² + %.4e·s + %.4f\r\n",
+                   (unsigned)str, coeff[2], coeff[1], coeff[0]);
+        } else {
+            printf("[CAL-SEMI-PLANT] str%u: singular — keeping existing\r\n",
+                   (unsigned)str);
+        }
+    }
+}
+
 /* =========================================================================
  * Persistent storage
  * ========================================================================= */
@@ -634,12 +804,24 @@ static void Cal_SaveToSRAM(void){
         p->poly_b[i] = cal_poly_coeff[i][1];
         p->poly_c[i] = cal_poly_coeff[i][2];
     }
-    __DSB(); /* Flush written data to SRAM */
-    p->checksum = CalChecksum(p);
-    __DSB(); /* Flush checksum write */
 
-    printf("[CAL] Saved to backup SRAM (0x%08lX, %u bytes)\r\n",
-           (unsigned long)CAL_BKPSRAM_BASE, (unsigned)sizeof(CalPersist_t));
+    /* Semitone-domain coefficients */
+    memcpy(p->semi_ff,    tuning_ff_semi_coeff, sizeof(tuning_ff_semi_coeff));
+    memcpy(p->semi_plant, tuning_plant_coeff,   sizeof(tuning_plant_coeff));
+
+    __DSB();
+    p->checksum = CalChecksum(p);
+    __DSB();
+
+    /* Verify immediately after write */
+    uint32_t verify = CalChecksum(p);
+    if (verify != p->checksum) {
+        printf("[CAL] VERIFY FAIL: wrote 0x%08lX, read-back 0x%08lX\r\n",
+               (unsigned long)p->checksum, (unsigned long)verify);
+    } else {
+        printf("[CAL] Saved & verified in backup SRAM (0x%08lX, %u bytes)\r\n",
+               (unsigned long)CAL_BKPSRAM_BASE, (unsigned)sizeof(CalPersist_t));
+    }
 }
 
 uint8_t Cal_LoadFromSRAM(void){
@@ -657,6 +839,14 @@ uint8_t Cal_LoadFromSRAM(void){
     if (p->checksum != expected) {
         printf("[CAL] Checksum mismatch (got 0x%08lX expected 0x%08lX) — ignored\r\n",
                (unsigned long)p->checksum, (unsigned long)expected);
+
+        /* Dump raw words to find which one is corrupted */
+        const uint32_t *w = (const uint32_t *)p;
+        uint32_t nwords = sizeof(CalPersist_t) / sizeof(uint32_t);
+        for (uint32_t i = 0u; i < nwords; i++) {
+            printf("  w[%lu]=0x%08lX\r\n", (unsigned long)i, (unsigned long)w[i]);
+        }
+
         return 0u;
     }
 
@@ -667,6 +857,26 @@ uint8_t Cal_LoadFromSRAM(void){
         cal_poly_coeff[i][0] = p->poly_a[i];
         cal_poly_coeff[i][1] = p->poly_b[i];
         cal_poly_coeff[i][2] = p->poly_c[i];
+    }
+
+    /* Semitone-domain coefficients — check for non-zero to detect old SRAM
+     * layouts that don't have these fields (they'd read as all-zero). */
+    {
+        uint8_t has_semi = 0u;
+        for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
+            if (p->semi_ff[i][0] != 0.0f || p->semi_ff[i][1] != 0.0f ||
+                p->semi_ff[i][2] != 0.0f) {
+                has_semi = 1u;
+                break;
+            }
+        }
+        if (has_semi) {
+            memcpy(tuning_ff_semi_coeff, p->semi_ff,    sizeof(tuning_ff_semi_coeff));
+            memcpy(tuning_plant_coeff,   p->semi_plant, sizeof(tuning_plant_coeff));
+            printf("[CAL] Semitone-domain coefficients restored.\r\n");
+        } else {
+            printf("[CAL] No semitone coefficients in SRAM — using defaults.\r\n");
+        }
     }
 
     printf("[CAL] Calibration restored from backup SRAM.\r\n");
@@ -693,6 +903,12 @@ void Cal_FitFromBaseLUT(void){
             s_buf[i].steps = tuning_ff_steps_bp[str][i];
         }
         Cal_FitPolynomial(str);
+
+        /* Seed semitone-domain coefficients from the base LUT too,
+         * but skip string 0 (E2) which has MATLAB-derived values. */
+        if (str != 0u) {
+            Cal_FitSemiPolynomial(str);
+        }
     }
     s_buf_n = 0u;
 }
@@ -716,7 +932,7 @@ void Cal_Start(uint8_t string_mask){
     }
 
     s_buf_n         = 0u;
-    s_fret          = 1u;
+    s_fret          = 0u;
     s_retry_cnt     = 0u;
     s_is_reexciting = 0u;
     s_phase         = CAL_PHASE_STR_INIT;
@@ -760,7 +976,7 @@ void Cal_Hop(void){
         InterCore_SendMotorEnableMask(1u << s_str);
         InterCore_SendMotorMaxSpeed(s_str, CAL_MOTOR_SPEED_FAST);
 
-        s_fret               = 1u;
+        s_fret               = 0u;
         s_buf_n              = 0u;
         s_retry_cnt          = 0u;
         s_is_reexciting      = 0u;
@@ -783,9 +999,9 @@ void Cal_Hop(void){
         s_pi_no_sig_cnt      = 0u;
         s_open_position_offset = 0;
 
-        printf("[CAL] -- String %u (%.2f Hz) | fret7 target %.2f Hz\r\n",
+        printf("[CAL] -- String %u (%.2f Hz) | -1 to +6 semitones, top target %.2f Hz\r\n",
                (unsigned)s_str,
-               (double)s_open_freq[TuningCtrl_GetActiveTuning()][s_str],
+               (double)Cal_OpenFreq(s_str),
                (double)cal_theoretical_freq[TuningCtrl_GetActiveTuning()][s_str][7u]);
         printf("[CAL] >>> Pluck string %u now (any fret is fine)!\r\n",
                (unsigned)s_str);
@@ -824,8 +1040,8 @@ void Cal_Hop(void){
          * Magnitude threshold rejects broadband noise.
          * active_frequencies[] is magnitude-sorted descending, so the first
          * qualifying entry is always the strongest peak in the window.        */
-        float lo = s_open_freq[TuningCtrl_GetActiveTuning()][s_str] * 0.70f;
-        float hi = s_open_freq[TuningCtrl_GetActiveTuning()][s_str] * 1.80f;
+        float lo = Cal_OpenFreq(s_str) * 0.70f;
+        float hi = Cal_OpenFreq(s_str) * 1.80f;
 
         float this_freq = 0.0f;
         for (uint8_t j = 0u; j < active_string_count; j++) {
@@ -872,7 +1088,7 @@ void Cal_Hop(void){
 
             if (done) {
                 s_open_detected_freq = Cal_PluckConsensus(s_pluck_buf, s_pluck_buf_n,
-                                                           s_open_freq[TuningCtrl_GetActiveTuning()][s_str]);
+                                                           Cal_OpenFreq(s_str));
                 s_pluck_detected = 1u;
                 printf("[CAL] str%u: consensus %.2f Hz (%u/%u readings)\r\n",
                        (unsigned)s_str, (double)s_open_detected_freq,
@@ -894,8 +1110,8 @@ void Cal_Hop(void){
                 float _c = cal_poly_coeff[s_str][2];
                 float _detected_steps = _a + _b * s_open_detected_freq
                                         + _c * s_open_detected_freq * s_open_detected_freq;
-                float _open_steps     = _a + _b * s_open_freq[TuningCtrl_GetActiveTuning()][s_str]
-                                        + _c * s_open_freq[TuningCtrl_GetActiveTuning()][s_str]   * s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
+                float _open_steps     = _a + _b * Cal_OpenFreq(s_str)
+                                        + _c * Cal_OpenFreq(s_str) * Cal_OpenFreq(s_str);
                 float _delta = _open_steps - _detected_steps;
                 int32_t cur_pos = g_shared_memory.current_positions[s_str];
                 s_open_homing_target = (int32_t)CalClampf(
@@ -918,7 +1134,7 @@ void Cal_Hop(void){
         if (s_pluck_timeout_cnt >= CAL_PLUCK_TIMEOUT) {
             if (s_pluck_buf_n > 0u) {
                 s_open_detected_freq = Cal_PluckConsensus(s_pluck_buf, s_pluck_buf_n,
-                                                           s_open_freq[TuningCtrl_GetActiveTuning()][s_str]);
+                                                           Cal_OpenFreq(s_str));
                 printf("[CAL] str%u: timeout — partial consensus %.2f Hz (%u readings)\r\n",
                        (unsigned)s_str, (double)s_open_detected_freq,
                        (unsigned)s_pluck_buf_n);
@@ -927,8 +1143,8 @@ void Cal_Hop(void){
                 float _c = cal_poly_coeff[s_str][2];
                 float _detected_steps = _a + _b * s_open_detected_freq
                                         + _c * s_open_detected_freq * s_open_detected_freq;
-                float _open_steps     = _a + _b * s_open_freq[TuningCtrl_GetActiveTuning()][s_str]
-                                        + _c * s_open_freq[TuningCtrl_GetActiveTuning()][s_str]   * s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
+                float _open_steps     = _a + _b * Cal_OpenFreq(s_str)
+                                        + _c * Cal_OpenFreq(s_str) * Cal_OpenFreq(s_str);
                 float _delta = _open_steps - _detected_steps;
                 int32_t cur_pos = g_shared_memory.current_positions[s_str];
                 s_open_homing_target = (int32_t)CalClampf(
@@ -985,7 +1201,7 @@ void Cal_Hop(void){
      * ------------------------------------------------------------------ */
     case CAL_PHASE_OPEN_SOL_BURST:
     {
-        s_burst_freq = s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
+        s_burst_freq = Cal_OpenFreq(s_str);
 
         printf("[CAL] str%u: open-freq burst %.2f Hz — finding true open position\r\n",
                (unsigned)s_str, (double)s_burst_freq);
@@ -1046,7 +1262,7 @@ void Cal_Hop(void){
      * ------------------------------------------------------------------ */
     case CAL_PHASE_OPEN_PI_LOCK:
     {
-        float target_freq = s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
+        float target_freq = Cal_OpenFreq(s_str);
         float search_band = target_freq * 0.15f;
 
         float meas_f = 0.0f;
@@ -1141,7 +1357,6 @@ void Cal_Hop(void){
                                                     0u);
                     }
                     InterCore_SendMotorGoto(s_str, s_pi_cmd_steps);
-                    s_pi_integral    = 0.0f;
                     s_pi_hop_cnt     = 0u;
                     s_pi_lock_consec = 0u;
                     s_pi_no_sig_cnt  = 0u;
@@ -1182,7 +1397,6 @@ void Cal_Hop(void){
                                                 0u);
                 }
                 InterCore_SendMotorGoto(s_str, s_pi_cmd_steps);
-                s_pi_integral    = 0.0f;
                 s_pi_hop_cnt     = 0u;
                 s_pi_lock_consec = 0u;
                 s_pi_no_sig_cnt  = 0u;
@@ -1215,11 +1429,278 @@ void Cal_Hop(void){
         InterCore_SendMotorZero(s_str);
         s_open_position_offset = 0;   /* offset is 0 — we re-zeroed */
 
+        /* Record the MEASURED open-string point as s_buf[0].
+         * Uses the actual FFT-measured frequency so the polynomial is
+         * fitted through the real open-string resonance, not the nominal.
+         * If no signal was ever detected, skip — don't record bogus data. */
+        if (s_last_valid_freq > 0.0f) {
+            s_buf[0].steps = 0.0f;
+            s_buf[0].freq  = s_last_valid_freq;
+            s_buf_n = 1u;
+            printf("[CAL] %u, 0, %.2f (open measured)\r\n",
+                   (unsigned)s_str, (double)s_last_valid_freq);
+        } else {
+            s_buf_n = 0u;
+            printf("[CAL] %u, 0, -- (open SKIP, no signal)\r\n",
+                   (unsigned)s_str);
+        }
+
         /* Reset state for fret calibration */
         s_retry_cnt     = 0u;
         s_is_reexciting = 0u;
 
-        /* Proceed to fret 1 calibration */
+        /* Proceed to −1 fret measurement */
+        s_phase = CAL_PHASE_NEG_SOL_BURST;
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * NEG_SOL_BURST: fire solenoid and move motor to negative position
+     * (below open string) to sample a −1-semitone data point.
+     * ------------------------------------------------------------------ */
+    case CAL_PHASE_NEG_SOL_BURST:
+    {
+        /* Target frequency: 1 semitone below open (f_open / 2^(1/12)) */
+        float neg_target = Cal_NegTargetFreq(s_str);
+
+        /* Estimate motor position from polynomial; clamp to [MIN, 0] */
+        float _a = cal_poly_coeff[s_str][0];
+        float _b = cal_poly_coeff[s_str][1];
+        float _c = cal_poly_coeff[s_str][2];
+        float _poly = _a + _b * neg_target + _c * neg_target * neg_target;
+        if (_poly > 0.0f) _poly = -300.0f;   /* fallback: −300 steps */
+        s_steps_expected = (int32_t)CalClampf(_poly,
+                                              (float)TUNING_STEPS_MIN_DEFAULT, 0.0f);
+
+        printf("[CAL] str%u neg | burst %.2f Hz, motor → %ld steps\r\n",
+               (unsigned)s_str, (double)s_buf[0].freq,
+               (long)s_steps_expected);
+
+        /* Fire solenoid at measured open freq (closest resonance) */
+        s_burst_freq = s_buf[0].freq;
+
+        InterCore_SendMotorMaxSpeed(s_str, CAL_MOTOR_SPEED_FAST);
+        InterCore_SendMotorGoto(s_str, s_steps_expected);
+
+        fft_sensing_enabled = 0u;
+
+        if (s_burst_freq >= 40.0f && s_burst_freq <= 800.0f) {
+            InterCore_TriggerSolenoidHz(s_str,
+                                        s_burst_freq,
+                                        CAL_SOLENOID_DUTY,
+                                        SOLENOID_MODE_TIMED,
+                                        (uint16_t)CAL_SOL_DURATION_MS,
+                                        0u);
+        }
+
+        /* Reset PI for the upcoming NEG_PI_LOCK */
+        s_pi_integral    = 0.0f;
+        s_pi_cmd_steps   = s_steps_expected;
+        s_pi_hop_cnt     = 0u;
+        s_pi_lock_consec = 0u;
+        s_pi_no_sig_cnt  = 0u;
+        s_last_valid_freq = 0.0f;
+        s_retry_cnt      = 0u;
+        s_is_reexciting  = 0u;
+
+        WaitThen(CAL_BURST_WAIT_HOPS, CAL_PHASE_NEG_BURST_REENABLE);
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * NEG_BURST_REENABLE: restore FFT, transition to NEG_PI_LOCK
+     * ------------------------------------------------------------------ */
+    case CAL_PHASE_NEG_BURST_REENABLE:
+    {
+        fft_sensing_enabled = 1u;
+        s_phase = CAL_PHASE_NEG_PI_LOCK;
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * NEG_PI_LOCK: PI fine-tunes motor to 1 semitone below open.
+     * Same logic as CAL_PHASE_PI_LOCK but targeting the −1-semitone
+     * frequency and clamping motor position to [MIN, 0].
+     * ------------------------------------------------------------------ */
+    case CAL_PHASE_NEG_PI_LOCK:
+    {
+        float target_freq = Cal_NegTargetFreq(s_str);
+        float search_band = target_freq * 0.15f;
+
+        float meas_f = 0.0f;
+        if (s_last_valid_freq > 0.0f) {
+            CalGetFreq(s_last_valid_freq, CAL_TRACK_BAND_HZ, &meas_f);
+            if (meas_f == 0.0f) {
+                CalGetFreq(target_freq, search_band, &meas_f);
+            }
+        } else {
+            CalGetFreq(target_freq, search_band, &meas_f);
+        }
+
+        if (meas_f > 0.0f) {
+            s_last_valid_freq = meas_f;
+            s_pi_no_sig_cnt   = 0u;
+
+            float error = target_freq - meas_f;
+
+            if (fabsf(error) > CAL_LOCK_BAND_HZ) {
+                s_pi_integral = CalClampf(
+                    s_pi_integral + CAL_PI_KI * error * TUNING_SAMPLE_TIME_S,
+                    -CAL_PI_MAX_TRIM, CAL_PI_MAX_TRIM);
+
+                float trim = CalClampf(CAL_PI_KP * error + s_pi_integral,
+                                       -CAL_PI_MAX_TRIM, CAL_PI_MAX_TRIM);
+                int32_t cmd = (int32_t)CalClampf(
+                    (float)s_steps_expected + trim,
+                    (float)TUNING_STEPS_MIN_DEFAULT, 0.0f);
+
+                int32_t delta = cmd - s_pi_cmd_steps;
+                if ((delta < 0 ? -delta : delta) >= (int32_t)TUNING_MIN_MOVE_STEPS) {
+                    s_pi_cmd_steps = cmd;
+                    InterCore_SendMotorGoto(s_str, s_pi_cmd_steps);
+                }
+                s_pi_lock_consec = 0u;
+            } else {
+                s_pi_lock_consec++;
+            }
+
+            if (s_pi_lock_consec >= CAL_LOCK_CONSEC_HOPS) {
+                printf("[CAL] str%u neg: LOCKED %.2f Hz (err %.3f Hz)\r\n",
+                       (unsigned)s_str, (double)meas_f,
+                       (double)(target_freq - meas_f));
+                s_phase = CAL_PHASE_NEG_RECORD;
+                break;
+            }
+        } else {
+            s_pi_no_sig_cnt++;
+
+            if (s_pi_no_sig_cnt >= CAL_DEAD_HOPS) {
+                s_retry_cnt++;
+                if (s_retry_cnt < CAL_MAX_RETRIES) {
+                    s_burst_freq = (s_last_valid_freq > 0.0f)
+                                   ? s_last_valid_freq
+                                   : s_buf[0].freq;
+                    s_is_reexciting = 1u;
+
+                    printf("[CAL] str%u neg: signal lost — re-excite %.2f Hz "
+                           "(retry %u/%u)\r\n",
+                           (unsigned)s_str, (double)s_burst_freq,
+                           (unsigned)s_retry_cnt, (unsigned)CAL_MAX_RETRIES);
+
+                    /* Re-excite: fire solenoid, keep PI state so correction
+                     * accumulates across retries instead of resetting. */
+                    StopSolenoid(s_str);
+                    fft_sensing_enabled = 0u;
+                    InterCore_SendMotorGoto(s_str, s_pi_cmd_steps);
+
+                    if (s_burst_freq >= 40.0f && s_burst_freq <= 800.0f) {
+                        InterCore_TriggerSolenoidHz(s_str,
+                                                    s_burst_freq,
+                                                    CAL_SOLENOID_DUTY,
+                                                    SOLENOID_MODE_TIMED,
+                                                    (uint16_t)CAL_REEXCITE_DURATION_MS,
+                                                    0u);
+                    }
+
+                    s_pi_hop_cnt     = 0u;
+                    s_pi_lock_consec = 0u;
+                    s_pi_no_sig_cnt  = 0u;
+                    WaitThen(CAL_REEXCITE_WAIT_HOPS, CAL_PHASE_NEG_BURST_REENABLE);
+                } else {
+                    printf("[CAL] str%u neg WARN: max retries — recording best\r\n",
+                           (unsigned)s_str);
+                    s_phase = CAL_PHASE_NEG_RECORD;
+                }
+                break;
+            }
+        }
+
+        s_pi_hop_cnt++;
+        if (s_pi_hop_cnt >= CAL_PI_LOCK_TIMEOUT &&
+            s_pi_lock_consec < CAL_LOCK_CONSEC_HOPS) {
+            s_retry_cnt++;
+            if (s_retry_cnt < CAL_MAX_RETRIES) {
+                s_burst_freq = (s_last_valid_freq > 0.0f)
+                               ? s_last_valid_freq
+                               : s_buf[0].freq;
+                s_is_reexciting = 1u;
+
+                printf("[CAL] str%u neg: lock timeout — re-excite %.2f Hz "
+                       "(retry %u/%u)\r\n",
+                       (unsigned)s_str, (double)s_burst_freq,
+                       (unsigned)s_retry_cnt, (unsigned)CAL_MAX_RETRIES);
+
+                StopSolenoid(s_str);
+                fft_sensing_enabled = 0u;
+                InterCore_SendMotorGoto(s_str, s_pi_cmd_steps);
+
+                if (s_burst_freq >= 40.0f && s_burst_freq <= 800.0f) {
+                    InterCore_TriggerSolenoidHz(s_str,
+                                                s_burst_freq,
+                                                CAL_SOLENOID_DUTY,
+                                                SOLENOID_MODE_TIMED,
+                                                (uint16_t)CAL_REEXCITE_DURATION_MS,
+                                                0u);
+                }
+
+                s_pi_hop_cnt     = 0u;
+                s_pi_lock_consec = 0u;
+                s_pi_no_sig_cnt  = 0u;
+                WaitThen(CAL_REEXCITE_WAIT_HOPS, CAL_PHASE_NEG_BURST_REENABLE);
+            } else {
+                printf("[CAL] str%u neg WARN: timeout — recording best\r\n",
+                       (unsigned)s_str);
+                s_phase = CAL_PHASE_NEG_RECORD;
+            }
+            break;
+        }
+        break;
+    }
+
+    /* ------------------------------------------------------------------
+     * NEG_RECORD: save the −1-fret measurement and proceed to fret loop
+     * ------------------------------------------------------------------ */
+    case CAL_PHASE_NEG_RECORD:
+    {
+        float target_freq = Cal_NegTargetFreq(s_str);
+        float search_band = target_freq * 0.15f;
+
+        float meas_f = 0.0f;
+        if (s_last_valid_freq > 0.0f) {
+            CalGetFreq(s_last_valid_freq, CAL_TRACK_BAND_HZ, &meas_f);
+            if (meas_f == 0.0f) {
+                CalGetFreq(target_freq, search_band, &meas_f);
+            }
+        } else {
+            CalGetFreq(target_freq, search_band, &meas_f);
+        }
+
+        int32_t actual_steps = g_shared_memory.current_positions[s_str];
+
+        if (s_buf_n < CAL_MAX_SAMPLES) {
+            if (meas_f > 0.0f) {
+                s_buf[s_buf_n].steps = (float)actual_steps;
+                s_buf[s_buf_n].freq  = meas_f;
+                printf("[CAL] %u, %ld, %.2f (neg)\r\n",
+                       (unsigned)s_str, (long)actual_steps, (double)meas_f);
+            } else if (s_last_valid_freq > 0.0f) {
+                s_buf[s_buf_n].steps = (float)actual_steps;
+                s_buf[s_buf_n].freq  = s_last_valid_freq;
+                printf("[CAL] %u, %ld, %.2f (neg last-valid)\r\n",
+                       (unsigned)s_str, (long)actual_steps,
+                       (double)s_last_valid_freq);
+            } else {
+                printf("[CAL] %u, %ld, -- (neg SKIP, no signal)\r\n",
+                       (unsigned)s_str, (long)s_steps_expected);
+            }
+            if (meas_f > 0.0f || s_last_valid_freq > 0.0f) {
+                s_buf_n++;
+            }
+        }
+
+        /* Reset retry state and proceed to fret loop (s_fret starts at 0) */
+        s_retry_cnt     = 0u;
+        s_is_reexciting = 0u;
         s_phase = CAL_PHASE_SOL_BURST;
         break;
     }
@@ -1252,14 +1733,17 @@ void Cal_Hop(void){
             /* --- Primary burst --- */
 
             /* Fire solenoid at the string's ACTUAL current resonance.
-             * – Fret 1 burst: use the measured open-string frequency from the
-             *   pluck detection step (falls back to nominal if not detected).
-             * – Later frets: use the last recorded calibration measurement so
-             *   the solenoid matches the string's current tension state.      */
-            if (s_buf_n == 0u) {
-                s_burst_freq = (s_open_detected_freq > 0.0f)
-                               ? s_open_detected_freq
-                               : s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
+             * For the first positive target, prefer the measured open anchor
+             * from s_buf[0]; otherwise fall back to the pluck-detected or
+             * nominal open frequency for the active tuning. */
+            if (s_fret == 0u) {
+                if (s_buf_n > 0u && fabsf(s_buf[0].steps) <= 1.0f) {
+                    s_burst_freq = s_buf[0].freq;
+                } else if (s_open_detected_freq > 0.0f) {
+                    s_burst_freq = s_open_detected_freq;
+                } else {
+                    s_burst_freq = Cal_OpenFreq(s_str);
+                }
             } else {
                 s_burst_freq = s_buf[s_buf_n - 1u].freq;
             }
@@ -1269,14 +1753,14 @@ void Cal_Hop(void){
              * after every completed calibration run — estimates improve over
              * time.  The per-string safety cap prevents over-travel.          */
             {
-                float _tf   = cal_theoretical_freq[TuningCtrl_GetActiveTuning()][s_str][s_fret];
+                float _tf   = Cal_TargetFreq(s_str, s_fret);
                 float _a    = cal_poly_coeff[s_str][0];
                 float _b    = cal_poly_coeff[s_str][1];
                 float _c    = cal_poly_coeff[s_str][2];
                 float _poly = _a + _b * _tf + _c * _tf * _tf;
-                if (_poly < 0.0f) _poly = 0.0f;
                 _poly += (float)s_open_position_offset;
-                s_steps_expected = (int32_t)CalClampf(_poly, 0.0f,
+                s_steps_expected = (int32_t)CalClampf(_poly,
+                                                      (float)TUNING_STEPS_MIN_DEFAULT,
                                                       (float)s_cal_steps_max[s_str]);
             }
 
@@ -1286,8 +1770,9 @@ void Cal_Hop(void){
                                     ? (int32_t)s_buf[s_buf_n - 1u].steps
                                     : 0;
             int32_t pos_err       = actual_pos - prev_expected;
-            printf("[CAL] str%u fret%u | burst %.2f Hz, motor pos=%ld err=%ld%s\r\n",
+            printf("[CAL] str%u t%u (+%u st) | burst %.2f Hz, motor pos=%ld err=%ld%s\r\n",
                    (unsigned)s_str, (unsigned)s_fret,
+                   (unsigned)(s_fret + 1u),
                    (double)s_burst_freq, (long)actual_pos, (long)pos_err,
                    (pos_err > CAL_STALL_WARN_STEPS || pos_err < -CAL_STALL_WARN_STEPS)
                        ? " [STALL?]" : "");
@@ -1302,12 +1787,13 @@ void Cal_Hop(void){
         } else {
             /* --- Re-excite burst --- */
             /* s_burst_freq was already set to s_last_valid_freq in PI_LOCK.
-             * Re-issue the goto so the motor continues its remaining travel. */
+             * Send motor to PI's last command (not s_steps_expected) so the
+             * correction accumulated in the previous PI_LOCK window is kept. */
             printf("[CAL] str%u fret%u | re-excite %.2f Hz, continue to pos=%ld (retry %u/%u)\r\n",
                    (unsigned)s_str, (unsigned)s_fret,
-                   (double)s_burst_freq, (long)s_steps_expected,
+                   (double)s_burst_freq, (long)s_pi_cmd_steps,
                    (unsigned)s_retry_cnt, (unsigned)CAL_MAX_RETRIES);
-            InterCore_SendMotorGoto(s_str, s_steps_expected);
+            InterCore_SendMotorGoto(s_str, s_pi_cmd_steps);
         }
 
         /* Gate FFT before the solenoid fires */
@@ -1328,16 +1814,23 @@ void Cal_Hop(void){
                                         dur, 0u);
         }
 
-        /* Reset PI for the upcoming PI_LOCK phase */
-        s_pi_integral    = 0.0f;
-        s_pi_cmd_steps   = s_steps_expected;
-        s_pi_hop_cnt     = 0u;
-        s_pi_lock_consec = 0u;
-        s_pi_no_sig_cnt  = 0u;
-        /* Primary burst: motor moved to a new fret — old frequency is stale, reset.
-         * Re-excite: motor barely moved — seed tracking with the burst frequency
-         * so PI_LOCK immediately resumes in narrow-window mode after the gap. */
-        s_last_valid_freq = s_is_reexciting ? s_burst_freq : 0.0f;
+        if (s_is_reexciting) {
+            /* Re-excite: preserve PI integral and cmd_steps so the correction
+             * accumulated in the previous window carries over.  Only reset
+             * the hop/lock/signal counters for the new PI_LOCK window. */
+            s_pi_hop_cnt     = 0u;
+            s_pi_lock_consec = 0u;
+            s_pi_no_sig_cnt  = 0u;
+            s_last_valid_freq = s_burst_freq;
+        } else {
+            /* Primary burst: new fret — full PI reset. */
+            s_pi_integral    = 0.0f;
+            s_pi_cmd_steps   = s_steps_expected;
+            s_pi_hop_cnt     = 0u;
+            s_pi_lock_consec = 0u;
+            s_pi_no_sig_cnt  = 0u;
+            s_last_valid_freq = 0.0f;
+        }
 
         WaitThen(wait_hops, CAL_PHASE_BURST_REENABLE);
         break;
@@ -1377,7 +1870,7 @@ void Cal_Hop(void){
      * ------------------------------------------------------------------ */
     case CAL_PHASE_PI_LOCK:
     {
-        float target_freq = cal_theoretical_freq[TuningCtrl_GetActiveTuning()][s_str][s_fret];
+        float target_freq = Cal_TargetFreq(s_str, s_fret);
         float search_band = target_freq * 0.15f;   /* ±15% search window  */
 
         float meas_f = 0.0f;
@@ -1516,7 +2009,7 @@ void Cal_Hop(void){
      * ------------------------------------------------------------------ */
     case CAL_PHASE_RECORD:
     {
-        float target_freq = cal_theoretical_freq[TuningCtrl_GetActiveTuning()][s_str][s_fret];
+        float target_freq = Cal_TargetFreq(s_str, s_fret);
         float search_band = target_freq * 0.15f;
 
         float meas_f = 0.0f;
@@ -1546,28 +2039,44 @@ void Cal_Hop(void){
                        (unsigned)s_str, (long)actual_steps,
                        (double)s_last_valid_freq);
             } else {
-                /* Fully estimated: use LUT expected values */
-                s_buf[s_buf_n].steps = (float)s_steps_expected;
-                s_buf[s_buf_n].freq  = target_freq;
-                printf("[CAL] %u, %ld, %.2f (EST)\r\n",
-                       (unsigned)s_str, (long)s_steps_expected,
-                       (double)target_freq);
+                /* No real measurement at all — skip this point rather than
+                 * recording a pure polynomial estimate that would poison
+                 * the fit.  This happens when there is no FFT feedback
+                 * (e.g. no string connected, mic off). */
+                printf("[CAL] %u, %ld, -- (SKIP, no signal)\r\n",
+                       (unsigned)s_str, (long)s_steps_expected);
+                /* Don't increment s_buf_n — point not recorded */
             }
-            s_buf_n++;
+            if (meas_f > 0.0f || s_last_valid_freq > 0.0f) {
+                s_buf_n++;
+            }
         }
 
         /* Reset retry state and advance to the next fret */
         s_retry_cnt     = 0u;
         s_is_reexciting = 0u;
 
-        if (s_fret >= (CAL_NUM_FRETS - 1u)) {
-            /* All frets measured — proceed to build the LUT */
+        if (s_fret >= (CAL_NUM_TARGETS - 1u)) {
+            /* All targets measured (idx 0..5, +1..+6 st) — proceed to build the LUT */
             s_phase = CAL_PHASE_BUILD;
         } else {
-            /* Increment fret.  SOL_BURST will fire at the CURRENT (just-
-             * measured) fret frequency and move toward the next one.       */
-            s_fret++;
-            s_phase = CAL_PHASE_SOL_BURST;
+            /* Check if motor can reach the next target before attempting it */
+            float next_f = Cal_TargetFreq(s_str, s_fret + 1u);
+            float _a = cal_poly_coeff[s_str][0];
+            float _b = cal_poly_coeff[s_str][1];
+            float _c = cal_poly_coeff[s_str][2];
+            float est = _a + _b * next_f + _c * next_f * next_f;
+            if (est > (float)s_cal_steps_max[s_str]) {
+                printf("[CAL] str%u: motor limit at target %u (est %.0f > %ld) — building\r\n",
+                       (unsigned)s_str, (unsigned)(s_fret + 1u),
+                       (double)est, (long)s_cal_steps_max[s_str]);
+                s_phase = CAL_PHASE_BUILD;
+            } else {
+                /* Increment target.  SOL_BURST will fire at the CURRENT
+                 * (just-measured) frequency and move toward the next one. */
+                s_fret++;
+                s_phase = CAL_PHASE_SOL_BURST;
+            }
         }
         break;
     }
@@ -1579,6 +2088,7 @@ void Cal_Hop(void){
     {
         Cal_BuildTable(s_str);
         Cal_FitPolynomial(s_str);
+        Cal_FitSemiPolynomial(s_str);
         Cal_SaveToSRAM();
 
         /* Transition to PI-based acoustic homing — drive motor back to
@@ -1594,10 +2104,10 @@ void Cal_Hop(void){
      * ------------------------------------------------------------------ */
     case CAL_PHASE_HOME_SOL_BURST:
     {
-        /* Use last measured fret frequency for excitation; fall back to
-         * open-string frequency if no samples were recorded. */
-        s_burst_freq = (s_buf_n > 0u) ? s_buf[s_buf_n - 1u].freq
-                                       : s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
+        /* Burst at the OPEN-string frequency — not the last fret's freq.
+         * The motor is returning to position 0 (open), so exciting near
+         * the open frequency ensures the string rings at its natural resonance. */
+        s_burst_freq = Cal_OpenFreq(s_str);
 
         printf("[CAL] str%u: homing — burst %.2f Hz, motor → pos %ld\r\n",
                (unsigned)s_str, (double)s_burst_freq, (long)s_open_position_offset);
@@ -1651,7 +2161,7 @@ void Cal_Hop(void){
      * ------------------------------------------------------------------ */
     case CAL_PHASE_HOME_PI_LOCK:
     {
-        float target_freq = s_open_freq[TuningCtrl_GetActiveTuning()][s_str];
+        float target_freq = Cal_OpenFreq(s_str);
         float search_band = target_freq * 0.15f;   /* ±15% */
 
         float meas_f = 0.0f;
@@ -1709,9 +2219,9 @@ void Cal_Hop(void){
                 s_retry_cnt++;
 
                 if (s_retry_cnt < CAL_HOME_MAX_RETRIES) {
-                    s_burst_freq = (s_last_valid_freq > 0.0f)
-                                   ? s_last_valid_freq
-                                   : target_freq;
+                    /* Always re-excite at the open-string frequency —
+                     * s_last_valid_freq may be a stale fret reading. */
+                    s_burst_freq = Cal_OpenFreq(s_str);
 
                     printf("[CAL] str%u: home signal lost — re-excite %.2f Hz "
                            "(retry %u/%u)\r\n",
@@ -1730,8 +2240,7 @@ void Cal_Hop(void){
                                                     (uint16_t)CAL_HOME_REEXCITE_MS,
                                                     0u);
                     }
-                    InterCore_SendMotorGoto(s_str, s_open_position_offset);
-                    s_pi_integral    = 0.0f;
+                    InterCore_SendMotorGoto(s_str, s_pi_cmd_steps);
                     s_pi_hop_cnt     = 0u;
                     s_pi_lock_consec = 0u;
                     s_pi_no_sig_cnt  = 0u;
@@ -1755,9 +2264,8 @@ void Cal_Hop(void){
             s_retry_cnt++;
 
             if (s_retry_cnt < CAL_HOME_MAX_RETRIES) {
-                s_burst_freq = (s_last_valid_freq > 0.0f)
-                               ? s_last_valid_freq
-                               : target_freq;
+                /* Always re-excite at the open-string frequency */
+                s_burst_freq = Cal_OpenFreq(s_str);
 
                 printf("[CAL] str%u: home lock timeout — re-excite %.2f Hz "
                        "(retry %u/%u)\r\n",
@@ -1773,8 +2281,7 @@ void Cal_Hop(void){
                                                 (uint16_t)CAL_HOME_REEXCITE_MS,
                                                 0u);
                 }
-                InterCore_SendMotorGoto(s_str, s_open_position_offset);
-                s_pi_integral    = 0.0f;
+                InterCore_SendMotorGoto(s_str, s_pi_cmd_steps);
                 s_pi_hop_cnt     = 0u;
                 s_pi_lock_consec = 0u;
                 s_pi_no_sig_cnt  = 0u;
@@ -1873,19 +2380,19 @@ void Cal_Hop(void){
 #define TUNE_PI_LOCK_TIMEOUT        40u
 
 /** Consecutive hops with no FFT signal before re-excite. */
-#define TUNE_DEAD_HOPS              3u
+#define TUNE_DEAD_HOPS              4u
 
 /** Max re-excite retries per string. */
 #define TUNE_MAX_RETRIES            3u
 
 /** Solenoid re-excite burst duration (ms). */
-#define TUNE_REEXCITE_DURATION_MS   300u
+#define TUNE_REEXCITE_DURATION_MS   200u
 
 /** Hops to wait after re-excite burst. */
 #define TUNE_REEXCITE_WAIT_HOPS     4u
 
 /** Motor speed during tune moves. */
-#define TUNE_MOTOR_SPEED            3000
+#define TUNE_MOTOR_SPEED            4000
 
 /** Max hops to wait for the user to pluck. */
 #define TUNE_PLUCK_TIMEOUT          25u
@@ -2448,6 +2955,14 @@ void Cal_TuneHop(void)
              * don't depend on an extra audio hop that may never arrive. */
             fft_sensing_enabled = 1u;
 
+            /* Zero motor positions (we're at open fret) and disable all */
+            for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
+                if ((s_tune_mask >> i) & 1u) {
+                    InterCore_SendMotorZero(i);
+                }
+            }
+            InterCore_SendMotorEnableMask(0u);
+
             printf("[TUNE] ================================================\r\n");
             printf("[TUNE] Tuning complete. Offsets:");
             for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
@@ -2456,6 +2971,7 @@ void Cal_TuneHop(void)
                 }
             }
             printf("\r\n");
+            printf("[TUNE] Motors zeroed and disabled.\r\n");
             printf("[TUNE] ================================================\r\n");
 
             s_tune_status = CAL_STATUS_DONE;
@@ -2473,6 +2989,14 @@ void Cal_TuneHop(void)
     {
         fft_sensing_enabled = 1u;
 
+        /* Zero motor positions (we're at open fret) and disable all */
+        for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
+            if ((s_tune_mask >> i) & 1u) {
+                InterCore_SendMotorZero(i);
+            }
+        }
+        InterCore_SendMotorEnableMask(0u);
+
         printf("[TUNE] ================================================\r\n");
         printf("[TUNE] Tuning complete (via DONE phase). Offsets:");
         for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
@@ -2481,6 +3005,7 @@ void Cal_TuneHop(void)
             }
         }
         printf("\r\n");
+        printf("[TUNE] Motors zeroed and disabled.\r\n");
         printf("[TUNE] ================================================\r\n");
 
         s_tune_status = CAL_STATUS_DONE;

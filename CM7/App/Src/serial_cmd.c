@@ -115,7 +115,11 @@ static void Cmd_MapFrets(char *args);
 static void Cmd_PrintLut(char *args);
 static void Cmd_Smoke(char *args);
 static void Cmd_Smoke1(char *args);
+<<<<<<< HEAD
 static void Cmd_Song2(char *args);
+=======
+static void Cmd_StopSong(char *args);
+>>>>>>> origin/Song_development
 static void Cmd_FftPrint(char *args);
 static void Cmd_Tune(char *args);
 static void Cmd_Debug(char *args);
@@ -155,7 +159,11 @@ static const CmdEntry_t command_table[] = {
     { "printlut",  Cmd_PrintLut,  "printlut                 Print current feed-forward LUT values" },
     { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water (E2+G2 split, Drop G2)" },
     { "smoke1",    Cmd_Smoke1,    "smoke1                   Play Smoke on the Water (A2 single string)" },
+<<<<<<< HEAD
     { "song2",     Cmd_Song2,     "song2                    Play Drop D fingerpicking" },
+=======
+    { "stopsong",  Cmd_StopSong,  "stopsong                  Stop the currently playing song" },
+>>>>>>> origin/Song_development
     { "tune",      Cmd_Tune,      "tune [str ...]            Tune open strings 0-3 to standard pitch" },
     { "fftprint",  Cmd_FftPrint,  "fftprint                 Toggle live FFT peak output" },
     { "debug",     Cmd_Debug,     "debug [hop|nf|all|off]   Toggle debug outputs" },
@@ -674,8 +682,13 @@ static void Cmd_Sol(char *args)
         return;
     }
 
+<<<<<<< HEAD
     /* Warn if solenoid has no timer assigned (E2=0, B3=4, E4=5) */
     if (id == 4 || id == 5) {
+=======
+    /* Warn if solenoid has no timer assigned (G3=3, B3=4, E4=5) */
+    if (id == 3 || id == 4 || id == 5) {
+>>>>>>> origin/Song_development
         printf("  Warning: Solenoid %d has no timer assigned (no PWM output)\r\n", (int)id);
         return;
     }
@@ -906,6 +919,7 @@ static void Cmd_Smoke(char *args)
 static void Cmd_Smoke1(char *args)
 {
     (void)args;
+<<<<<<< HEAD
     /* Stop dual-track if running */
     if (DblString_IsActive()) {
         DblString_Stop();
@@ -919,6 +933,18 @@ static void Cmd_Song2(char *args)
     (void)args;
     printf("  Starting Drop D fingerpicking (song 2)...\r\n");
     App_RequestPlaySong(2u);
+=======
+    printf("  Setting motor speed to 60000 and starting Smoke on the Water (single E2 string)...\r\n");
+    InterCore_SendMotorMaxSpeed(0u, 60000);
+    App_RequestPlaySong(1u);
+}
+
+static void Cmd_StopSong(char *args)
+{
+    (void)args;
+    printf("  Stopping song...\r\n");
+    App_RequestStopSong();
+>>>>>>> origin/Song_development
 }
 
 static void Cmd_Tune(char *args)

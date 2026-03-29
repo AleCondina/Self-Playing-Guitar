@@ -60,6 +60,7 @@ static volatile uint8_t s_request_lutbuild_mask  = 0x3Fu;
 static volatile uint8_t s_request_tune           = 0u;
 static volatile uint8_t s_request_tune_mask      = 0x0Fu;
 static volatile uint8_t s_request_play_dual      = 0u;
+static volatile uint8_t s_request_stop_song      = 0u;
 
 /**
  * @brief CM7 application main function
@@ -295,6 +296,16 @@ void App_CM7_Main(void) {
                         Audio_MarkProcessed();
                         break;
                     }
+                    if (s_request_stop_song) {
+                        s_request_stop_song = 0u;
+                        SongSched_Stop();
+                        TuningCtrl_ResetAll();
+                        /* Stop all solenoids (0xFF = all) */
+                        g_shared_memory.solenoid_id = 0xFFu;
+                        g_shared_memory.motor_command_flags |= CMD_STOP_SOLENOID;
+                        printf("[CMD] Song stopped.\r\n> ");
+                    }
+                    
                     if (s_request_play_dual) {
                         s_request_play_dual = 0u;
                         TuningCtrl_ResetAll();
@@ -302,6 +313,8 @@ void App_CM7_Main(void) {
                         DblString_Init(DblString_GetBpm());
                         DblString_Start(HAL_GetTick());
                     } else if (s_request_play) {
+                    
+                    if (s_request_play) {
                         uint8_t sid = s_request_play_song_id;
                         s_request_play = 0u;
                         TuningCtrl_SetDualTrackMode(0u);
@@ -457,4 +470,9 @@ void App_RequestTune(uint8_t string_mask)
         s_request_tune_mask = string_mask;
         s_request_tune      = 1u;
     }
+}
+
+void App_RequestStopSong(void)
+{
+    s_request_stop_song = 1u;
 }

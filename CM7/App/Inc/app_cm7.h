@@ -21,6 +21,7 @@ void App_RequestCalibration(uint8_t string_mask);
 void App_RequestPlay(void);
 void App_RequestPlaySong(uint8_t song_id);
 void App_RequestPlayDual(void);
+void App_RequestStopSong(void);
 void App_RequestLutBuild(uint8_t string_mask);
 void App_RequestTune(uint8_t string_mask);
 

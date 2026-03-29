@@ -128,40 +128,42 @@ static const SongNote_t song0_notes[] = {
 };
 
 /* =========================================================================
- * Song 1: Smoke on the Water – single A2 string (string_id = 1)
+ * Song 1: Smoke on the Water – single E2 string (string_id = 0)
  * =========================================================================
- * A2 fret frequencies:
- *   fret 0 = 110.00 Hz (A2)    fret 3 = 130.81 Hz (C3)
- *   fret 5 = 146.83 Hz (D3)    fret 6 = 155.56 Hz (Ds3)
+ * E2 fret frequencies:
+ *   fret 0 = 82.41 Hz (E2)     fret 3 = 98.00 Hz (G2)
+ *   fret 5 = 110.00 Hz (A2)    fret 6 = 116.54 Hz (As2)
  * ========================================================================= */
 static const SongNote_t song1_notes[] = {
 
     /* ── Timing budget per note ──────────────────────────────────────── *
-     *  1200ms PI + 35ms burst + rest                                         *
+     *  1000ms total: 72 burst, max 520 FF, 340 PI                                         *
      *  Notes 0,1,3,4,7,8,10: rest=400ms → total=1635ms                      *
      *  Note 5:               rest=200ms → total=1435ms                      *
      *  Notes 2,6,9,11:       rest=650ms → total=1885ms                      *
      * ────────────────────────────────────────────────────────────────── */
 
-    /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    NOTE(1u, A2_HZ,   1635u,  35u),  /* #0  fret 0: cold start, rest=400   */
-    NOTE(1u, C3_HZ,   1635u,  35u),  /* #1  fret 3: C3,  rest=400          */
-    NOTE(1u, D3_HZ,   1885u,  35u),  /* #2  fret 5: D3,  rest=650          */
+    /* ── Measure 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
+    NOTE(0u, E2_HZ,   1000u,  72u),  /* #0  fret 0: cold start,   */
+    NOTE(0u, G2_HZ,   1000u,  72u),  /* #1  fret 3: G2,            */
+    NOTE(0u, A2_HZ,   1500u,  72u),  /* #2  fret 5: A2,            */
+    NOTE(0u, E2_HZ,   1000u,  72u),  /* #3  fret 0: E2,          */
+    
+    /* ── Measure 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
+    NOTE(0u, G2_HZ,   1000u,  72u),  /* #4  fret 3: G2,           */
+    NOTE(0u, As2_HZ,  500u,  72u),  /* #5  fret 6: As2,           */
+    NOTE(0u, A2_HZ,   2000u,  72u),  /* #6  fret 5: A2,           */
 
-    /* ── Phrase 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
-    NOTE(1u, A2_HZ,   1635u,  35u),  /* #3  fret 0: A2,  rest=400          */
-    NOTE(1u, C3_HZ,   1635u,  35u),  /* #4  fret 3: C3,  rest=400          */
-    NOTE(1u, Ds3_HZ,  1435u,  35u),  /* #5  fret 6: Ds3, rest=200          */
-    NOTE(1u, D3_HZ,   1885u,  35u),  /* #6  fret 5: D3,  rest=650          */
-
-    /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
-    NOTE(1u, A2_HZ,   1635u,  35u),  /* #7  fret 0: A2,  rest=400          */
-    NOTE(1u, C3_HZ,   1635u,  35u),  /* #8  fret 3: C3,  rest=400          */
-    NOTE(1u, D3_HZ,   1885u,  35u),  /* #9  fret 5: D3,  rest=650          */
-
+    /* ── Measure 3: same as measure 1 ─────────────────────────────────── */
+    NOTE(0u, E2_HZ,   1000u,  72u),  /* #0  fret 0: E2,    */
+    NOTE(0u, G2_HZ,   1000u,  72u),  /* #1  fret 3: G2,            */
+    NOTE(0u, A2_HZ,   1500u,  72u),  /* #2  fret 5: A2,            */
+    NOTE(0u, G2_HZ,   1000u,  72u),  /* #10 fret 3: G2,           */
+    
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    NOTE(1u, C3_HZ,   1635u,  35u),  /* #10 fret 3: C3,  rest=400          */
-    NOTE(1u, A2_HZ,   1885u,  35u),  /* #11 fret 0: A2,  rest=650          */
+    
+     NOTE(0u, E2_HZ,   4000u,  72u),  /* #3  fret 0: E2,           */
+              
 };
 
 /* =========================================================================
@@ -349,6 +351,11 @@ float SongSched_GetTargetFreq2(void)
 uint8_t SongSched_IsActive(void)
 {
     return s_active;
+}
+
+void SongSched_Stop(void)
+{
+    s_active = 0u;
 }
 
 void SongSched_Restart(void)

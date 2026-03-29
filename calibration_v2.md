@@ -175,3 +175,116 @@ No header file changes needed — all new phases/variables are file-static.
 4. After calibration completes, type `status` — CLI should respond immediately (UART fix)
 5. Run with a well-tuned string — offset should be near 0
 6. Edge case: if string is significantly out of tune, OPEN_PI_LOCK should timeout gracefully and calibration proceeds with offset ≈ 0
+
+---
+
+## V2.1: Half-Semitone Spacing + −1 Fret Anchor (2026-03-25)
+
+### Problem
+
+The polynomial fit `steps = a + b·f + c·f²` was fitted using only 7 measured points (frets 1–7 from `s_buf`). The open-string data point `(0 steps, nominal open freq)` was **not** included in the polynomial — it was only hardcoded as LUT breakpoint 0 in `Cal_BuildTable`. This meant:
+- The polynomial wasn't constrained to pass through the open-string region
+- The nominal frequency (e.g., 82.41 Hz for E2) was assumed rather than measured
+- Only 7 data points gave a coarse quadratic fit across the fret range
+
+### Changes
+
+#### Updated calibration flow
+
+```
+STR_INIT → WAIT_PLUCK → WAIT_HOME(pos 0)
+  → OPEN_SOL_BURST → OPEN_BURST_REENABLE → OPEN_PI_LOCK → OPEN_DONE
+  → NEG_SOL_BURST → NEG_BURST_REENABLE → NEG_PI_LOCK → NEG_RECORD   ← NEW
+  → SOL_BURST(t1, +0.5st) → PI_LOCK → RECORD                        ← half-semitone
+  → SOL_BURST(t2, +1.0st) → PI_LOCK → RECORD
+  → ... → SOL_BURST(t14, +7.0st) → PI_LOCK → RECORD
+  → BUILD → HOME_SOL_BURST → HOME_PI_LOCK → HOME_DONE → DONE
+```
+
+#### 1. Constants changed
+
+| Constant | Old | New | Notes |
+|----------|-----|-----|-------|
+| `CAL_NUM_FRETS` | 8 | **removed** | Replaced by `CAL_NUM_TARGETS` |
+| `CAL_NUM_TARGETS` | — | 14 | Half-semitone targets: idx 1 = +0.5st, idx 14 = +7.0st |
+| `CAL_MAX_SAMPLES` | 8 | 18 | 1 open + 1 neg + 14 targets + headroom |
+
+#### 2. Replaced static frequency table with computed function
+
+Removed `cal_theoretical_freq[NUM_STRINGS][CAL_NUM_FRETS]` (hardcoded fret frequencies). Replaced with:
+
+```c
+static inline float Cal_TargetFreq(uint8_t str, uint8_t idx) {
+    float semitones = (float)idx * 0.5f;
+    return s_open_freq[str] * powf(2.0f, semitones / 12.0f);
+}
+```
+
+This computes equal-temperament frequencies on the fly at half-semitone resolution.
+
+#### 3. Measured open-string point added to `s_buf`
+
+In `CAL_PHASE_OPEN_DONE`, after motor re-zero:
+```c
+s_buf[0].steps = 0.0f;
+s_buf[0].freq  = s_last_valid_freq;   // measured, NOT nominal
+s_buf_n = 1u;
+```
+
+The polynomial is now fitted through the **actual measured** open-string frequency, not the textbook value. This eliminates the assumption that position 0 = perfect nominal frequency.
+
+#### 4. −1 fret measurement (4 new phases)
+
+New phases added to `CalPhase_t`:
+- `CAL_PHASE_NEG_SOL_BURST` — Move motor to negative position, fire solenoid at measured open freq
+- `CAL_PHASE_NEG_BURST_REENABLE` — Re-enable FFT
+- `CAL_PHASE_NEG_PI_LOCK` — PI locks to `open_freq / 2^(1/12)` (1 semitone below open)
+- `CAL_PHASE_NEG_RECORD` — Record `(actual_steps, measured_freq)` into `s_buf[1]`
+
+Motor target for −1 fret: estimated from polynomial, clamped to `[TUNING_STEPS_MIN_DEFAULT (-800), 0]`, fallback −300 steps. This gives the polynomial a data point below open, properly anchoring the low end.
+
+#### 5. Half-semitone fret loop (14 targets)
+
+`s_fret` now ranges 1–14 (was 1–7). Each increment is 0.5 semitones:
+- `s_fret=1` → +0.5 semitones (halfway to fret 1)
+- `s_fret=2` → +1.0 semitone (fret 1)
+- `s_fret=3` → +1.5 semitones (halfway to fret 2)
+- ...
+- `s_fret=14` → +7.0 semitones (fret 7)
+
+**Motor limit check**: After each RECORD, the polynomial estimates the step position for the next target. If it exceeds `s_cal_steps_max[str]`, calibration skips directly to BUILD.
+
+#### 6. `Cal_BuildTable` uses measured open freq
+
+LUT breakpoint 0 now uses `s_buf[0].freq` (measured) instead of `s_open_freq[str]` (nominal 82.41 Hz). Both the LUT and polynomial are fitted entirely from real measured data — no assumed-perfect values anywhere.
+
+### Expected data points per string
+
+```
+Index  Semitones  Type          Example (E2)
+  0      0.0      Open string   ~82.xx Hz (measured), 0 steps
+  1     −1.0      Neg fret      ~77.xx Hz (PI locked), ~−300 steps
+  2     +0.5      Half fret 1   ~84.8 Hz
+  3     +1.0      Fret 1        ~87.3 Hz
+  4     +1.5      Half fret 2   ~89.9 Hz
+  ...
+ 15     +7.0      Fret 7        ~123.5 Hz
+```
+
+Total: up to **16 data points** per string for the polynomial fit (was 7).
+
+### Files modified
+
+| File | Change |
+|------|--------|
+| `CM7/App/Src/calibration_controller.c` | Replace `CAL_NUM_FRETS`→`CAL_NUM_TARGETS`, `CAL_MAX_SAMPLES` 8→18, replace `cal_theoretical_freq` table with `Cal_TargetFreq()`, add measured open point to `s_buf`, add 4 NEG phases, half-semitone loop termination with motor limit check, `Cal_BuildTable` uses measured open freq |
+| `CM7/App/Inc/calibration_controller.h` | Updated header comment |
+
+### Verification
+
+1. Build CM7 — no compile errors
+2. Run `cal 1` on E2 string over serial
+3. UART output should show: open measured point, −1 fret point, then 14 half-semitone targets
+4. Check `[CAL-POLY]` coefficients — polynomial should evaluate to ~0 steps at open freq
+5. Motor limit check should trigger before exceeding `s_cal_steps_max` for any string
+6. Calibration time per string ~2× longer (16 measurements vs 7)

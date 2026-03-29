@@ -1,29 +1,32 @@
 /**
  ******************************************************************************
  * @file    tuning_controller.h
- * @brief   Closed-loop guitar string tuning controller
+ * @brief   Semitone-domain FF+PI guitar string tuning controller
  *
  * Architecture
  * ------------
  * Runs entirely on CM7 at the FFT hop rate (≈ 170 ms per hop at
  * 6 kHz / 2048-point half-buffer).  For each active string the controller:
  *
- *  1. Looks up an absolute motor-step target from a per-string feed-forward
- *     LUT keyed on target frequency.
- *  2. Trims the LUT output with a discrete PI controller that only activates
- *     after a configurable number of "hold" hops following a note change.
- *  3. Applies a slew limit to the final command before pushing it to CM4
- *     via InterCore_SendMotorGoto().
- *  4. Manages solenoid enable/disable based on the lock state.
+ *  1. Converts the target frequency to semitones relative to the string's
+ *     open frequency.
+ *  2. Computes a feedforward step command from a per-string quadratic
+ *     polynomial in the semitone domain (steps = a·semi² + b·semi + c).
+ *  3. Runs a gain-scheduled PI controller in the semitone domain with
+ *     anti-windup.  The PI only activates after the first valid FFT
+ *     measurement arrives following a feedforward move.
+ *  4. Fires the solenoid immediately on each note change (burst duration
+ *     from song data), not on a delayed timer.
+ *
+ * State machine: IDLE → FF_MOVE → FF_WAIT → PI_ACTIVE ↔ IN_TUNE
+ *   - FF_MOVE re-triggers if |error| > FF_LOCK threshold (0.5 semi)
+ *   - IN_TUNE monitors for drift back above deadband (5 cents)
  *
  * Integration points
  * ------------------
- *  CM7/App/Src/app_cm7.c    – calls TuningCtrl_Init() once; calls
- *                              TuningCtrl_RunHop() after every Goertzel block.
- *  CM7/App/Inc/inter_core_cm7.h – used to push motor positions and trigger
- *                              solenoids.
- *  CM7/App/Inc/goertzel_processing.h – source of per-string frequency and
- *                              confidence (magnitude) estimates.
+ *  CM7/App/Src/app_cm7.c       – calls TuningCtrl_Init() once; calls
+ *                                 TuningCtrl_RunHop() after every FFT block.
+ *  CM7/App/Inc/inter_core_cm7.h – motor positions and solenoid triggers.
  *  CM7/App/Inc/song_scheduler.h – source of (string_id, target_freq_hz).
  ******************************************************************************
  */
@@ -39,36 +42,37 @@ extern "C" {
 #endif
 
 /* =========================================================================
- * Compile-time parameters
- * =========================================================================
- * All "TUNE FOR HARDWARE" values are initial guesses.  Use the CSV debug
- * log to run identification tests and update these before commissioning.
+ * Timing
  * ========================================================================= */
 
 /**
  * @brief Effective hop period (seconds).
- *
  * = half-buffer size / sample rate = 1024 / 6000 ≈ 0.1707 s.
- * Used for the PI integrator accumulation and slew-limit calculation.
  */
 #define TUNING_SAMPLE_TIME_S \
     ((float)(FFT_SIZE / 2) / (float)AUDIO_SAMPLE_RATE_HZ)
 
-/**
- * @brief Hops to hold PI disabled after a note/string change (generic default).
- *
- * Song playback overrides this with SONG_WARM_DELAY_FRAMES /
- * SONG_COLD_DELAY_FRAMES depending on string temperature state.
- * 3 hops ≈ 510 ms at the default rate.
- */
-#define TUNING_DELAY_FRAMES     3u
+/* =========================================================================
+ * Semitone-domain control constants (from MATLAB system identification)
+ * ========================================================================= */
+
+/** Proportional gain (steps per semitone of error). */
+#define TUNING_KP              47.0f
+
+/** Integral gain (steps per semitone per sample). */
+#define TUNING_KI_Z             4.699f
+
+/** Average plant gain for gain scheduling (semi/step at midrange). */
+#define TUNING_K_AVG            1.596e-03f
+
+/** Deadband: no correction when |error| < 5 cents = 0.05 semitones. */
+#define TUNING_DEADBAND_SEMI    0.05f
+
+/** Re-trigger feedforward if |error| exceeds 0.5 semitones. */
+#define TUNING_FF_LOCK_SEMI     0.50f
 
 /* =========================================================================
- * Song playback mode parameters
- * =========================================================================
- * These govern the warm/cold string strategy used during song playback.
- * A "warm" string is still vibrating from the previous note; a "cold" string
- * is at rest (first note of song, or string has decayed).
+ * Mechanical limits and motor parameters
  * ========================================================================= */
 
 /**
@@ -147,198 +151,136 @@ extern "C" {
  */
 #define TUNING_MIN_MOVE_STEPS   4.0f
 
-/** PI trim output clamp (±microsteps).  TUNE FOR HARDWARE. */
-#define TUNING_OUT_LIMIT_STEPS  6400.0f
-
-/**
- * @brief Slew limit on cmd_steps_abs per hop (microsteps/s).
- * Per-hop delta limit = TUNING_MAX_STEP_RATE_SPS * TUNING_SAMPLE_TIME_S.
- * Must not exceed the motor's physical step rate.  TUNE FOR HARDWARE.
- */
+/** Slew limit (steps/s). Per-hop max = this × TUNING_SAMPLE_TIME_S. */
 #define TUNING_MAX_STEP_RATE_SPS    65000.0f
 
-/**
- * @brief Proportional gain (microsteps per Hz of frequency error).
- *
- * Matched to calibration tune controller (KP=16) but scaled up because
- * the song PI runs every hop without motor-busy gating.  TUNE FOR HARDWARE.
- */
-#define TUNING_KP   32.0f
-
-/**
- * @brief Integral gain (microsteps per Hz per second).
- *
- * Discrete integral:  integral += TUNING_KI * e * TUNING_SAMPLE_TIME_S
- * Only accumulates when |error| < TUNING_INTEGRAL_ENABLE_HZ (like tune).
- */
-#define TUNING_KI   12.0f
-
-/**
- * @brief Integral enable band (Hz).  Only accumulate integral when the
- * error is already small — prevents windup from large initial errors.
- * Inspired by TUNE_INTEGRAL_ENABLE_BAND_HZ in calibration_controller.
- */
-#define TUNING_INTEGRAL_ENABLE_HZ   5.0f
-
-/**
- * @brief Number of hops with a large unresolved error before a stall is flagged.
- *
- * Stall = large commanded displacement but frequency barely moves.
- * TUNE FOR HARDWARE.
- */
-#define TUNING_STALL_TIMEOUT_HOPS   20u
-
-/**
- * @brief Frequency change required to declare a stall during a move.
- * If the motor commanded more than TUNING_OUT_LIMIT_STEPS but frequency
- * moved less than this, the motor may be stalled.  TUNE FOR HARDWARE (Hz).
- */
-#define TUNING_STALL_MIN_FREQ_DELTA_HZ  0.3f
-
-/**
- * @brief Required microstep mode for safe operation.
- *
- * All controller limits and gains are calibrated for 1/16 microstepping.
- * Running with a different mode will produce incorrect position commands
- * that can damage the mechanical system.  The controller checks this at
- * every hop and halts with a warning if any configured motor is not in
- * this mode.  Value matches MotorMicrostepMode_t on CM4.
- */
-#define TUNING_REQUIRED_MICROSTEP_MODE  4u  /* 1/16 step */
-
-/** Number of LUT breakpoints per string in the feed-forward tables. */
-#define TUNING_FF_NUM_POINTS    7u
-
-/**
- * @brief Mechanical step limits per string.
- *
- * Home (position 0) = open string.  Positive steps tighten = higher pitch.
- * Negative steps allowed as a small margin below home.
- * TODO: measure per-string physical travel and replace these defaults.
- */
+/** Mechanical step limits. */
 #define TUNING_STEPS_MAX_DEFAULT    8000
 #define TUNING_STEPS_MIN_DEFAULT   -800
 
+/** Required microstep mode (1/16 = mode 4). */
+#define TUNING_REQUIRED_MICROSTEP_MODE  4u
+
 /* =========================================================================
- * Feed-forward LUT tables
- * Defined in tuning_controller.c.  Columns: frequency (Hz), steps (integer).
- * TODO: calibrate per-string by measuring actual frequency vs. motor steps.
+ * Stall detection
  * ========================================================================= */
 
+#define TUNING_STALL_TIMEOUT_HOPS       20u
+#define TUNING_STALL_MIN_FREQ_DELTA_HZ  0.3f
+
+/* =========================================================================
+ * Song playback parameters
+ * ========================================================================= */
+
+/** Consecutive silent hops before string is declared cold. */
+#define SONG_DECAY_COLD_HOPS             4u
+
+/** Chord sync: max hops to wait for partner string. */
+#define SONG_CHORD_PLUCK_TIMEOUT_HOPS    2u
+
+/* =========================================================================
+ * Feed-forward LUT tables (legacy — kept for calibration SRAM compat)
+ * ========================================================================= */
+
+#define TUNING_FF_NUM_POINTS    7u
 extern float tuning_ff_freq_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS];
 extern float tuning_ff_steps_bp[NUM_STRINGS][TUNING_FF_NUM_POINTS];
+
+/* =========================================================================
+ * Per-string polynomial coefficients
+ *
+ * Feedforward:  steps = a·semi² + b·semi + c  (semitones → steps)
+ * Plant model:  semi  = a·steps² + b·steps + c (steps → semitones)
+ *
+ * E2 (string 0) seeded from MATLAB identification.
+ * Other strings seeded from legacy cal_poly_coeff until calibrated.
+ * Updated by Cal_FitSemiPolynomial() after each calibration run.
+ * ========================================================================= */
+
+extern float tuning_ff_semi_coeff[NUM_STRINGS][3];  /**< [str][a,b,c] FF */
+extern float tuning_plant_coeff[NUM_STRINGS][3];    /**< [str][a,b,c] plant */
+
+/* =========================================================================
+ * State machine
+ * ========================================================================= */
+
+typedef enum {
+    TUNE_STATE_IDLE,       /**< No target, waiting for command               */
+    TUNE_STATE_FF_MOVE,    /**< Feedforward move executing, integrator reset  */
+    TUNE_STATE_FF_WAIT,    /**< Waiting for first valid FFT measurement       */
+    TUNE_STATE_PI_ACTIVE,  /**< PI feedback running, correcting residual      */
+    TUNE_STATE_IN_TUNE     /**< Within deadband, monitoring for drift         */
+} TuneState_t;
 
 /* =========================================================================
  * Per-string run-time state
  * ========================================================================= */
 
-/** Fault flags stored in TuningStringState_t.fault_flags */
-#define TUNING_FAULT_STALL      (1u << 0)  /**< Motor stall suspected      */
-#define TUNING_FAULT_SATURATED  (1u << 1)  /**< PI integral saturated      */
-#define TUNING_FAULT_MICROSTEP  (1u << 2)  /**< Wrong microstep mode — HALT */
+/** Fault flags */
+#define TUNING_FAULT_STALL      (1u << 0)
+#define TUNING_FAULT_SATURATED  (1u << 1)
+#define TUNING_FAULT_MICROSTEP  (1u << 2)
 
-/**
- * @brief Complete run-time state for one guitar string.
- *
- * All float positions are in microsteps referenced to motor position 0
- * (open-string / home position).
- */
 typedef struct {
-    /* Frequency tracking */
-    float    last_target_freq_hz;   /**< Target freq at previous hop     */
-    float    last_valid_freq_hz;    /**< Last freq accepted above SNR thr */
+    /* State machine */
+    TuneState_t state;              /**< Current control phase                */
 
-    /* Controller positions (microsteps, float for sub-step accumulation) */
-    float    ff_steps_abs;          /**< Feed-forward absolute steps      */
-    float    trim_steps;            /**< PI output trim                   */
-    float    integral_state;        /**< PI integrator accumulator        */
+    /* Semitone-domain tracking */
+    float    target_semi;           /**< Target pitch (semitones from open)   */
+    float    prev_target_semi;      /**< Target at previous hop (note change) */
+    float    measured_semi;         /**< Last measured pitch (semitones)       */
+
+    /* Hz-domain tracking (for FFT search window) */
+    float    last_valid_freq_hz;    /**< Last accepted FFT frequency (Hz)     */
+    float    expected_freq_hz;      /**< Predicted freq from motor position   */
+
+    /* Controller state (microsteps) */
+    float    ff_steps_abs;          /**< Feedforward absolute position        */
+    float    integral_state;        /**< PI integrator accumulator (semi)     */
 
     /* Commanded and actual positions */
-    int32_t  cmd_steps_abs;         /**< Final integer command (microsteps) */
-    int32_t  prev_cmd_steps_abs;    /**< Command at previous hop          */
-    int32_t  current_abs_steps;     /**< Motor position read from CM4     */
+    int32_t  cmd_steps_abs;         /**< Final integer command (microsteps)   */
+    int32_t  prev_cmd_steps_abs;    /**< Command at previous hop (slew limit) */
+    int32_t  current_abs_steps;     /**< Motor position read from CM4         */
 
     /* Lock state */
-    uint8_t  lock_state;            /**< 1 = in-tune and stable           */
-    uint8_t  prev_lock_state;       /**< Lock at previous hop (edge detect) */
-
-    /* Control enables */
-    uint8_t  pi_enable;             /**< 1 = PI accumulating this hop     */
-    uint16_t delay_hold_counter;    /**< Hops remaining in post-note hold */
+    uint8_t  lock_state;            /**< 1 = in-tune (within deadband)        */
+    uint8_t  prev_lock_state;       /**< Lock at previous hop (edge detect)   */
 
     /* Fault / diagnostics */
-    uint8_t  fault_flags;           /**< Bit field: TUNING_FAULT_*        */
-    uint32_t stall_counter;         /**< Consecutive hops above stall thr */
-    uint32_t hop_count;             /**< Total hops (wraps at UINT32_MAX) */
+    uint8_t  fault_flags;           /**< Bit field: TUNING_FAULT_*            */
+    uint32_t stall_counter;         /**< Consecutive hops above stall thr     */
+    uint32_t hop_count;             /**< Total hops (wraps at UINT32_MAX)     */
 
-    /* Song playback — warm/cold string state */
-    uint8_t  string_warm;           /**< 1 = string vibrating recently, 0 = at rest */
-    uint16_t silent_hop_count;      /**< Consecutive hops with no FFT signal         */
-    uint8_t  note_plucked;          /**< 1 = solenoid fired at least once this note  */
-    uint16_t hops_since_pluck;      /**< Hops elapsed since last solenoid fire       */
+    /* Song playback — string energy state */
+    uint8_t  string_warm;           /**< 1 = string vibrating recently        */
+    uint16_t silent_hop_count;      /**< Consecutive hops with no FFT signal  */
 
-    /* Chord synchronization — holds solenoid until partner string also locks */
-    uint8_t  chord_pluck_ready;     /**< Locked, waiting for chord partner to lock   */
-    uint8_t  chord_pluck_wait_hops; /**< Hops spent waiting for chord partner        */
-
-    /* Per-note PI convergence tracking */
-    uint16_t pi_hop_count;          /**< PI hops elapsed this note (for max-hop limit) */
-    uint8_t  note_actuated;         /**< 1 = solenoid fired after PI converge this note */
-
-    /* String frequency tracking (from stepper position) */
-    float    expected_freq_hz;      /**< Predicted freq from current motor position    */
+    /* Chord synchronization */
+    uint8_t  chord_pluck_ready;     /**< Locked, waiting for chord partner    */
+    uint8_t  chord_pluck_wait_hops; /**< Hops spent waiting for partner       */
 } TuningStringState_t;
 
 /* =========================================================================
  * Public API
  * ========================================================================= */
 
-/**
- * @brief  Initialize all per-string tuning states to safe defaults.
- *
- * Must be called once, after Motor_Init() and Goertzel_Init() have completed
- * successfully and before the first call to TuningCtrl_RunHop().
- */
+/** Initialize all per-string tuning states to safe defaults. */
 void TuningCtrl_Init(void);
 
-/**
- * @brief  Run one complete control hop for all active strings.
- *
- * Intended to be called from app_cm7.c every time Audio_HasNewSamples()
- * returns true (after both FFT_ProcessBlock and Goertzel_ProcessBlock have
- * been called on the same buffer).
- *
- * Internally calls TuningCtrl_Update() for the currently active string
- * obtained from the song scheduler.  Also issues InterCore_SendMotorGoto()
- * and solenoid commands as needed.
- */
+/** Run one complete control hop for all active strings. */
 void TuningCtrl_RunHop(void);
 
-/**
- * @brief  Run one control hop for a single string (low-level; prefer RunHop).
- *
- * @param  string_id        String index 0–5 (E2 = 0, …, E4 = 5)
- * @param  target_freq_hz   Desired pitch in Hz from the song scheduler
- * @param  measured_freq_hz Per-string frequency from FFT active_frequencies[]
- * @param  confidence       Target - FFT magnitude value for this string
- */
+/** Run one control hop for a single string (low-level). */
 void TuningCtrl_Update(uint8_t string_id,
                        float   target_freq_hz,
                        float   measured_freq_hz,
                        float   confidence);
 
-/**
- * @brief  Get the most recently computed absolute motor step command.
- * @param  string_id  String index 0–5
- * @return Commanded position in microsteps (0 = open string / home).
- *         Returns 0 if string_id is out of range.
- */
+/** Get the most recently computed absolute motor step command. */
 int32_t TuningCtrl_GetCmdSteps(uint8_t string_id);
 
-/**
- * @brief  Get the current lock state for a string.
- * @return 1 if locked (in-tune and stable), 0 otherwise.
- */
+/** Get the current lock state (1 = in-tune). */
 uint8_t TuningCtrl_GetLockState(uint8_t string_id);
 
 /**

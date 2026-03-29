@@ -111,6 +111,12 @@ float SongSched_GetTargetFreq2(void);
 uint8_t SongSched_IsActive(void);
 
 /**
+ * @brief Stop the song immediately.
+ * Clears the active flag so SongSched_IsActive() returns 0.
+ */
+void SongSched_Stop(void);
+
+/**
  * @brief Restart the song from the first note.
  * Can be called at any time to loop the song.
  */
