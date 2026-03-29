@@ -23,27 +23,17 @@
 /* =========================================================================
  * BPM configuration
  * =========================================================================
- * Note durations in song_notes[] are written at SONG_BPM_REF (~47 BPM).
- * Change SONG_BPM to play slower or faster.  The scheduler scales the
- * PI-convergence and rest portions proportionally while keeping the
- * solenoid burst duration (burst_ms) constant.
+ * All note durations in song_notes[] are written at SONG_BPM_REF (112 BPM).
+ * Change SONG_BPM to play slower (e.g. 80) or faster (e.g. 120).
+ * The scheduler scales every duration proportionally on SongSched_Init().
  *
- * Scaling formula per note:
- *   scaled = ((duration_ms - burst_ms) * SONG_BPM_REF / SONG_BPM) + burst_ms
- *
- * The solenoid actuate delay also scales:
- *   scaled_actuate = SONG_ACTUATE_BASE_MS * SONG_BPM_REF / SONG_BPM
- *
- * Example:  REF=47 BPM=60 → note 1635ms becomes 1298ms, actuate 940ms
- *           REF=47 BPM=35 → note 1635ms becomes 2169ms, actuate 1612ms
+ * Tip: if the guitar cannot achieve PI lock within a quarter note at 112 BPM,
+ * drop SONG_BPM to 80 for more reliable note accuracy.  Enable
+ * SONG_LOCK_WAIT_MODE in app_cm7.c for guaranteed accuracy at any BPM.
  * ========================================================================= */
-#define SONG_BPM_REF        47u   /**< Effective BPM the durations are written at */
-#define SONG_BPM            47u   /**< Playback BPM — change this to speed/slow   */
-#define SONG_LOOP_ENABLED    1u   /**< 1 = restart song automatically at end      */
-
-/** Base solenoid actuate delay at SONG_BPM_REF (ms).
- *  Scaled at init so higher BPM = less PI convergence time. */
-#define SONG_ACTUATE_BASE_MS 1200u
+#define SONG_BPM_REF        60u   /**< Reference BPM of the durations below     */
+#define SONG_BPM            60u   /**< Playback BPM — 1:1 with reference tempo   */
+#define SONG_LOOP_ENABLED    1u   /**< 1 = restart song automatically at end     */
 
 /* =========================================================================
  * Song data  ── edit here to change the song
@@ -74,27 +64,11 @@
 /* Convenience macros for note entries */
 #define CHORD(g_hz, d_hz, dur_ms, burst) \
     { 3u, (g_hz), (dur_ms), 2u, 2u, (d_hz), (burst) }
-#define CHORD2(s1, hz1, s2, hz2, dur_ms, burst) \
-    { (s1), (hz1), (dur_ms), 2u, (s2), (hz2), (burst) }
 #define NOTE(str, hz, dur_ms, burst) \
     { (str), (hz), (dur_ms), 1u, 0u, 0.0f, (burst) }
 
 /* =========================================================================
- * Song 0: Smoke on the Water – alternating E2 + G2 strings (key of E)
- * =========================================================================
- * Requires TUNING_DROP_G2 (string 1 tuned from A2 down to G2).
- *
- * String mapping (Drop G2 tuning):
- *   0 = E2 (82.41 Hz open)    1 = G2 (98.00 Hz open)
- *
- * Riff transposed to E root — same intervals as Song1 (A-root):
- *   root = E2 (fret 0)   m3 = G2 (fret 3 on E2 / fret 0 on G2)
- *   P4   = A2 (fret 5)   tritone = Bb2/As2 (fret 6 on E2 / fret 3 on G2)
- *
- * Notes alternate between str0 (E2) and str1 (G2).
- * str0 (E2) plays: fret 0 (E2), fret 5 (A2), fret 6 (As2/Bb2, tritone).
- * str1 (G2) plays: fret 0 open (G2, the m3) and fret 2 (A2, the P4) in phrase 2 only.
- * Timing matches Song1: 1635ms standard, 1435ms short, 1885ms held.
+ * Song 0: Smoke on the Water – two-string chords (G3 + D3)
  * ========================================================================= */
 static const SongNote_t song0_notes[] = {
 
@@ -104,25 +78,25 @@ static const SongNote_t song0_notes[] = {
      *  done. Longer bursts consume more of the available PI window.      *
      * ────────────────────────────────────────────────────────────────── */
 
-    /* ── Phrase 1: root – m3 – P4 ────────────────────────────────────── */
-    NOTE(0u, E2_HZ,   1635u,  80u),   /* #0  str0 E2 fret 0 (root)      */
-    NOTE(1u, G2_HZ,   1635u,  80u),   /* #1  str1 G2 fret 0 open (m3)   */
-    NOTE(0u, A2_HZ,   1885u,  80u),   /* #2  str0 E2 fret 5 (P4, held)  */
+    /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
+    CHORD(G3_HZ,   D3_HZ,   1363u, 300u),  /* #0  fret 0: cold start burst     */
+    CHORD(As3_HZ,  F3_HZ,   1925u, 250u),  /* #1  fret 3: Bb3 + F3  – whole    */
+    CHORD(C4_HZ,   G3_HZ,   1925u, 250u),  /* #2  fret 5: C4 + G3   – whole    */
 
-    /* ── Phrase 2: root – m3 – tritone – P4 ──────────────────────────── */
-    NOTE(0u, E2_HZ,   1635u,  80u),   /* #3  str0 E2 fret 0 (root)      */
-    NOTE(1u, G2_HZ,   1635u,  80u),   /* #4  str1 G2 fret 0 open (m3)   */
-    NOTE(0u, As2_HZ,  1435u,  80u),   /* #5  str0 E2 fret 6 (tritone, short) */
-    NOTE(1u, A2_HZ,   1885u,  80u),   /* #6  str1 G2 fret 2 (P4, held)      */
+    /* ── Phrase 2: fret 0 – fret 3 (whole), fret 6 – fret 5 (half) ─── */
+    CHORD(G3_HZ,   D3_HZ,   1925u, 250u),  /* #3  fret 0: G3 + D3   – whole    */
+    CHORD(As3_HZ,  F3_HZ,   1925u, 250u),  /* #4  fret 3: Bb3 + F3  – whole    */
+    CHORD(Cs4_HZ,  Gs3_HZ,  1613u, 125u),  /* #5  fret 6: Db4 + Ab3 – half     */
+    CHORD(C4_HZ,   G3_HZ,   1613u, 125u),  /* #6  fret 5: C4  + G3  – half     */
 
-    /* ── Phrase 3: same as phrase 1 ──────────────────────────────────── */
-    NOTE(0u, E2_HZ,   1635u,  80u),   /* #7  str0 E2 fret 0 (root)      */
-    NOTE(1u, G2_HZ,   1635u,  80u),   /* #8  str1 G2 fret 0 (m3)        */
-    NOTE(0u, A2_HZ,   1885u,  80u),   /* #9  str0 E2 fret 5 (P4, held)  */
+    /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
+    CHORD(G3_HZ,   D3_HZ,   1925u, 250u),  /* #7  fret 0: G3 + D3   – whole    */
+    CHORD(As3_HZ,  F3_HZ,   1925u, 250u),  /* #8  fret 3: Bb3 + F3  – whole    */
+    CHORD(C4_HZ,   G3_HZ,   1925u, 250u),  /* #9  fret 5: C4 + G3   – whole    */
 
-    /* ── Phrase 4: m3 – root (ending) ────────────────────────────────── */
-    NOTE(1u, G2_HZ,   1635u,  80u),   /* #10 str1 G2 fret 0 (m3)        */
-    NOTE(0u, E2_HZ,   1885u,  80u),   /* #11 str0 E2 fret 0 (root, end) */
+    /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
+    CHORD(As3_HZ,  F3_HZ,   1925u, 250u),  /* #10 fret 3: Bb3 + F3  – whole    */
+    CHORD(G3_HZ,   D3_HZ,   1925u, 250u),  /* #11 fret 0: G3 + D3   – ending   */
 };
 
 /* =========================================================================
@@ -225,7 +199,6 @@ static uint8_t  s_active        = 0u;
 static uint8_t  s_initialised   = 0u;
 static uint8_t  s_first_tick    = 1u;
 static uint8_t  s_hold_note     = 0u;
-static uint32_t s_scaled_actuate_delay_ms = SONG_ACTUATE_BASE_MS;
 
 /* =========================================================================
  * API implementation
@@ -233,16 +206,11 @@ static uint32_t s_scaled_actuate_delay_ms = SONG_ACTUATE_BASE_MS;
 
 void SongSched_Init(void)
 {
-    /* Pre-compute BPM-scaled durations for the active song.
-     * Burst stays constant; only PI convergence + rest scale with BPM. */
+    /* Pre-compute BPM-scaled durations for the active song */
     for (uint32_t i = 0u; i < s_song_count && i < SONG_MAX_NOTES; i++) {
-        uint16_t burst    = s_song_ptr[i].burst_ms;
-        uint32_t non_burst = s_song_ptr[i].duration_ms - burst;
-        s_scaled_durations[i] = (non_burst * SONG_BPM_REF) / SONG_BPM + burst;
+        s_scaled_durations[i] =
+            (s_song_ptr[i].duration_ms * SONG_BPM_REF) / SONG_BPM;
     }
-
-    /* Scale the solenoid actuate delay (PI convergence budget) */
-    s_scaled_actuate_delay_ms = (SONG_ACTUATE_BASE_MS * SONG_BPM_REF) / SONG_BPM;
 
     s_note_index    = 0u;
     s_note_start_ms = 0u;
@@ -366,9 +334,4 @@ const SongNote_t *SongSched_GetNoteAt(uint32_t idx)
 {
     if (idx >= s_song_count) return NULL;
     return &s_song_ptr[idx];
-}
-
-uint32_t SongSched_GetActuateDelayMs(void)
-{
-    return s_scaled_actuate_delay_ms;
 }

@@ -491,6 +491,181 @@ static void Cal_FitPolynomial(uint8_t str)
            (double)coeff[2]);
 }
 
+static void Cal_FitSemiPolynomial(uint8_t str)
+{
+    if (s_buf_n < 3u) {
+        printf("[CAL-SEMI] str%u: too few samples for semitone fit\r\n",
+               (unsigned)str);
+        return;
+    }
+
+    {
+        float open_f = s_open_freq[TuningCtrl_GetActiveTuning()][str];
+
+        /* Feedforward: steps = a*s^2 + b*s + c */
+        {
+            double S0 = 0.0;
+            double S1 = 0.0;
+            double S2 = 0.0;
+            double S3 = 0.0;
+            double S4 = 0.0;
+            double T0 = 0.0;
+            double T1 = 0.0;
+            double T2 = 0.0;
+            double A[3][4];
+            uint8_t ok = 1u;
+
+            for (uint16_t i = 0u; i < s_buf_n; i++) {
+                double semi = 12.0 * log2((double)s_buf[i].freq / (double)open_f);
+                double y = (double)s_buf[i].steps;
+                double x2 = semi * semi;
+
+                S0 += 1.0;
+                S1 += semi;
+                S2 += x2;
+                S3 += x2 * semi;
+                S4 += x2 * x2;
+                T0 += y;
+                T1 += semi * y;
+                T2 += x2 * y;
+            }
+
+            A[0][0] = S0; A[0][1] = S1; A[0][2] = S2; A[0][3] = T0;
+            A[1][0] = S1; A[1][1] = S2; A[1][2] = S3; A[1][3] = T1;
+            A[2][0] = S2; A[2][1] = S3; A[2][2] = S4; A[2][3] = T2;
+
+            for (int piv = 0; piv < 3; piv++) {
+                int max_row = piv;
+                for (int r = piv + 1; r < 3; r++) {
+                    if (fabs(A[r][piv]) > fabs(A[max_row][piv])) {
+                        max_row = r;
+                    }
+                }
+                for (int c = 0; c < 4; c++) {
+                    double tmp = A[piv][c];
+                    A[piv][c] = A[max_row][c];
+                    A[max_row][c] = tmp;
+                }
+                if (fabs(A[piv][piv]) < 1e-12) {
+                    ok = 0u;
+                    break;
+                }
+                for (int r = piv + 1; r < 3; r++) {
+                    double factor = A[r][piv] / A[piv][piv];
+                    for (int c = piv; c < 4; c++) {
+                        A[r][c] -= factor * A[piv][c];
+                    }
+                }
+            }
+
+            if (ok) {
+                double coeff[3];
+                for (int i = 2; i >= 0; i--) {
+                    coeff[i] = A[i][3];
+                    for (int j = i + 1; j < 3; j++) {
+                        coeff[i] -= A[i][j] * coeff[j];
+                    }
+                    coeff[i] /= A[i][i];
+                }
+
+                tuning_ff_semi_coeff[str][0] = (float)coeff[2];
+                tuning_ff_semi_coeff[str][1] = (float)coeff[1];
+                tuning_ff_semi_coeff[str][2] = (float)coeff[0];
+
+                printf("[CAL-SEMI-FF] str%u: steps = %.4f·s² + %.3f·s + %.3f\r\n",
+                       (unsigned)str,
+                       coeff[2],
+                       coeff[1],
+                       coeff[0]);
+            } else {
+                printf("[CAL-SEMI-FF] str%u: singular — keeping existing\r\n",
+                       (unsigned)str);
+            }
+        }
+
+        /* Plant: semi = a*steps^2 + b*steps + c */
+        {
+            double S0 = 0.0;
+            double S1 = 0.0;
+            double S2 = 0.0;
+            double S3 = 0.0;
+            double S4 = 0.0;
+            double T0 = 0.0;
+            double T1 = 0.0;
+            double T2 = 0.0;
+            double A[3][4];
+            uint8_t ok = 1u;
+
+            for (uint16_t i = 0u; i < s_buf_n; i++) {
+                double x = (double)s_buf[i].steps;
+                double semi = 12.0 * log2((double)s_buf[i].freq / (double)open_f);
+                double x2 = x * x;
+
+                S0 += 1.0;
+                S1 += x;
+                S2 += x2;
+                S3 += x2 * x;
+                S4 += x2 * x2;
+                T0 += semi;
+                T1 += x * semi;
+                T2 += x2 * semi;
+            }
+
+            A[0][0] = S0; A[0][1] = S1; A[0][2] = S2; A[0][3] = T0;
+            A[1][0] = S1; A[1][1] = S2; A[1][2] = S3; A[1][3] = T1;
+            A[2][0] = S2; A[2][1] = S3; A[2][2] = S4; A[2][3] = T2;
+
+            for (int piv = 0; piv < 3; piv++) {
+                int max_row = piv;
+                for (int r = piv + 1; r < 3; r++) {
+                    if (fabs(A[r][piv]) > fabs(A[max_row][piv])) {
+                        max_row = r;
+                    }
+                }
+                for (int c = 0; c < 4; c++) {
+                    double tmp = A[piv][c];
+                    A[piv][c] = A[max_row][c];
+                    A[max_row][c] = tmp;
+                }
+                if (fabs(A[piv][piv]) < 1e-12) {
+                    ok = 0u;
+                    break;
+                }
+                for (int r = piv + 1; r < 3; r++) {
+                    double factor = A[r][piv] / A[piv][piv];
+                    for (int c = piv; c < 4; c++) {
+                        A[r][c] -= factor * A[piv][c];
+                    }
+                }
+            }
+
+            if (ok) {
+                double coeff[3];
+                for (int i = 2; i >= 0; i--) {
+                    coeff[i] = A[i][3];
+                    for (int j = i + 1; j < 3; j++) {
+                        coeff[i] -= A[i][j] * coeff[j];
+                    }
+                    coeff[i] /= A[i][i];
+                }
+
+                tuning_plant_coeff[str][0] = (float)coeff[2];
+                tuning_plant_coeff[str][1] = (float)coeff[1];
+                tuning_plant_coeff[str][2] = (float)coeff[0];
+
+                printf("[CAL-SEMI-PLANT] str%u: semi = %.4e·s² + %.4e·s + %.4f\r\n",
+                       (unsigned)str,
+                       coeff[2],
+                       coeff[1],
+                       coeff[0]);
+            } else {
+                printf("[CAL-SEMI-PLANT] str%u: singular — keeping existing\r\n",
+                       (unsigned)str);
+            }
+        }
+    }
+}
+
 /* =========================================================================
  * Persistent storage
  * ========================================================================= */
@@ -510,6 +685,9 @@ static void Cal_SaveToSRAM(void)
         p->poly_b[i] = cal_poly_coeff[i][1];
         p->poly_c[i] = cal_poly_coeff[i][2];
     }
+
+    memcpy(p->semi_ff, tuning_ff_semi_coeff, sizeof(tuning_ff_semi_coeff));
+    memcpy(p->semi_plant, tuning_plant_coeff, sizeof(tuning_plant_coeff));
 
     __DSB();
     p->checksum = CalChecksum(p);
@@ -589,6 +767,7 @@ void Cal_FitFromBaseLUT(void)
             s_buf[i].measured_freq = tuning_ff_freq_bp[str][i];
         }
         Cal_FitPolynomial(str);
+        Cal_FitSemiPolynomial(str);
     }
 
     s_buf_n = 0u;

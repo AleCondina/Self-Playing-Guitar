@@ -24,7 +24,6 @@
 #include "calibration_controller.h"
 #include "lut_builder.h"
 #include "song_scheduler.h"
-#include "double_string.h"
 #include "shared_memory.h"
 #include "stm32h755xx.h"
 #include "stm32h7xx_hal.h"
@@ -307,7 +306,6 @@ void App_CM7_Main(void) {
                     if (s_request_play) {
                         uint8_t sid = s_request_play_song_id;
                         s_request_play = 0u;
-                        TuningCtrl_SetDualTrackMode(0u);
                         TuningCtrl_ResetAll();
                         SongSched_InitSong(sid);
                     }
@@ -334,11 +332,7 @@ void App_CM7_Main(void) {
 #endif
 
                     /* --- Song scheduler tick --- */
-                    if (DblString_IsActive()) {
-                        DblString_Tick(HAL_GetTick());
-                    } else {
-                        SongSched_Tick(HAL_GetTick());
-                    }
+                    SongSched_Tick(HAL_GetTick());
 
                     /* --- Tuning control hop ---
                      * Reads FFT results and song scheduler state,
@@ -400,13 +394,7 @@ void App_CM7_Main(void) {
                        (unsigned long)proc_max_us);
                 proc_max_us = 0;  /* Reset peak after reporting */
             }
-            if (app_state == STATE_RUNNING && DblString_IsActive()) {
-                printf("[CM7] DualTrack note %lu/%lu @ %lu BPM | CM4 loop %lu Hz\r\n",
-                       (unsigned long)DblString_GetNoteIndex(),
-                       (unsigned long)DblString_GetNoteCount(),
-                       (unsigned long)DblString_GetBpm(),
-                       (unsigned long)g_shared_memory.cm4_loop_hz);
-            } else if (app_state == STATE_RUNNING && SongSched_IsActive()) {
+            if (app_state == STATE_RUNNING && SongSched_IsActive()) {
                 printf("[CM7] Song note %lu/%lu | CM4 loop %lu Hz\r\n",
                        (unsigned long)SongSched_GetNoteIndex(),
                        (unsigned long)SongSched_GetNoteCount(),
@@ -439,11 +427,6 @@ void App_RequestPlaySong(uint8_t song_id)
 {
     s_request_play_song_id = song_id;
     s_request_play = 1u;
-}
-
-void App_RequestPlayDual(void)
-{
-    s_request_play_dual = 1u;
 }
 
 void App_RequestLutBuild(uint8_t string_mask)
