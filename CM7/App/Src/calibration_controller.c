@@ -1708,19 +1708,18 @@ void Cal_TuneHop(void)
  * Iterative transition calibration
  *
  * Runs fret-to-fret jumps from the Smoke on Water song repeatedly until
- * the measured delta converges (last 2 agree within ±TRANSCAL_CONVERGE_STEPS).
- * After convergence a confirmation pass verifies the delta from a clean
- * from-fret lock.
+ * a required cluster of strong landing deltas agrees within the configured
+ * spread threshold. After that cluster is collected, a confirmation pass
+ * verifies the averaged delta from a clean from-fret lock.
  * ========================================================================= */
 
 /* Transition calibration parameters */
-#define TRANSCAL_MAX_ITERS       10u    /* Maximum passes per transition       */
-#define TRANSCAL_CONVERGE_STEPS  40.0f  /* Stop if last 2 agree within this   */
+#define TRANSCAL_MAX_ITERS       10u    /* Warning threshold; keep iterating   */
 #define TRANSCAL_MOTOR_SPEED     20000  /* Same speed as song playback        */
 #define TRANSCAL_SETTLE_HOPS     3u     /* Hops to wait after motor move      */
 #define TRANSCAL_LOCK_TIMEOUT    30u    /* Max hops for PI to lock            */
 #define TRANSCAL_FINAL_TUNE_MAX_RETRIES 4u /* Final open retune attempts      */
-#define TRANSCAL_MIN_GOOD_HITS   3u     /* Good landings needed for fast accept */
+#define TRANSCAL_MIN_GOOD_HITS   4u     /* Required clustered strong hits     */
 #define TRANSCAL_FAST_ACCEPT_STEPS 30.0f /* Max spread across clustered hits   */
 
 /* Magnitude-based hit confirmation for jump landing and final confirmation */
@@ -1849,7 +1848,6 @@ static uint8_t     s_tc_str            = 0u;
 static uint8_t     s_tc_transition_idx = 0u;
 static uint8_t     s_tc_iter           = 0u;
 static int32_t     s_tc_start_pos      = 0;
-static float       s_tc_prev_delta     = 0.0f;
 static uint8_t     s_tc_converged      = 0u;
 static float       s_tc_converged_avg  = 0.0f;
 static int32_t     s_tc_confirm_start  = 0;
@@ -2271,12 +2269,10 @@ void Cal_StartTransitionCal(uint8_t string_mask)
     printf("[TRANSCAL] ================================================\r\n");
     printf("[TRANSCAL] Transition calibration started — mask 0x%02X\r\n",
            (unsigned)s_tc_string_mask);
-    printf("[TRANSCAL] %u transitions, max %u iterations each\r\n",
+    printf("[TRANSCAL] %u transitions, warning after %u iterations each\r\n",
            (unsigned)SMOKE_TRANSITION_COUNT,
            (unsigned)TRANSCAL_MAX_ITERS);
-    printf("[TRANSCAL] Convergence threshold: +/-%.0f steps\r\n",
-           (double)TRANSCAL_CONVERGE_STEPS);
-    printf("[TRANSCAL] Fast accept: %u good hits clustered within %.0f steps\r\n",
+    printf("[TRANSCAL] Require %u clustered good hits within %.0f steps before confirm\r\n",
            (unsigned)TRANSCAL_MIN_GOOD_HITS,
            (double)TRANSCAL_FAST_ACCEPT_STEPS);
     printf("[TRANSCAL] Existing transition seeds are retained when available.\r\n");
@@ -2336,7 +2332,6 @@ void Cal_TransitionCalHop(void)
 
         s_tc_iter      = 0u;
         s_tc_converged = 0u;
-        s_tc_prev_delta = 0.0f;
         s_tc_cmd_delta  = 0.0f;
         s_tc_last_jump_hit  = 0u;
         s_tc_last_jump_mag  = 0.0f;
@@ -2371,13 +2366,12 @@ void Cal_TransitionCalHop(void)
         s_tc_target_freq = CalTargetFreq(s_tc_str, from);
         s_tc_target_fret = from;
 
-        printf("[TRANSCAL] str%u: moving to fret %u (pos %ld, %.2f Hz) iter %u/%u\r\n",
+        printf("[TRANSCAL] str%u: moving to fret %u (pos %ld, %.2f Hz) pass %u\r\n",
                (unsigned)s_tc_str,
                (unsigned)from,
                (long)target_pos,
                (double)s_tc_target_freq,
-               (unsigned)(s_tc_iter + 1u),
-               (unsigned)TRANSCAL_MAX_ITERS);
+               (unsigned)(s_tc_iter + 1u));
 
         InterCore_SendMotorGoto(s_tc_str, target_pos);
         s_tc_phase = TC_PHASE_WAIT_MOVE;
@@ -2553,6 +2547,8 @@ void Cal_TransitionCalHop(void)
 
         if (s_tc_last_jump_hit) {
             TcPushGoodHitDelta(actual_delta);
+        } else {
+            TcResetGoodHitWindow();
         }
 
         printf("[TRANSCAL] str%u fret%u->%u iter%u: delta=%.0f est=%.0f (n=%u%s)\r\n",
@@ -2577,15 +2573,7 @@ void Cal_TransitionCalHop(void)
                    (double)s_tc_last_jump_mag,
                    (double)s_tc_last_jump_freq);
             s_tc_phase = TC_PHASE_CONFIRM_GOTO;
-        } else if (s_tc_iter > 0u &&
-            fabsf(actual_delta - s_tc_prev_delta) <= TRANSCAL_CONVERGE_STEPS) {
-            s_tc_converged     = 1u;
-            s_tc_converged_avg = avg;
-            printf("[TRANSCAL] Converged! delta=%.0f steps — running confirmation...\r\n",
-                   (double)avg);
-            s_tc_phase = TC_PHASE_CONFIRM_GOTO;
         } else {
-            s_tc_prev_delta = actual_delta;
             s_tc_phase = TC_PHASE_NEXT;
         }
         break;
@@ -2786,23 +2774,24 @@ void Cal_TransitionCalHop(void)
     /* ---- NEXT: advance iteration or transition ---- */
     case TC_PHASE_NEXT:
     {
-        s_tc_iter++;
+        if (s_tc_iter < 0xFFu) {
+            s_tc_iter++;
+        }
 
-        if (s_tc_iter >= TRANSCAL_MAX_ITERS) {
+        if (s_tc_iter == TRANSCAL_MAX_ITERS) {
             uint8_t from = s_smoke_transitions[s_tc_transition_idx].from_fret;
             uint8_t to   = s_smoke_transitions[s_tc_transition_idx].to_fret;
             float avg = s_transition_delta[s_tc_str][from][to];
 
-            printf("[TRANSCAL] WARNING: max iterations reached for fret%u->%u "
-                   "(best avg=%.0f) — using anyway\r\n",
-                   (unsigned)from, (unsigned)to, (double)avg);
-
-            s_tc_transition_idx++;
-            s_tc_phase = TC_PHASE_INIT;
-        } else {
-            /* Continue iterating */
-            s_tc_phase = TC_PHASE_GOTO_FROM;
+            printf("[TRANSCAL] WARNING: %u passes reached for fret%u->%u "
+                   "(best avg=%.0f) — continuing until %u clustered hits confirm\r\n",
+                   (unsigned)TRANSCAL_MAX_ITERS,
+                   (unsigned)from, (unsigned)to, (double)avg,
+                   (unsigned)TRANSCAL_MIN_GOOD_HITS);
         }
+
+        /* Continue iterating until the required clustered-hit confirmation occurs. */
+        s_tc_phase = TC_PHASE_GOTO_FROM;
         break;
     }
 
