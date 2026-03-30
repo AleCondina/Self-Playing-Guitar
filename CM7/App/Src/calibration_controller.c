@@ -238,7 +238,7 @@ static const TransitionSeedInit_t s_transition_seed_defaults[] = {
     { 0u, 3u, 5u, 1342.0f },
     { 0u, 3u, 6u, 2154.0f },
     { 0u, 6u, 5u, -812.0f },
-    { 0u, 5u, 0u, -2905.1f },
+    { 0u, 5u, 0u, -2905.0f },
     { 0u, 5u, 3u, -1342.0f },
     { 0u, 3u, 0u, -1841.0f },
     /* str1 (A2) */
