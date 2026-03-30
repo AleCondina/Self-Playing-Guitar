@@ -414,11 +414,17 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
         int32_t max_accel = motor_configs[i].max_accel > 0 ?
                            motor_configs[i].max_accel : MOTOR_MAX_ACCEL;
 
-        /* Position control mode: P controller with braking distance check
-         * The P controller (gain=10) sets the target speed proportional to
-         * the distance remaining. A braking check prevents overshoot by
-         * comparing stopping distance (v²/2a) against remaining distance.
-         * When the motor can't stop in time, it decelerates to 0. */
+        /* Position control mode: trapezoidal velocity profile.
+         *
+         * Accel phase : target_speed = ±max_speed → accel limiter ramps up.
+         * Cruise phase: target_speed = ±max_speed → speed held at max.
+         * Decel phase : when stop_dist >= remaining → target_speed = 0,
+         *               accel limiter ramps down symmetrically.
+         *
+         * stop_dist = v² / (2 * max_accel) — distance needed to decelerate
+         * from current speed to 0 at max_accel.  Commanding 0 early enough
+         * lets the accel limiter naturally decelerate and land at the target.
+         */
         if (position_mode[i]) {
             int32_t position_error = target_positions[i] - states[i].position;
             int32_t abs_error = (position_error >= 0) ? position_error : -position_error;
@@ -435,20 +441,11 @@ void Motor_Update(MotorState_t states[NUM_MOTORS])
                                     / (2 * max_accel));
 
                 if (abs_error == 0 || stop_dist >= abs_error) {
-                    /* At target or can't stop in time — decelerate */
+                    /* Decel phase: command 0, accel limiter handles the ramp */
                     states[i].target_speed = 0;
                 } else {
-                    /* P controller: accelerate toward target */
-                    int32_t desired_speed = position_error * 10; /* P gain = 10 */
-
-                    /* Clamp to motor's maximum speed */
-                    if (desired_speed > max_speed) {
-                        desired_speed = max_speed;
-                    } else if (desired_speed < -max_speed) {
-                        desired_speed = -max_speed;
-                    }
-
-                    states[i].target_speed = desired_speed;
+                    /* Accel / cruise phase: command full speed toward target */
+                    states[i].target_speed = (position_error > 0) ? max_speed : -max_speed;
                 }
             }
         }
