@@ -221,8 +221,10 @@
 
 
 //Moving to Flash
-#define CAL_FLASH_ADDR   ((uint32_t)0x080E0000)
+//#define CAL_FLASH_ADDR   ((uint32_t)0x080E0000)
+#define CAL_FLASH_ADDR 0x081E0000
 #define CAL_FLASH_SECTOR FLASH_SECTOR_7
+#define CAL_PERSIST_SIZE ((sizeof(CalPersist_t) + 31) & ~31)
 
 /* Open-string frequencies (Hz). Order: E2 A2 D3 G3 B3 E4. */
 static const float s_open_freq[NUM_STRINGS] = {
@@ -260,18 +262,20 @@ static uint8_t Tune_ClearOffsetsMask(uint8_t string_mask);
  * Persistent storage layout
  * ========================================================================= */
 
-typedef struct {
+typedef struct __attribute__((aligned(32))) {
     uint32_t magic;
     float    ff_freq [NUM_STRINGS][TUNING_FF_NUM_POINTS];
     float    ff_steps[NUM_STRINGS][TUNING_FF_NUM_POINTS];
     float    poly_a  [NUM_STRINGS];
     float    poly_b  [NUM_STRINGS];
     float    poly_c  [NUM_STRINGS];
-    /* Semitone-domain coefficients (added for v2 controller) */
-    float    semi_ff  [NUM_STRINGS][3];   /**< tuning_ff_semi_coeff[str][a,b,c] */
-    float    semi_plant[NUM_STRINGS][3];  /**< tuning_plant_coeff[str][a,b,c]   */
+
+    /* Semitone-domain coefficients */
+    float    semi_ff  [NUM_STRINGS][3];
+    float    semi_plant[NUM_STRINGS][3];
+
     uint32_t checksum;
-} __attribute__((packed)) CalPersist_t;
+} CalPersist_t;
 
 /* =========================================================================
  * Public polynomial coefficients
@@ -458,11 +462,17 @@ static float Cal_PluckConsensus(const float *buf, uint8_t n, float nominal_freq)
     return best_sum / (float)best_cnt;
 }
 
-static uint32_t CalChecksum(const CalPersist_t *p){
-    const uint32_t *w         = (const uint32_t *)p;
-    uint32_t        size_words = (sizeof(CalPersist_t) / sizeof(uint32_t)) - 2u;
-    uint32_t        csum       = 0u;
-    for (uint32_t i = 1u; i <= size_words; i++) csum ^= w[i];
+uint32_t CalChecksum(const CalPersist_t *p)
+{
+    const uint8_t *start = (const uint8_t *)p;
+    const uint8_t *end   = (const uint8_t *)&p->checksum;
+
+    uint32_t csum = 0;
+
+    while (start < end) {
+        csum ^= *start++;
+    }
+
     return csum;
 }
 
@@ -757,17 +767,23 @@ static void Cal_FitSemiPolynomial(uint8_t str)
 static void Cal_SaveToFlash(void)
 {
 
+
+    uint32_t primask = __get_PRIMASK();
+__disable_irq();
+
     if (sizeof(CalPersist_t) > 128 * 1024) {
         printf("[CAL] ERROR: struct too large for sector\n");
+        if (!primask) __enable_irq();
         return;
     }
+  
 
 
     HAL_FLASH_Unlock();
 
     FLASH_EraseInitTypeDef erase;
     uint32_t error;
-
+    erase.Banks = FLASH_BANK_2;
     erase.TypeErase    = FLASH_TYPEERASE_SECTORS;
     erase.Sector       = CAL_FLASH_SECTOR;
     erase.NbSectors    = 1;
@@ -780,6 +796,7 @@ static void Cal_SaveToFlash(void)
     }
 
     CalPersist_t temp __attribute__((aligned(32)));
+    memset(&temp, 0, sizeof(temp));
 
     temp.magic = CAL_PERSIST_MAGIC;
 
@@ -797,11 +814,13 @@ static void Cal_SaveToFlash(void)
 
     temp.checksum = CalChecksum(&temp);
 
-
+SCB_CleanDCache_by_Addr((uint32_t*)&temp, sizeof(temp));
+__DSB();
+__ISB();
 uint8_t *src = (uint8_t*)&temp;
 uint32_t addr = CAL_FLASH_ADDR;
 
-for (uint32_t i = 0; i < sizeof(CalPersist_t); i += 32) {
+for (uint32_t i = 0; i < CAL_PERSIST_SIZE; i += 32) {
     if (HAL_FLASH_Program(FLASH_TYPEPROGRAM_FLASHWORD,
                           addr,
                           (uint32_t)(src + i)) != HAL_OK) {
@@ -810,11 +829,30 @@ for (uint32_t i = 0; i < sizeof(CalPersist_t); i += 32) {
     }
     addr += 32;
 }
+volatile uint32_t *flash_check = (volatile uint32_t*)CAL_FLASH_ADDR;
+uint32_t *src_check = (uint32_t*)&temp;
 
-SCB_CleanDCache();
-SCB_InvalidateDCache();
+for (uint32_t i = 0; i < CAL_PERSIST_SIZE/4; i++) {
+    if (flash_check[i] != src_check[i]) {
+        printf("[CAL] VERIFY FAIL at word %lu (flash=0x%08lX, expected=0x%08lX)\n",
+               i,
+               (unsigned long)flash_check[i],
+               (unsigned long)src_check[i]);
+        break;
+    }
+}
+printf("[CAL] VERIFY DONE\n");
+
+
+SCB_CleanDCache_by_Addr((uint32_t*)&temp, sizeof(temp));
+
+__DSB();
+__ISB();
 
     HAL_FLASH_Lock();
+    if (!primask) {
+    __enable_irq();
+}
 
     printf("[CAL] Saved to FLASH @ 0x%08lX\n", (unsigned long)CAL_FLASH_ADDR);
 }
@@ -823,62 +861,64 @@ SCB_InvalidateDCache();
 
 
 uint8_t Cal_LoadFromFlash(void){
-    
 
-   const CalPersist_t *p = (const CalPersist_t *)CAL_FLASH_ADDR;
+    while (__HAL_FLASH_GET_FLAG(FLASH_FLAG_BSY)) {}
+    __DSB();
+    __ISB();
 
+    SCB_InvalidateDCache_by_Addr((uint32_t*)CAL_FLASH_ADDR, CAL_PERSIST_SIZE);
+
+    static CalPersist_t shadow __attribute__((aligned(32)));
+
+    memset(&shadow, 0, sizeof(shadow));
+
+    printf("[DEBUG] BEFORE COPY\r\n");
+
+    volatile uint32_t *flash_ptr = (volatile uint32_t*)CAL_FLASH_ADDR;
+    uint32_t *dst_ptr = (uint32_t*)&shadow;
+
+    for (uint32_t i = 0; i < CAL_PERSIST_SIZE / 4; i++) {
+        dst_ptr[i] = flash_ptr[i];
+    }
+
+    __DSB();
+    __ISB();
+
+    SCB_CleanDCache_by_Addr((uint32_t*)&shadow, sizeof(shadow));
+    SCB_InvalidateDCache_by_Addr((uint32_t*)&shadow, sizeof(shadow));
+
+    printf("[DEBUG] AFTER COPY\r\n");
+
+    const CalPersist_t *p = &shadow;
+printf("Stored:   0x%08lX\n", p->checksum);
+printf("Computed: 0x%08lX\n", CalChecksum(p));
+    printf("[DEBUG] MAGIC READ = 0x%08lX\r\n", (unsigned long)p->magic);
     if (p->magic != CAL_PERSIST_MAGIC) {
-        printf("[CAL] No stored calibration (magic 0x%08lX)\r\n",
-               (unsigned long)p->magic);
-        return 0u;
-    }
+    printf("[CAL] Invalid magic\n");
+    return 0;
+}
 
-    uint32_t expected = CalChecksum(p);
-    if (p->checksum != expected) {
-        printf("[CAL] Checksum mismatch (got 0x%08lX expected 0x%08lX) — ignored\r\n",
-               (unsigned long)p->checksum, (unsigned long)expected);
+if (p->checksum != CalChecksum(p)) {
+    printf("[CAL] Checksum mismatch\n");
+    return 0;
+}
 
-        /* Dump raw words to find which one is corrupted */
-        const uint32_t *w = (const uint32_t *)p;
-        uint32_t nwords = sizeof(CalPersist_t) / sizeof(uint32_t);
-        for (uint32_t i = 0u; i < nwords; i++) {
-            printf("  w[%lu]=0x%08lX\r\n", (unsigned long)i, (unsigned long)w[i]);
-        }
+/* Copy back into runtime */
+memcpy(tuning_ff_freq_bp,  p->ff_freq,  sizeof(p->ff_freq));
+memcpy(tuning_ff_steps_bp, p->ff_steps, sizeof(p->ff_steps));
 
-        return 0u;
-    }
+for (uint8_t i = 0; i < NUM_STRINGS; i++) {
+    cal_poly_coeff[i][0] = p->poly_a[i];
+    cal_poly_coeff[i][1] = p->poly_b[i];
+    cal_poly_coeff[i][2] = p->poly_c[i];
+}
 
-    memcpy(tuning_ff_freq_bp,  p->ff_freq,  sizeof(tuning_ff_freq_bp));
-    memcpy(tuning_ff_steps_bp, p->ff_steps, sizeof(tuning_ff_steps_bp));
+memcpy(tuning_ff_semi_coeff, p->semi_ff, sizeof(p->semi_ff));
+memcpy(tuning_plant_coeff,   p->semi_plant, sizeof(p->semi_plant));
 
-    for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
-        cal_poly_coeff[i][0] = p->poly_a[i];
-        cal_poly_coeff[i][1] = p->poly_b[i];
-        cal_poly_coeff[i][2] = p->poly_c[i];
-    }
+printf("[CAL] Loaded from FLASH\n");
 
-    /* Semitone-domain coefficients — check for non-zero to detect old SRAM
-     * layouts that don't have these fields (they'd read as all-zero). */
-    {
-        uint8_t has_semi = 0u;
-        for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
-            if (p->semi_ff[i][0] != 0.0f || p->semi_ff[i][1] != 0.0f ||
-                p->semi_ff[i][2] != 0.0f) {
-                has_semi = 1u;
-                break;
-            }
-        }
-        if (has_semi) {
-            memcpy(tuning_ff_semi_coeff, p->semi_ff,    sizeof(tuning_ff_semi_coeff));
-            memcpy(tuning_plant_coeff,   p->semi_plant, sizeof(tuning_plant_coeff));
-            printf("[CAL] Semitone-domain coefficients restored.\r\n");
-        } else {
-            printf("[CAL] No semitone coefficients in FLASH — using defaults.\r\n");
-        }
-    }
-
-    printf("[CAL] Calibration restored from FLASH.\r\n");
-    return 1u;
+return 1;
 }
 
 /* =========================================================================

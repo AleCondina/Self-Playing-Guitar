@@ -113,18 +113,33 @@ void App_CM7_Main(void) {
 
         Debug_UART_StartRx();
         SerialCmd_Init();
+
+        Debug_UART_ResetRx();   
+
+
+        printf("IRQ STATE: %lu\n", __get_PRIMASK());
         printf("\r\nType 'help' for commands.\r\n> ");
 
         /* Initialize FFT Processing */
         printf("[CM7] Initializing FFT engine...\r\n");
         FFT_Init();
+        printf("[CM7]FFT done\r\n");
 
         /* Restore calibration LUT + polynomial from backup SRAM (VBAT-backed) */
         if (Cal_LoadFromFlash()) {
-            printf("[CM7] Calibration restored from backup SRAM.\r\n");
+            printf("[CM7]Flash loaded\r\n");
+
+            for (uint8_t str = 0; str < NUM_STRINGS; str++) {
+    printf("[CAL-POLY] str%u: a=%.3f b=%.4f c=%.6f\r\n",
+           str,
+           cal_poly_coeff[str][0],
+           cal_poly_coeff[str][1],
+           cal_poly_coeff[str][2]);
+}
+            printf("[CM7] Calibration restored from Flash.\r\n");
         } else {
             Cal_FitFromBaseLUT();
-            printf("[CM7] No SRAM calibration — polynomial seeded from base LUT.\r\n");
+            printf("[CM7] No Flash calibration — polynomial seeded from base LUT.\r\n");
         }
 
         /* Restore tune offsets from backup SRAM */
