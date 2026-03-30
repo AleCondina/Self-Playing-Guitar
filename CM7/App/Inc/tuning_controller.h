@@ -64,14 +64,15 @@ extern "C" {
 #define TUNING_DELAY_FRAMES     3u
 
 /**
- * @brief Master switch for song-playback PI trim.
+ * @brief Default boot state for song-playback PI trim.
  *
- * 1 = normal closed-loop feed-forward + PI playback.
- * 0 = LUT/transition-seed only; no PI trim is applied to motor commands.
+ * The PI controller can be toggled at runtime with the `enablePI` serial
+ * command. Relative transition-seeded feed-forward stays enabled either way.
  *
- * Keep this at 0 while commissioning raw transition/LUT behavior.
+ * 1 = boot with transcal relative jumps + PI enabled.
+ * 0 = boot with transcal relative jumps only.
  */
-#define TUNING_PI_SWITCH        0u
+#define TUNING_PI_ENABLED_DEFAULT  0u
 
 /* =========================================================================
  * Song playback mode parameters
@@ -139,6 +140,7 @@ extern "C" {
  * A short initial burst gives the string enough energy to sustain
  * through the first note while the motor settles.
  */
+#define SONG_USE_COLD_START_BURST   0u
 #define SONG_INITIAL_PLUCK_MS        35u
 
 /**
@@ -340,6 +342,20 @@ void TuningCtrl_Update(uint8_t string_id,
                        float   target_freq_hz,
                        float   measured_freq_hz,
                        float   confidence);
+
+/**
+ * @brief Enable or disable song-playback PI trim at runtime.
+ *
+ * Relative transition/LUT feed-forward remains active in both modes.
+ *
+ * @param enable  1 = transcal relative jumps + PI, 0 = transcal relative jumps only
+ */
+void TuningCtrl_SetPiEnabled(uint8_t enable);
+
+/**
+ * @brief Return whether song-playback PI trim is currently enabled.
+ */
+uint8_t TuningCtrl_GetPiEnabled(void);
 
 /**
  * @brief  Get the most recently computed absolute motor step command.

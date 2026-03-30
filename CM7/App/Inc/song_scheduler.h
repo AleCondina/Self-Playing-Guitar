@@ -121,6 +121,14 @@ uint8_t SongSched_IsActive(void);
 void SongSched_Restart(void);
 
 /**
+ * @brief Stop the current song immediately.
+ *
+ * Clears the active flag and resets the note cursor so a later
+ * SongSched_InitSong() starts again from note 0.
+ */
+void SongSched_Stop(void);
+
+/**
  * @brief Return total number of notes in the current song.
  */
 uint32_t SongSched_GetNoteCount(void);

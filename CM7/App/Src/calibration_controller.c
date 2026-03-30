@@ -191,6 +191,13 @@ typedef struct {
     float measured_freq; /**< Last locked FFT frequency (diagnostic only)  */
 } CalPoint_t;
 
+typedef struct {
+    uint8_t string_id;
+    uint8_t from_fret;
+    uint8_t to_fret;
+    float   delta_steps;
+} TransitionSeedInit_t;
+
 static CalPhase_t  s_phase         = CAL_PHASE_IDLE;
 static CalStatus_t s_status        = CAL_STATUS_IDLE;
 static uint8_t     s_string_mask   = 0u;
@@ -214,6 +221,36 @@ static float       s_transition_delta[NUM_STRINGS][CAL_NUM_FRETS][CAL_NUM_FRETS]
 static uint8_t     s_transition_valid[NUM_STRINGS][CAL_NUM_FRETS][CAL_NUM_FRETS] = {{{0}}};
 static uint8_t     s_transition_samples[NUM_STRINGS][CAL_NUM_FRETS][CAL_NUM_FRETS] = {{{0}}};
 static uint8_t     s_open_manual_seed_pending = 0u;
+
+/* Optional hardcoded transition seeds.
+ * Paste measured transcal values here when you want a code-side fallback
+ * before any backup-SRAM values are restored.
+ *
+ * Format:
+ *   { string_id, from_fret, to_fret, delta_steps }
+ *
+ * Example:
+ *   { 1u, 0u, 3u, 2370.0f },
+ */
+static const TransitionSeedInit_t s_transition_seed_defaults[] = {
+    /* str0 (E2) */
+    { 0u, 0u, 3u, 1841.0f },
+    { 0u, 3u, 5u, 1342.0f },
+    { 0u, 3u, 6u, 2154.0f },
+    { 0u, 6u, 5u, -812.0f },
+    { 0u, 5u, 0u, -2905.1f },
+    { 0u, 5u, 3u, -1342.0f },
+    { 0u, 3u, 0u, -1841.0f },
+    /* str1 (A2) */
+    { 1u, 0u, 3u, 2315.0f },
+    { 1u, 3u, 5u, 1949.0f },
+    { 1u, 3u, 6u, 3158.0f },
+    { 1u, 6u, 5u, -1209.0f },
+    { 1u, 5u, 0u, -4747.0f },
+    { 1u, 5u, 3u, -2245.0f },
+    { 1u, 3u, 0u, -2643.0f },
+    { 0xFFu, 0u, 0u, 0.0f }  /* Sentinel: replace or append real seeds above */
+};
 
 /* =========================================================================
  * Shared helpers
@@ -312,6 +349,38 @@ static void Cal_EnableBkpSRAM(void)
 static uint8_t CalStringHasSolenoid(uint8_t str)
 {
     return (str <= 2u) ? 1u : 0u;
+}
+
+static void Cal_LoadCodeTransitionSeeds(void)
+{
+    uint16_t loaded = 0u;
+
+    memset(s_transition_delta,   0, sizeof(s_transition_delta));
+    memset(s_transition_valid,   0, sizeof(s_transition_valid));
+    memset(s_transition_samples, 0, sizeof(s_transition_samples));
+
+    for (uint32_t i = 0u;
+         i < (uint32_t)(sizeof(s_transition_seed_defaults) / sizeof(s_transition_seed_defaults[0]));
+         i++) {
+        const TransitionSeedInit_t *seed = &s_transition_seed_defaults[i];
+
+        if (seed->string_id >= NUM_STRINGS ||
+            seed->from_fret >= CAL_NUM_FRETS ||
+            seed->to_fret   >= CAL_NUM_FRETS ||
+            seed->from_fret == seed->to_fret) {
+            continue;
+        }
+
+        s_transition_delta[seed->string_id][seed->from_fret][seed->to_fret] =
+            seed->delta_steps;
+        s_transition_valid[seed->string_id][seed->from_fret][seed->to_fret] = 1u;
+        loaded++;
+    }
+
+    if (loaded > 0u) {
+        printf("[CAL] Loaded %u transition seed(s) from code defaults.\r\n",
+               (unsigned)loaded);
+    }
 }
 
 static float CalTargetFreq(uint8_t str, uint8_t fret)
@@ -715,6 +784,10 @@ static void Cal_SaveToSRAM(void)
 
 uint8_t Cal_LoadFromSRAM(void)
 {
+    /* Seed transition deltas from code first so they are available when
+     * backup SRAM is empty or invalid. A valid SRAM payload overrides them. */
+    Cal_LoadCodeTransitionSeeds();
+
     Cal_EnableBkpSRAM();
 
     const CalPersist_t *p = (const CalPersist_t *)CAL_BKPSRAM_BASE;
@@ -1646,6 +1719,7 @@ void Cal_TuneHop(void)
 #define TRANSCAL_MOTOR_SPEED     20000  /* Same speed as song playback        */
 #define TRANSCAL_SETTLE_HOPS     3u     /* Hops to wait after motor move      */
 #define TRANSCAL_LOCK_TIMEOUT    30u    /* Max hops for PI to lock            */
+#define TRANSCAL_FINAL_TUNE_MAX_RETRIES 4u /* Final open retune attempts      */
 #define TRANSCAL_MIN_GOOD_HITS   3u     /* Good landings needed for fast accept */
 #define TRANSCAL_FAST_ACCEPT_STEPS 30.0f /* Max spread across clustered hits   */
 
@@ -1673,6 +1747,60 @@ static const TransitionPair_t s_smoke_transitions[] = {
 };
 #define SMOKE_TRANSITION_COUNT \
     ((uint8_t)(sizeof(s_smoke_transitions) / sizeof(s_smoke_transitions[0])))
+
+static void Cal_PrintTransitionSeedDump(uint8_t string_mask, uint8_t include_missing)
+{
+    printf("[TRANSCAL-SEED] Pasteable transition seed lines:\r\n");
+
+    for (uint8_t str = 0u; str < NUM_STRINGS; str++) {
+        uint8_t printed_any = 0u;
+
+        if (((string_mask >> str) & 1u) == 0u) {
+            continue;
+        }
+
+        for (uint8_t i = 0u; i < SMOKE_TRANSITION_COUNT; i++) {
+            uint8_t from = s_smoke_transitions[i].from_fret;
+            uint8_t to   = s_smoke_transitions[i].to_fret;
+
+            if (s_transition_valid[str][from][to]) {
+                if (!printed_any) {
+                    printf("[TRANSCAL-SEED] /* str%u (%s) */\r\n",
+                           (unsigned)str,
+                           s_string_names[TuningCtrl_GetActiveTuning()][str]);
+                    printed_any = 1u;
+                }
+
+                printf("[TRANSCAL-SEED] { %uu, %uu, %uu, %.1ff },  "
+                       "/* str%u %u->%u = %.0f steps */\r\n",
+                       (unsigned)str,
+                       (unsigned)from,
+                       (unsigned)to,
+                       (double)s_transition_delta[str][from][to],
+                       (unsigned)str,
+                       (unsigned)from,
+                       (unsigned)to,
+                       (double)s_transition_delta[str][from][to]);
+            } else if (include_missing) {
+                if (!printed_any) {
+                    printf("[TRANSCAL-SEED] /* str%u (%s) */\r\n",
+                           (unsigned)str,
+                           s_string_names[TuningCtrl_GetActiveTuning()][str]);
+                    printed_any = 1u;
+                }
+
+                printf("[TRANSCAL-SEED] /* missing */ "
+                       "{ %uu, %uu, %uu, 0.0f },  /* str%u %u->%u */\r\n",
+                       (unsigned)str,
+                       (unsigned)from,
+                       (unsigned)to,
+                       (unsigned)str,
+                       (unsigned)from,
+                       (unsigned)to);
+            }
+        }
+    }
+}
 
 /* Transition calibration state machine phases */
 typedef enum {
@@ -1702,6 +1830,11 @@ typedef enum {
     TC_PHASE_CONFIRM_EXCITE_TO, /* Excite at to_fret                    */
     TC_PHASE_CONFIRM_BURST_RE2, /* Re-enable FFT                        */
     TC_PHASE_CONFIRM_LOCK_TO,   /* PI lock at to_fret, verify           */
+    TC_PHASE_RETURN_OPEN_GOTO,  /* Move back to open fret               */
+    TC_PHASE_RETURN_OPEN_WAIT,  /* Wait for final open move             */
+    TC_PHASE_RETURN_OPEN_EXCITE,/* Excite open string for final verify  */
+    TC_PHASE_RETURN_OPEN_RE,    /* Re-enable FFT after final burst      */
+    TC_PHASE_RETURN_OPEN_LOCK,  /* Tune open note before completion     */
     /* Routing */
     TC_PHASE_NEXT,              /* Advance to next iter/transition      */
     TC_PHASE_DONE,
@@ -1732,6 +1865,8 @@ static float       s_tc_hit_baseline_mag  = 0.0f;
 static float       s_tc_hit_baseline_freq = 0.0f;
 static float       s_tc_good_hit_delta[TRANSCAL_MIN_GOOD_HITS] = {0.0f};
 static uint8_t     s_tc_good_hit_count = 0u;
+static uint8_t     s_tc_abort_requested = 0u;
+static uint8_t     s_tc_abort_active    = 0u;
 
 /* PI lock state for transition cal (reuses same approach as Cal_Hop LOCK) */
 static float       s_tc_pi_integral    = 0.0f;
@@ -1742,6 +1877,7 @@ static uint8_t     s_tc_weak_sig_cnt   = 0u;
 static float       s_tc_last_valid_f   = 0.0f;
 static float       s_tc_target_freq    = 0.0f;
 static uint8_t     s_tc_target_fret    = 0u;
+static uint8_t     s_tc_final_tune_retry = 0u;
 static uint16_t    s_tc_wait_cnt       = 0u;
 static TcPhase_t   s_tc_after_wait     = TC_PHASE_IDLE;
 static uint8_t     s_tc_lock_hop_cnt   = 0u;
@@ -2014,6 +2150,88 @@ static uint8_t TcAdvanceToNextString(void)
     return (s_tc_str < NUM_STRINGS) ? 1u : 0u;
 }
 
+static void TcFinalizeString(uint8_t open_verified)
+{
+    Cal_SaveToSRAM();
+    StopSolenoid(s_tc_str);
+
+    if (s_tc_abort_active) {
+        if (open_verified) {
+            printf("[TRANSCAL] Safe stop complete — str%u returned to open at pos %ld "
+                   "(offset=%ld, freq=%.2f Hz target=%.2f Hz)\r\n",
+                   (unsigned)s_tc_str,
+                   (long)g_shared_memory.current_positions[s_tc_str],
+                   (long)s_tune_offset[s_tc_str],
+                   (double)s_tc_last_valid_f,
+                   (double)s_tc_target_freq);
+        } else {
+            printf("[TRANSCAL] Safe stop complete — str%u open return not confirmed "
+                   "(offset=%ld, freq=%.2f target=%.2f Hz)\r\n",
+                   (unsigned)s_tc_str,
+                   (long)s_tune_offset[s_tc_str],
+                   (double)s_tc_last_valid_f,
+                   (double)s_tc_target_freq);
+        }
+
+        Cal_PrintTransitionSeedDump(s_tc_string_mask, 1u);
+        s_tc_abort_active = 0u;
+        s_tc_status = CAL_STATUS_DONE;
+        s_tc_phase  = TC_PHASE_DONE;
+        return;
+    }
+
+    if (open_verified) {
+        printf("[TRANSCAL] str%u: final open tuned at pos %ld "
+               "(offset=%ld, freq=%.2f Hz target=%.2f Hz)\r\n",
+               (unsigned)s_tc_str,
+               (long)g_shared_memory.current_positions[s_tc_str],
+               (long)s_tune_offset[s_tc_str],
+               (double)s_tc_last_valid_f,
+               (double)s_tc_target_freq);
+    } else {
+        printf("[TRANSCAL] str%u: WARNING: final open tune not confirmed "
+               "(offset unchanged=%ld, freq=%.2f target=%.2f Hz)\r\n",
+               (unsigned)s_tc_str,
+               (long)s_tune_offset[s_tc_str],
+               (double)s_tc_last_valid_f,
+               (double)s_tc_target_freq);
+    }
+
+    printf("[TRANSCAL] str%u: all transitions complete\r\n",
+           (unsigned)s_tc_str);
+
+    if (TcAdvanceToNextString()) {
+        s_tc_transition_idx = 0u;
+        s_tc_phase = TC_PHASE_INIT;
+    } else {
+        printf("[TRANSCAL] ================================================\r\n");
+        printf("[TRANSCAL] Transition calibration complete!\r\n");
+        Cal_PrintTransitionSeedDump(s_tc_string_mask, 0u);
+        printf("[TRANSCAL] ================================================\r\n");
+        s_tc_status = CAL_STATUS_DONE;
+        s_tc_phase  = TC_PHASE_DONE;
+    }
+}
+
+static void TcAbort(void)
+{
+    StopSolenoid(s_tc_str);
+    fft_sensing_enabled = 1u;
+    s_tc_abort_requested = 0u;
+    s_tc_abort_active    = 1u;
+    s_tc_target_freq     = CalTargetFreq(s_tc_str, 0u);
+    s_tc_target_fret     = 0u;
+    s_tc_final_tune_retry = 0u;
+    s_tc_hit_baseline_mag  = 0.0f;
+    s_tc_hit_baseline_freq = 0.0f;
+    TcResetHitCheck();
+
+    printf("[TRANSCAL] Safe stop requested — returning str%u to open from pos %ld before exit.\r\n",
+           (unsigned)s_tc_str,
+           (long)g_shared_memory.current_positions[s_tc_str]);
+    s_tc_phase = TC_PHASE_RETURN_OPEN_GOTO;
+}
+
 /* ---- Public API ---- */
 
 void Cal_StartTransitionCal(uint8_t string_mask)
@@ -2044,6 +2262,8 @@ void Cal_StartTransitionCal(uint8_t string_mask)
     s_tc_transition_idx = 0u;
     s_tc_iter           = 0u;
     s_tc_converged      = 0u;
+    s_tc_abort_requested = 0u;
+    s_tc_abort_active    = 0u;
     fft_sensing_enabled = 1u;
     s_tc_status         = CAL_STATUS_RUNNING;
     s_tc_phase          = TC_PHASE_INIT;
@@ -2068,8 +2288,20 @@ CalStatus_t Cal_TransitionCalGetStatus(void)
     return s_tc_status;
 }
 
+void Cal_TransitionCalRequestStop(void)
+{
+    if (s_tc_status == CAL_STATUS_RUNNING) {
+        s_tc_abort_requested = 1u;
+    }
+}
+
 void Cal_TransitionCalHop(void)
 {
+    if (s_tc_abort_requested && s_tc_status == CAL_STATUS_RUNNING) {
+        TcAbort();
+        return;
+    }
+
     /* Handle wait states first */
     if (s_tc_phase == TC_PHASE_IDLE && s_tc_wait_cnt > 0u) {
         s_tc_wait_cnt--;
@@ -2085,23 +2317,17 @@ void Cal_TransitionCalHop(void)
     case TC_PHASE_INIT:
     {
         if (s_tc_transition_idx >= SMOKE_TRANSITION_COUNT) {
-            /* All transitions done for this string */
-            Cal_SaveToSRAM();
-            StopSolenoid(s_tc_str);
+            s_tc_target_freq = CalTargetFreq(s_tc_str, 0u);
+            s_tc_target_fret = 0u;
+            s_tc_final_tune_retry = 0u;
+            s_tc_hit_baseline_mag  = 0.0f;
+            s_tc_hit_baseline_freq = 0.0f;
+            TcResetHitCheck();
 
-            printf("[TRANSCAL] str%u: all transitions complete\r\n",
+            printf("[TRANSCAL] str%u: transitions done, returning to open for final verify\r\n",
                    (unsigned)s_tc_str);
 
-            if (TcAdvanceToNextString()) {
-                s_tc_transition_idx = 0u;
-                s_tc_phase = TC_PHASE_INIT;
-            } else {
-                printf("[TRANSCAL] ================================================\r\n");
-                printf("[TRANSCAL] Transition calibration complete!\r\n");
-                printf("[TRANSCAL] ================================================\r\n");
-                s_tc_status = CAL_STATUS_DONE;
-                s_tc_phase  = TC_PHASE_DONE;
-            }
+            s_tc_phase = TC_PHASE_RETURN_OPEN_GOTO;
             break;
         }
 
@@ -2495,6 +2721,65 @@ void Cal_TransitionCalHop(void)
             s_tc_phase = TC_PHASE_NEXT;
         }
         /* else: keep waiting for more hops */
+        break;
+    }
+
+    case TC_PHASE_RETURN_OPEN_GOTO:
+    {
+        int32_t target_pos = (int32_t)CalClampf(
+            tuning_ff_steps_bp[s_tc_str][0u],
+            0.0f, (float)s_cal_steps_max[s_tc_str]);
+
+        printf("[TRANSCAL] str%u: final return to open (pos %ld, %.2f Hz)\r\n",
+               (unsigned)s_tc_str,
+               (long)target_pos,
+               (double)s_tc_target_freq);
+
+        InterCore_SendMotorGoto(s_tc_str, target_pos);
+        s_tc_phase = TC_PHASE_RETURN_OPEN_WAIT;
+        break;
+    }
+
+    case TC_PHASE_RETURN_OPEN_WAIT:
+    {
+        if (!g_shared_memory.motor_is_moving[s_tc_str]) {
+            TcResetLockState(s_tc_target_freq);
+            TcWaitThen(TRANSCAL_SETTLE_HOPS, TC_PHASE_RETURN_OPEN_EXCITE);
+        }
+        break;
+    }
+
+    case TC_PHASE_RETURN_OPEN_EXCITE:
+    {
+        if (s_tc_final_tune_retry >= TRANSCAL_FINAL_TUNE_MAX_RETRIES) {
+            TcFinalizeString(0u);
+            break;
+        }
+
+        s_tc_final_tune_retry++;
+        printf("[TRANSCAL] str%u: final open retune excite %u/%u\r\n",
+               (unsigned)s_tc_str,
+               (unsigned)s_tc_final_tune_retry,
+               (unsigned)TRANSCAL_FINAL_TUNE_MAX_RETRIES);
+
+        TcResetLockState(s_tc_target_freq);
+        TcExciteBurst(TC_PHASE_RETURN_OPEN_RE);
+        break;
+    }
+
+    case TC_PHASE_RETURN_OPEN_RE:
+    {
+        fft_sensing_enabled = 1u;
+        s_tc_phase = TC_PHASE_RETURN_OPEN_LOCK;
+        break;
+    }
+
+    case TC_PHASE_RETURN_OPEN_LOCK:
+    {
+        if (TcRunLockHop(TC_PHASE_RETURN_OPEN_EXCITE)) {
+            s_tune_offset[s_tc_str] = g_shared_memory.current_positions[s_tc_str];
+            TcFinalizeString(1u);
+        }
         break;
     }
 

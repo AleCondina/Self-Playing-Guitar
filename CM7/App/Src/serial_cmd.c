@@ -28,6 +28,7 @@
 #include "app_cm7.h"
 #include "tuning_controller.h"
 #include "calibration_controller.h"
+#include "song_scheduler.h"
 #include "double_string.h"
 #include "fft_processing.h"
 #include "debug_uart.h"
@@ -125,6 +126,9 @@ static void Cmd_DropG2(char *args);
 static void Cmd_Standard(char *args);
 static void Cmd_Bpm(char *args);
 static void Cmd_TransCal(char *args);
+static void Cmd_SongStop(char *args);
+static void Cmd_TransCalStop(char *args);
+static void Cmd_EnablePI(char *args);
 static void Demo_Tick(void);
 
 /* Command table entry */
@@ -171,6 +175,9 @@ static const CmdEntry_t command_table[] = {
     { "standard",  Cmd_Standard,  "standard                Switch to standard tuning" },
     { "bpm",       Cmd_Bpm,       "bpm [value]             Get/set dual-track playback BPM (20-200)" },
     { "transcal",  Cmd_TransCal,  "transcal [str ...]      Iterative transition calibration (e.g. 'transcal 1')" },
+    { "songstop",  Cmd_SongStop,  "songstop                Safely stop playback and return strings to open" },
+    { "transcalstop", Cmd_TransCalStop, "transcalstop           Safely stop transition calibration and save current values" },
+    { "enablePI",  Cmd_EnablePI,  "enablePI [on|off]       Toggle song PI trim (transcal-only vs transcal+PI)" },
     { NULL, NULL, NULL }
 };
 
@@ -826,6 +833,32 @@ static void Cmd_TransCal(char *args)
     App_RequestTransitionCal(mask);
 }
 
+static void Cmd_SongStop(char *args)
+{
+    (void)args;
+
+    if (!SongSched_IsActive() && !DblString_IsActive()) {
+        printf("  No active song playback.\r\n");
+        return;
+    }
+
+    printf("  Requesting safe song stop (return to open)...\r\n");
+    App_RequestStopSong();
+}
+
+static void Cmd_TransCalStop(char *args)
+{
+    (void)args;
+
+    if (Cal_TransitionCalGetStatus() != CAL_STATUS_RUNNING) {
+        printf("  Transition calibration is not running.\r\n");
+        return;
+    }
+
+    printf("  Requesting safe transition-cal stop...\r\n");
+    Cal_TransitionCalRequestStop();
+}
+
 static void Cmd_MapFrets(char *args)
 {
     (void)args;
@@ -1010,6 +1043,39 @@ static void Cmd_Tune(char *args)
     printf("  Requesting open-string tuning (mask 0x%02X)...\r\n", (unsigned)mask);
     printf("  Pluck each string when prompted. Watch [TUNE] output.\r\n");
     App_RequestTune(mask);
+}
+
+static void Cmd_EnablePI(char *args)
+{
+    (void)args;
+
+    char *tok = strtok(NULL, " \t");
+    uint8_t enabled = TuningCtrl_GetPiEnabled();
+
+    if (tok == NULL) {
+        enabled = enabled ? 0u : 1u;
+    } else if ((strcmp(tok, "on") == 0) ||
+               (strcmp(tok, "1") == 0) ||
+               (strcmp(tok, "enable") == 0)) {
+        enabled = 1u;
+    } else if ((strcmp(tok, "off") == 0) ||
+               (strcmp(tok, "0") == 0) ||
+               (strcmp(tok, "disable") == 0)) {
+        enabled = 0u;
+    } else if (strcmp(tok, "status") == 0) {
+        printf("  Song PI: %s\r\n",
+               TuningCtrl_GetPiEnabled() ? "ON (transcal relative jumps + PI)"
+                                         : "OFF (transcal relative jumps only)");
+        return;
+    } else {
+        printf("  Usage: enablePI [on|off|status]\r\n");
+        return;
+    }
+
+    TuningCtrl_SetPiEnabled(enabled);
+    printf("  Song PI: %s\r\n",
+           enabled ? "ON (transcal relative jumps + PI)"
+                   : "OFF (transcal relative jumps only)");
 }
 
 /* ===== Demo Command & State Machine ===== */

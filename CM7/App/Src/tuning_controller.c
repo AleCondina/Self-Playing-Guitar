@@ -167,6 +167,11 @@ static uint8_t s_motor_enable_mask = 0u;
  * Set by TuningCtrl_Init() / song start, cleared after the initial burst. */
 static uint8_t s_song_first_note = 1u;
 
+/* Runtime PI master switch for song playback.
+ * Relative transition-seeded feed-forward remains active in both modes. */
+static uint8_t s_pi_master_enabled =
+    (TUNING_PI_ENABLED_DEFAULT != 0u) ? 1u : 0u;
+
 /* Deferred cold-start burst: count down hops before firing the initial burst.
  * 0 = not pending.  Set to COLD_START_DEFER_HOPS on first note detection,
  * decremented each hop, burst fires when it reaches 1.  This gives CM4
@@ -184,7 +189,7 @@ static uint8_t s_dual_track_mode = 0u;
 
 static inline uint8_t TuningPiEnabled(void)
 {
-    return (TUNING_PI_SWITCH != 0u) ? 1u : 0u;
+    return s_pi_master_enabled;
 }
 
 /**
@@ -231,11 +236,13 @@ int8_t TuningCtrl_FreqToFret(uint8_t string_id, float freq_hz)
     return GenericFreqToFret(string_id, freq_hz);
 }
 
+static float FF_Interpolate(uint8_t str, float freq);
+
 /**
  * @brief Compute a transition-seeded absolute step target using relative deltas.
  *
  * Looks up calibrated transition deltas first (Cal_GetTransitionDelta).
- * Falls back to LUT fret-to-fret delta if no calibrated data exists.
+ * Falls back to a LUT-derived relative delta if no calibrated data exists.
  * The result is current_position + delta, making the move relative to
  * where the motor actually is rather than an absolute LUT target.
  *
@@ -251,19 +258,24 @@ static uint8_t TryTransitionSeed(uint8_t string_id,
                                  float *out_steps_abs)
 {
     if (out_steps_abs == NULL) return 0u;
-
-    int8_t from_fret = GenericFreqToFret(string_id, from_freq_hz);
-    int8_t to_fret   = GenericFreqToFret(string_id, to_freq_hz);
-    if (from_fret < 0 || to_fret < 0) return 0u;
+    if (string_id >= NUM_STRINGS) return 0u;
 
     float delta_steps = 0.0f;
-    if (!Cal_GetTransitionDelta(string_id,
-                                (uint8_t)from_fret,
-                                (uint8_t)to_fret,
-                                &delta_steps)) {
-        /* Fallback: LUT fret-to-fret delta */
-        delta_steps = tuning_ff_steps_bp[string_id][to_fret]
-                    - tuning_ff_steps_bp[string_id][from_fret];
+    int8_t from_fret = GenericFreqToFret(string_id, from_freq_hz);
+    int8_t to_fret   = GenericFreqToFret(string_id, to_freq_hz);
+
+    if (from_fret >= 0 && to_fret >= 0 &&
+        Cal_GetTransitionDelta(string_id,
+                               (uint8_t)from_fret,
+                               (uint8_t)to_fret,
+                               &delta_steps)) {
+        /* Use measured transcal jump directly when available. */
+    } else {
+        /* Always stay relative at runtime, even without a stored transcal hit.
+         * Using the LUT delta here preserves fret-to-fret relative motion. */
+        float from_steps_abs = FF_Interpolate(string_id, from_freq_hz);
+        float to_steps_abs   = FF_Interpolate(string_id, to_freq_hz);
+        delta_steps = to_steps_abs - from_steps_abs;
     }
 
     *out_steps_abs = (float)g_shared_memory.current_positions[string_id]
@@ -375,6 +387,8 @@ static float FF_InverseInterpolate(uint8_t str, float steps)
 
 void TuningCtrl_Init(void)
 {
+    s_pi_master_enabled = (TUNING_PI_ENABLED_DEFAULT != 0u) ? 1u : 0u;
+
     for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
         TuningStringState_t *s = &s_state[i];
         memset(s, 0, sizeof(TuningStringState_t));
@@ -451,11 +465,15 @@ void TuningCtrl_Update(uint8_t string_id,
         s->pi_hop_count  = 0u;
         s->note_actuated = 0u;
 
-        /* Update FF position immediately so motor starts moving */
+        /* Update FF position immediately so motor starts moving.
+         * Default the first note of a song to "coming from open". */
         s->ff_steps_abs = FF_Interpolate(string_id, target_freq_hz);
-        if (pi_master_enabled) {
+        {
+            float from_freq_hz = (s->last_target_freq_hz > 0.0f)
+                               ? s->last_target_freq_hz
+                               : tuning_ff_freq_bp[string_id][0];
             (void)TryTransitionSeed(string_id,
-                                    s->last_target_freq_hz,
+                                    from_freq_hz,
                                     target_freq_hz,
                                     &s->ff_steps_abs);
         }
@@ -1020,18 +1038,20 @@ void TuningCtrl_RunHop(void)
     /* ------------------------------------------------------------------ */
 
     /* Arm the deferred burst on the first note detection */
-    if (s_song_first_note && (new_note_primary || new_note_secondary)) {
+    if (SONG_USE_COLD_START_BURST &&
+        s_song_first_note &&
+        (new_note_primary || new_note_secondary)) {
         s_song_first_note    = 0u;
         s_cold_start_pending = COLD_START_DEFER_HOPS;
     }
 
     /* Count down and fire when ready */
-    if (s_cold_start_pending > 0u) {
+    if (SONG_USE_COLD_START_BURST && s_cold_start_pending > 0u) {
         s_cold_start_pending--;
 
         if (s_cold_start_pending == 0u) {
             /* Actually fire the burst NOW */
-            uint16_t burst_ms = (uint16_t)SONG_INITIAL_PLUCK_MS;  /* 1000 ms */
+            uint16_t burst_ms = (uint16_t)SONG_INITIAL_PLUCK_MS;
 
             float ef1 = s_state[str].expected_freq_hz;
             float f   = (ef1 >= 40.0f && ef1 <= 800.0f) ? ef1 : 0.0f;
@@ -1246,6 +1266,16 @@ void TuningCtrl_ResetAll(void)
     s_motor_enable_mask  = 0u;
     s_song_first_note    = 1u;
     s_cold_start_pending = 0u;
+}
+
+void TuningCtrl_SetPiEnabled(uint8_t enable)
+{
+    s_pi_master_enabled = enable ? 1u : 0u;
+}
+
+uint8_t TuningCtrl_GetPiEnabled(void)
+{
+    return TuningPiEnabled();
 }
 
 void TuningCtrl_SetDualTrackMode(uint8_t enable)

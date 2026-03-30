@@ -181,6 +181,15 @@ void Cal_TransitionCalHop(void);
  */
 CalStatus_t Cal_TransitionCalGetStatus(void);
 
+/**
+ * @brief Request a safe stop of the running transition calibration.
+ *
+ * The active string returns toward the open position, current transition
+ * values are saved, and the controller exits without using the
+ * emergency-stop path.
+ */
+void Cal_TransitionCalRequestStop(void);
+
 /* =========================================================================
  * Tune API — open-string pitch correction (bidirectional motor adjustment)
  *

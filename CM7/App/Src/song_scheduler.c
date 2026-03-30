@@ -4,8 +4,9 @@
  * @brief   Song schedule implementation – hardcoded note sequence
  *
  * Edit the `song_notes[]` array below to change the song.
- * Duration values are in milliseconds at the reference tempo (SONG_BPM_REF).
- * Set SONG_BPM to a different value to scale the entire song faster or slower.
+ * Duration values are authored directly in milliseconds.
+ * The optional SONG_BPM_REF / SONG_BPM ratio can rescale them, but when the
+ * two values are equal the scheduler uses the array timings 1:1.
  *
  * Standard open-string frequencies (Hz):
  *   E2 = 82.41   A2 = 110.00   D3 = 146.83
@@ -23,12 +24,14 @@
 #include <stddef.h>
 
 /* =========================================================================
- * BPM configuration
+ * Timing-scale configuration
  * =========================================================================
- * Note durations in song_notes[] are written at SONG_BPM_REF (~47 BPM).
- * Change SONG_BPM to play slower or faster.  The scheduler scales the
- * PI-convergence and rest portions proportionally while keeping the
- * solenoid burst duration (burst_ms) constant.
+ * The note arrays below are the source of truth for single-song timing.
+ * SONG_BPM_REF and SONG_BPM are only used as a scale ratio on top of those
+ * millisecond values. When they are equal, no timing rescale is applied.
+ *
+ * If you want the exact timings written in song1_notes[] / song3_notes[],
+ * keep SONG_BPM_REF == SONG_BPM.
  *
  * Scaling formula per note:
  *   scaled = ((duration_ms - burst_ms) * SONG_BPM_REF / SONG_BPM) + burst_ms
@@ -38,15 +41,15 @@
  * where note_actuate_ms defaults to SONG_ACTUATE_BASE_MS when a note does
  * not provide a per-note override.
  *
- * Example:  REF=47 BPM=60 → note 1635ms becomes 1298ms, actuate 940ms
- *           REF=47 BPM=35 → note 1635ms becomes 2169ms, actuate 1612ms
+ * Example:  REF=100 CUR=120 → note 1635ms becomes 1375ms, actuate 1000ms
+ *           REF=100 CUR=80  → note 1635ms becomes 2023ms, actuate 1500ms
  * ========================================================================= */
-#define SONG_BPM_REF        47u   /**< Effective BPM the durations are written at */
-#define SONG_BPM            47u   /**< Playback BPM — change this to speed/slow   */
+#define SONG_BPM_REF        47u   /**< Timing-scale reference; equal to SONG_BPM = raw array timing */
+#define SONG_BPM            47u   /**< Timing-scale current value; keep equal to REF for 1:1 timing  */
 #define SONG_LOOP_ENABLED    1u   /**< 1 = restart song automatically at end      */
 
-/** Base solenoid actuate delay at SONG_BPM_REF (ms).
- *  Scaled at init so higher BPM = less PI convergence time. */
+/** Base solenoid actuate delay when a note does not provide its own value.
+ *  This also goes through the same optional timing-scale ratio at init. */
 #define SONG_ACTUATE_BASE_MS 1200u
 
 /* =========================================================================
@@ -70,7 +73,7 @@
  *   Song0: unchanged from original (1063/1625/1313 ms, fires at 600 ms)
  *   Song1: see per-note comments in song1_notes[] below
  *
- * The solenoid fires once per note at the BPM-scaled actuate delay.
+ * The solenoid fires once per note at the scheduler-scaled actuate delay.
  * String carries energy from the previous burst — no re-excitation on
  * note change.  Motor moves via LUT immediately, PI refines, then
  * solenoid fires at the converged pitch.
@@ -109,7 +112,7 @@ static const SongNote_t song0_notes[] = {
      *  Standard notes: rest=355ms → 1635ms                               *
      *  Short note (#5): rest=155ms → 1435ms                              *
      *  Held notes (#2,6,9,11): rest=605ms → 1885ms                       *
-     *  Effective tempo: ~47 BPM (16 beats across 20.4s)                   *
+     *  Loop timing comes directly from the durations below.               *
      * ────────────────────────────────────────────────────────────────── */
 
     /* ── Phrase 1: root – m3 – P4 ────────────────────────────────────── */
@@ -143,31 +146,31 @@ static const SongNote_t song0_notes[] = {
 static const SongNote_t song1_notes[] = {
 
     /* ── Timing budget per note ──────────────────────────────────────── *
-     *  Standard notes:        1200ms converge + 100ms burst + 400ms ring = 1700ms *
-     *  Held notes 2,9,11:     1200ms converge + 100ms burst + 650ms ring = 1950ms *
-     *  Note 5:                1200ms converge + 100ms burst + 100ms ring = 1400ms *
-     *  Note 6:                 600ms converge + 100ms burst + 1250ms ring = 1950ms *
+     *  Standard notes:         800ms pre-fire +  80ms burst + 400ms ring = 1280ms *
+     *  Held notes 2,9,11:      800ms pre-fire +  80ms burst + 650ms ring = 1530ms *
+     *  Note 5:                 800ms pre-fire +  80ms burst + 100ms ring =  980ms *
+     *  Note 6:                 400ms pre-fire +  80ms burst + 650ms ring = 1130ms *
      * ────────────────────────────────────────────────────────────────── */
 
     /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    NOTE(1u, A2_HZ,   1700u, 100u),  /* #0  fret 0: cold start, rest=400   */
-    NOTE(1u, C3_HZ,   1700u, 100u),  /* #1  fret 3: C3,  rest=400          */
-    NOTE(1u, D3_HZ,   1950u, 100u),  /* #2  fret 5: D3,  rest=650          */
+    NOTE_AT(1u, A2_HZ,   1280u,  80u, 800u),  /* #0  fret 0: rest=400  */
+    NOTE_AT(1u, C3_HZ,   1280u,  80u, 800u),  /* #1  fret 3: rest=400  */
+    NOTE_AT(1u, D3_HZ,   1530u,  80u, 800u),  /* #2  fret 5: rest=650  */
 
     /* ── Phrase 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
-    NOTE(1u, A2_HZ,   1700u, 100u),          /* #3  fret 0: A2,  rest=400          */
-    NOTE(1u, C3_HZ,   1700u, 100u),          /* #4  fret 3: C3,  rest=400          */
-    NOTE(1u, Ds3_HZ,  1400u, 100u),          /* #5  fret 6: Ds3, rest=100          */
-    NOTE_AT(1u, D3_HZ, 1950u, 100u, 600u),   /* #6  fret 5: D3,  converge=600      */
+    NOTE_AT(1u, A2_HZ,   1280u,  80u, 800u),  /* #3  fret 0: rest=400  */
+    NOTE_AT(1u, C3_HZ,   1280u,  80u, 800u),  /* #4  fret 3: rest=400  */
+    NOTE_AT(1u, Ds3_HZ,   980u,  80u, 800u),  /* #5  fret 6: rest=100  */
+    NOTE_AT(1u, D3_HZ,   1130u,  80u, 400u),  /* #6  fret 5: rest=650  */
 
     /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
-    NOTE(1u, A2_HZ,   1700u, 100u),  /* #7  fret 0: A2,  rest=400          */
-    NOTE(1u, C3_HZ,   1700u, 100u),  /* #8  fret 3: C3,  rest=400          */
-    NOTE(1u, D3_HZ,   1950u, 100u),  /* #9  fret 5: D3,  rest=650          */
+    NOTE_AT(1u, A2_HZ,   1280u,  80u, 800u),  /* #7  fret 0: rest=400  */
+    NOTE_AT(1u, C3_HZ,   1280u,  80u, 800u),  /* #8  fret 3: rest=400  */
+    NOTE_AT(1u, D3_HZ,   1530u,  80u, 800u),  /* #9  fret 5: rest=650  */
 
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    NOTE(1u, C3_HZ,   1700u, 100u),  /* #10 fret 3: C3,  rest=400          */
-    NOTE(1u, A2_HZ,   1950u, 100u),  /* #11 fret 0: A2,  rest=650          */
+    NOTE_AT(1u, C3_HZ,   1280u,  80u, 800u),  /* #10 fret 3: rest=400  */
+    NOTE_AT(1u, A2_HZ,   1530u,  80u, 800u),  /* #11 fret 0: rest=650  */
 };
 
 /* =========================================================================
@@ -182,24 +185,24 @@ static const SongNote_t song3_notes[] = {
     /* Exact same timing profile as song1_notes, but on the E2 string. */
 
     /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    NOTE(0u, E2_HZ,   1700u, 100u),  /* #0  fret 0: cold start, rest=400   */
-    NOTE(0u, G2_HZ,   1700u, 100u),  /* #1  fret 3: G2,  rest=400          */
-    NOTE(0u, A2_HZ,   1950u, 100u),  /* #2  fret 5: A2,  rest=650          */
+    NOTE_AT(0u, E2_HZ,   1280u,  80u, 800u),  /* #0  fret 0: rest=400  */
+    NOTE_AT(0u, G2_HZ,   1280u,  80u, 800u),  /* #1  fret 3: rest=400  */
+    NOTE_AT(0u, A2_HZ,   1530u,  80u, 800u),  /* #2  fret 5: rest=650  */
 
     /* ── Phrase 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
-    NOTE(0u, E2_HZ,   1700u, 100u),          /* #3  fret 0: E2,  rest=400          */
-    NOTE(0u, G2_HZ,   1700u, 100u),          /* #4  fret 3: G2,  rest=400          */
-    NOTE(0u, As2_HZ,  1400u, 100u),          /* #5  fret 6: As2, rest=100          */
-    NOTE_AT(0u, A2_HZ, 1950u, 100u, 600u),   /* #6  fret 5: A2,  converge=600      */
+    NOTE_AT(0u, E2_HZ,   1280u,  80u, 800u),  /* #3  fret 0: rest=400  */
+    NOTE_AT(0u, G2_HZ,   1280u,  80u, 800u),  /* #4  fret 3: rest=400  */
+    NOTE_AT(0u, As2_HZ,   980u,  80u, 800u),  /* #5  fret 6: rest=100  */
+    NOTE_AT(0u, A2_HZ,   1130u,  80u, 400u),  /* #6  fret 5: rest=650  */
 
     /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
-    NOTE(0u, E2_HZ,   1700u, 100u),  /* #7  fret 0: E2,  rest=400          */
-    NOTE(0u, G2_HZ,   1700u, 100u),  /* #8  fret 3: G2,  rest=400          */
-    NOTE(0u, A2_HZ,   1950u, 100u),  /* #9  fret 5: A2,  rest=650          */
+    NOTE_AT(0u, E2_HZ,   1280u,  80u, 800u),  /* #7  fret 0: rest=400  */
+    NOTE_AT(0u, G2_HZ,   1280u,  80u, 800u),  /* #8  fret 3: rest=400  */
+    NOTE_AT(0u, A2_HZ,   1530u,  80u, 800u),  /* #9  fret 5: rest=650  */
 
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    NOTE(0u, G2_HZ,   1700u, 100u),  /* #10 fret 3: G2,  rest=400          */
-    NOTE(0u, E2_HZ,   1950u, 100u),  /* #11 fret 0: E2,  rest=650          */
+    NOTE_AT(0u, G2_HZ,   1280u,  80u, 800u),  /* #10 fret 3: rest=400  */
+    NOTE_AT(0u, E2_HZ,   1530u,  80u, 800u),  /* #11 fret 0: rest=650  */
 };
 
 /* =========================================================================
@@ -403,6 +406,15 @@ uint8_t SongSched_IsActive(void)
 void SongSched_Restart(void)
 {
     SongSched_Init();
+}
+
+void SongSched_Stop(void)
+{
+    s_note_index    = 0u;
+    s_note_start_ms = 0u;
+    s_active        = 0u;
+    s_first_tick    = 1u;
+    s_hold_note     = 0u;
 }
 
 uint32_t SongSched_GetNoteCount(void)

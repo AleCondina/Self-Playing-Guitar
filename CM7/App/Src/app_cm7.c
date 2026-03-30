@@ -30,6 +30,7 @@
 #include "stm32h7xx_hal.h"
 #include "stm32h7xx_hal_adc.h"
 #include "stm32h7xx_hal_tim.h"
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 
@@ -44,6 +45,7 @@ typedef enum {
     STATE_LUT_BUILDING,
     STATE_TUNING,
     STATE_RUNNING,
+    STATE_PLAYBACK_STOPPING,
     STATE_TRANSITION_CAL,
     STATE_ERROR
 } AppState_t;
@@ -61,8 +63,68 @@ static volatile uint8_t s_request_lutbuild_mask  = 0x3Fu;
 static volatile uint8_t s_request_tune           = 0u;
 static volatile uint8_t s_request_tune_mask      = 0x0Fu;
 static volatile uint8_t s_request_play_dual      = 0u;
+static volatile uint8_t s_request_stop_song      = 0u;
 static volatile uint8_t s_request_transcal       = 0u;
 static volatile uint8_t s_request_transcal_mask  = 0x03u;
+static uint8_t          s_stop_song_mask         = 0u;
+
+#define APP_SONG_STOP_MASK  0x0Fu
+
+static void App_StopAllSolenoids(void)
+{
+    g_shared_memory.solenoid_id = 0xFFu;
+    g_shared_memory.motor_command_flags |= CMD_STOP_SOLENOID;
+    InterCore_NotifyCM4();
+}
+
+static void App_StartSafeSongStop(void)
+{
+    int32_t positions[NUM_MOTORS] = {0};
+    uint8_t move_mask = 0u;
+
+    if (DblString_IsActive()) {
+        DblString_Stop();
+    }
+    if (SongSched_IsActive()) {
+        SongSched_Stop();
+    }
+
+    s_request_play      = 0u;
+    s_request_play_dual = 0u;
+
+    TuningCtrl_SetDualTrackMode(0u);
+    App_StopAllSolenoids();
+    TuningCtrl_ResetAll();
+
+    for (uint8_t i = 0u; i < 4u && i < NUM_MOTORS; i++) {
+        if ((APP_SONG_STOP_MASK & (1u << i)) == 0u) {
+            continue;
+        }
+        float open_steps = tuning_ff_steps_bp[i][0] + (float)Cal_TuneGetOffset(i);
+        positions[i] = (int32_t)lroundf(open_steps);
+        move_mask   |= (uint8_t)(1u << i);
+    }
+
+    s_stop_song_mask = move_mask;
+
+    if (move_mask != 0u) {
+        InterCore_SendMotorEnableMask(move_mask);
+        InterCore_SendMotorGotoBatch(move_mask, positions);
+    }
+
+    app_state = STATE_PLAYBACK_STOPPING;
+    printf("[CMD] Safe song stop: returning commissioned strings to open...\r\n");
+}
+
+static uint8_t App_IsSafeSongStopComplete(void)
+{
+    for (uint8_t i = 0u; i < NUM_MOTORS; i++) {
+        if ((s_stop_song_mask & (1u << i)) && g_shared_memory.motor_is_moving[i]) {
+            return 0u;
+        }
+    }
+    return 1u;
+}
 
 /**
  * @brief CM7 application main function
@@ -250,6 +312,24 @@ void App_CM7_Main(void) {
                 }
                 break;
 
+            case STATE_PLAYBACK_STOPPING:
+                SerialCmd_Process();
+
+                if (Audio_HasNewSamples()) {
+                    (void)Audio_GetBuffer();
+                    Audio_MarkProcessed();
+                }
+
+                if (App_IsSafeSongStopComplete()) {
+                    InterCore_SendMotorEnableMask(0u);
+                    App_StopAllSolenoids();
+                    TuningCtrl_ResetAll();
+                    s_stop_song_mask = 0u;
+                    app_state = STATE_RUNNING;
+                    printf("\r\n[CMD] Song stopped safely at open. Ready.\r\n> ");
+                }
+                break;
+
             case STATE_TRANSITION_CAL:
                 SerialCmd_Process();
 
@@ -321,6 +401,11 @@ void App_CM7_Main(void) {
                         s_request_transcal = 0u;
                         Cal_StartTransitionCal(mask);
                         app_state = STATE_TRANSITION_CAL;
+                        break;
+                    }
+                    if (s_request_stop_song) {
+                        s_request_stop_song = 0u;
+                        App_StartSafeSongStop();
                         break;
                     }
                     if (s_request_play_dual) {
@@ -469,6 +554,13 @@ void App_RequestPlaySong(uint8_t song_id)
 void App_RequestPlayDual(void)
 {
     s_request_play_dual = 1u;
+}
+
+void App_RequestStopSong(void)
+{
+    s_request_play      = 0u;
+    s_request_play_dual = 0u;
+    s_request_stop_song = 1u;
 }
 
 void App_RequestLutBuild(uint8_t string_mask)
