@@ -64,6 +64,8 @@
 /* Convenience macros for note entries */
 #define CHORD(g_hz, d_hz, dur_ms, burst) \
     { 3u, (g_hz), (dur_ms), 2u, 2u, (d_hz), (burst) }
+#define CHORD2(s1, hz1, s2, hz2, dur_ms, burst) \
+    { (s1), (hz1), (dur_ms), 2u, (s2), (hz2), (burst) }
 #define NOTE(str, hz, dur_ms, burst) \
     { (str), (hz), (dur_ms), 1u, 0u, 0.0f, (burst) }
 
@@ -136,10 +138,55 @@ static const SongNote_t song1_notes[] = {
 };
 
 /* =========================================================================
- * Song 2: Test — single E2 hold (10 s)
+ * Song 2: Drop D fingerpicking pattern (played 4x via loop)
+ * =========================================================================
+ * Drop D tuning: str0=D2, str1=A2, str2=D3, str4=B3
+ *
+ * Tab:
+ *   e|--------------------------------|
+ *   B|--------------------------------|
+ *   G|--------------------------------|
+ *   D|-----0------0------0------0---0-|  (4x)
+ *   A|----0------3------0------3--3---|
+ *   D|--0------3------0------3--------|
+ *
+ * Fret frequencies:
+ *   D low: open=73.42 Hz (D2), fret 3=87.31 Hz (F2)
+ *   A:     open=110.00 Hz (A2), fret 3=130.81 Hz (C3)
+ *   D mid: open=146.83 Hz (D3)
+ *   B:     open=246.94 Hz (B3)
+ *
+ * NOTE: Strings 0 and 4 have no solenoid timer — motor tunes but no pluck.
  * ========================================================================= */
 static const SongNote_t song2_notes[] = {
-    NOTE(0u, E2_HZ, 10000u, 125u),
+
+    /* ── Timing: 1200ms PI + 35ms burst + 400ms rest = 1635ms ──────── *
+     *  Final note gets extra rest: 1200 + 35 + 650 = 1885ms            *
+     * ────────────────────────────────────────────────────────────────── */
+
+    /* ── Group 1: D-open arpeggio (D low → A → D mid) ────────────── */
+    NOTE(0u, D2_HZ,   1635u,  250u),  /* #0  D low open              */
+    NOTE(1u, A2_HZ,   1635u,  250u),  /* #1  A open                  */
+    NOTE(2u, D3_HZ,   1635u,  250u),  /* #2  D mid open              */
+
+    /* ── Group 2: F-chord arpeggio (D low fret3 → A fret3 → D mid) ── */
+    NOTE(0u, F2_HZ,   1635u,  250u),  /* #3  D low fret 3            */
+    NOTE(1u, C3_HZ,   1635u,  250u),  /* #4  A fret 3                */
+    NOTE(2u, D3_HZ,   1635u,  250u),  /* #5  D mid open              */
+
+    /* ── Group 3: D-open arpeggio (repeat of group 1) ────────────── */
+    NOTE(0u, D2_HZ,   1635u,  250u),  /* #6  D low open              */
+    NOTE(1u, A2_HZ,   1635u,  250u),  /* #7  A open                  */
+    NOTE(2u, D3_HZ,   1635u,  250u),  /* #8  D mid open              */
+
+    /* ── Group 4: F-chord arpeggio (repeat of group 2) ───────────── */
+    NOTE(0u, F2_HZ,   1635u,  250u),  /* #9  D low fret 3            */
+    NOTE(1u, C3_HZ,   1635u,  250u),  /* #10 A fret 3                */
+    NOTE(2u, D3_HZ,   1635u,  250u),  /* #11 D mid open              */
+
+    /* ── Ending: A fret3 + B open chord, then D mid ──────────────── */
+    NOTE(1u, C3_HZ,   1635u, 250u),  /* #12 A fret3 + B open chord */
+    NOTE(2u, D3_HZ,   1885u,  250u),  /* #13 D mid open (final, extra rest) */
 };
 
 /* =========================================================================
@@ -171,7 +218,7 @@ typedef struct {
 static const SongDef_t s_songs[] = {
     SONG_ENTRY(song0_notes),  /* play 0: Smoke chords (G3+D3)   */
     SONG_ENTRY(song1_notes),  /* play 1: Smoke single E2        */
-    SONG_ENTRY(song2_notes),  /* play 2: Test — E2 10s hold     */
+    SONG_ENTRY(song2_notes),  /* play 2: Drop D fingerpicking   */
     SONG_ENTRY(song3_notes),  /* play 3: Test — E2→G2 5s each   */
     SONG_ENTRY(song4_notes),  /* play 4: Test — E2→G2 1s each   */
 };

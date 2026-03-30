@@ -114,6 +114,7 @@ static void Cmd_MapFrets(char *args);
 static void Cmd_PrintLut(char *args);
 static void Cmd_Smoke(char *args);
 static void Cmd_Smoke1(char *args);
+static void Cmd_DropDSong(char *args);
 static void Cmd_StopSong(char *args);
 static void Cmd_FftPrint(char *args);
 static void Cmd_Tune(char *args);
@@ -153,6 +154,7 @@ static const CmdEntry_t command_table[] = {
     { "printlut",  Cmd_PrintLut,  "printlut                 Print current feed-forward LUT values" },
     { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water (chords)" },
     { "smoke1",    Cmd_Smoke1,    "smoke1                   Play Smoke on the Water (single E2 string)" },
+    { "dropdsong", Cmd_DropDSong, "dropdsong                Play Drop D fingerpicking pattern" },
     { "stopsong",  Cmd_StopSong,  "stopsong                  Stop the currently playing song" },
     { "tune",      Cmd_Tune,      "tune [str ...]            Tune open strings 0-3 to standard pitch" },
     { "fftprint",  Cmd_FftPrint,  "fftprint                 Toggle live FFT peak output" },
@@ -896,6 +898,13 @@ static void Cmd_Smoke1(char *args)
     printf("  Setting motor speed to 60000 and starting Smoke on the Water (single E2 string)...\r\n");
     InterCore_SendMotorMaxSpeed(0u, 60000);
     App_RequestPlaySong(1u);
+}
+
+static void Cmd_DropDSong(char *args)
+{
+    (void)args;
+    printf("  Starting Drop D fingerpicking pattern...\r\n");
+    App_RequestPlaySong(2u);
 }
 
 static void Cmd_StopSong(char *args)
