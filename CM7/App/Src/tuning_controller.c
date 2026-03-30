@@ -166,6 +166,7 @@ static uint8_t s_motor_enable_mask = 0u;
 /* Flag: 1 = the very first note of the song has not yet been plucked.
  * Set by TuningCtrl_Init() / song start, cleared after the initial burst. */
 static uint8_t s_song_first_note = 1u;
+static uint32_t s_seen_song_cycle_generation = 0u;
 
 /* Runtime PI master switch for song playback.
  * Relative transition-seeded feed-forward remains active in both modes. */
@@ -413,6 +414,7 @@ void TuningCtrl_Init(void)
     s_debug_counter      = 0u;
     s_motor_enable_mask  = 0u;
     s_song_first_note    = 1u;
+    s_seen_song_cycle_generation = 0u;
     s_cold_start_pending = 0u;
 }
 
@@ -978,6 +980,17 @@ void TuningCtrl_RunHop(void)
 
     uint8_t  str    = SongSched_GetStringId();
     float    target = SongSched_GetTargetFreq();
+    uint32_t song_cycle_generation = SongSched_GetCycleGeneration();
+
+    if (song_cycle_generation != s_seen_song_cycle_generation) {
+        s_seen_song_cycle_generation = song_cycle_generation;
+
+        for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
+            s_state[i].last_target_freq_hz = -1.0f;
+            s_state[i].note_actuated       = 0u;
+            s_state[i].note_plucked        = 0u;
+        }
+    }
 
     /* --- Motor power management: enable only active string motors --- */
     uint8_t needed_mask = (1u << str);
@@ -1265,6 +1278,7 @@ void TuningCtrl_ResetAll(void)
     }
     s_motor_enable_mask  = 0u;
     s_song_first_note    = 1u;
+    s_seen_song_cycle_generation = 0u;
     s_cold_start_pending = 0u;
 }
 

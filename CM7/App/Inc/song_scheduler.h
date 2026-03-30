@@ -144,6 +144,14 @@ uint8_t SongSched_GetSongId(void);
 uint32_t SongSched_GetNoteIndex(void);
 
 /**
+ * @brief Return the song-cycle generation counter.
+ *
+ * Increments whenever the scheduler is restarted or wraps from the last
+ * note back to note 0. Callers can use this to detect loop boundaries.
+ */
+uint32_t SongSched_GetCycleGeneration(void);
+
+/**
  * @brief Return the number of milliseconds elapsed since the current note started.
  * @param now_ms Current system time in milliseconds (HAL_GetTick()).
  */

@@ -297,6 +297,7 @@ static uint8_t  s_initialised   = 0u;
 static uint8_t  s_first_tick    = 1u;
 static uint8_t  s_hold_note     = 0u;
 static uint8_t  s_song_id       = 0u;
+static uint32_t s_cycle_generation = 0u;
 
 /* =========================================================================
  * API implementation
@@ -337,6 +338,7 @@ void SongSched_InitSong(uint8_t song_id)
         s_song_count = s_songs[song_id].count;
         s_song_id    = song_id;
     }
+    s_cycle_generation++;
     SongSched_Init();
 }
 
@@ -359,6 +361,7 @@ void SongSched_Tick(uint32_t now_ms)
 
         if (s_note_index >= s_song_count) {
 #if SONG_LOOP_ENABLED
+            s_cycle_generation++;
             SongSched_Init();
 #else
             s_active = 0u;
@@ -405,6 +408,7 @@ uint8_t SongSched_IsActive(void)
 
 void SongSched_Restart(void)
 {
+    s_cycle_generation++;
     SongSched_Init();
 }
 
@@ -430,6 +434,11 @@ uint8_t SongSched_GetSongId(void)
 uint32_t SongSched_GetNoteIndex(void)
 {
     return s_note_index;
+}
+
+uint32_t SongSched_GetCycleGeneration(void)
+{
+    return s_cycle_generation;
 }
 
 uint32_t SongSched_GetElapsedMs(uint32_t now_ms)
