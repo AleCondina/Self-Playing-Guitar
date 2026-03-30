@@ -75,9 +75,10 @@ extern "C" {
  * @brief PI hold hops when string is WARM (already vibrating).
  *
  * The FFT already has a live signal, so PI can start correcting after just
- * 1 hop (~170 ms).  TUNE FOR HARDWARE — increase if PI overreacts.
+ * 0 hops means warm-string PI resumes on the very next control hop after
+ * note-change detection. Increase if hardware overshoots.
  */
-#define SONG_WARM_DELAY_FRAMES   1u
+#define SONG_WARM_DELAY_FRAMES   0u
 
 /**
  * @brief PI hold hops when string is COLD (at rest / first note).
@@ -119,6 +120,9 @@ extern "C" {
  * Base value (1200 ms at 47 BPM) defined as SONG_ACTUATE_BASE_MS
  * in song_scheduler.c.  Higher BPM → shorter PI window. */
 
+/** Max motor speed forced for single-string song playback. */
+#define SONG_MOTOR_SPEED           20000
+
 /**
  * @brief Duration of the very first pluck of the song (ms).
  *
@@ -145,7 +149,7 @@ extern "C" {
  * If |new_trim - old_trim| < this, the trim is not updated this hop.
  * Units: microsteps.  TUNE FOR HARDWARE.
  */
-#define TUNING_MIN_MOVE_STEPS   4.0f
+#define TUNING_MIN_MOVE_STEPS   1.0f
 
 /** PI trim output clamp (±microsteps).  TUNE FOR HARDWARE. */
 #define TUNING_OUT_LIMIT_STEPS  6400.0f
@@ -163,7 +167,7 @@ extern "C" {
  * Matched to calibration tune controller (KP=16) but scaled up because
  * the song PI runs every hop without motor-busy gating.  TUNE FOR HARDWARE.
  */
-#define TUNING_KP   32.0f
+#define TUNING_KP   48.0f
 
 /**
  * @brief Integral gain (microsteps per Hz per second).
@@ -171,14 +175,14 @@ extern "C" {
  * Discrete integral:  integral += TUNING_KI * e * TUNING_SAMPLE_TIME_S
  * Only accumulates when |error| < TUNING_INTEGRAL_ENABLE_HZ (like tune).
  */
-#define TUNING_KI   12.0f
+#define TUNING_KI   20.0f
 
 /**
  * @brief Integral enable band (Hz).  Only accumulate integral when the
  * error is already small — prevents windup from large initial errors.
  * Inspired by TUNE_INTEGRAL_ENABLE_BAND_HZ in calibration_controller.
  */
-#define TUNING_INTEGRAL_ENABLE_HZ   5.0f
+#define TUNING_INTEGRAL_ENABLE_HZ   9.0f
 
 /**
  * @brief Number of hops with a large unresolved error before a stall is flagged.
@@ -361,6 +365,18 @@ void TuningCtrl_ResetString(uint8_t string_id);
  * @brief  Force-reset all strings.
  */
 void TuningCtrl_ResetAll(void);
+
+/**
+ * @brief  Generic frequency-to-fret lookup using the feed-forward LUT.
+ *
+ * Searches tuning_ff_freq_bp[string_id][] for the closest breakpoint
+ * within 3 Hz.  Used by the calibration controller for transition cal.
+ *
+ * @param  string_id  String index 0–5
+ * @param  freq_hz    Frequency to match
+ * @return Fret index 0–(TUNING_FF_NUM_POINTS-1), or -1 if no match
+ */
+int8_t TuningCtrl_FreqToFret(uint8_t string_id, float freq_hz);
 
 /**
  * @brief  Enable or disable dual-track mode for double_string playback.

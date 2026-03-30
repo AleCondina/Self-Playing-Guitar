@@ -193,6 +193,80 @@ static inline float Clampf(float v, float lo, float hi)
 }
 
 /**
+ * @brief Generic frequency-to-fret lookup using the feed-forward LUT.
+ *
+ * Searches tuning_ff_freq_bp[string_id][] for the closest breakpoint
+ * within 3 Hz of the given frequency.
+ *
+ * @param  string_id  String index 0–5
+ * @param  freq_hz    Frequency to match
+ * @return Fret index 0–(TUNING_FF_NUM_POINTS-1), or -1 if no match
+ */
+static int8_t GenericFreqToFret(uint8_t string_id, float freq_hz)
+{
+    if (string_id >= NUM_STRINGS) return -1;
+    const float *bp = tuning_ff_freq_bp[string_id];
+    float best_err = 999.0f;
+    int8_t best_fret = -1;
+    for (uint8_t f = 0u; f < TUNING_FF_NUM_POINTS; f++) {
+        float err = fabsf(freq_hz - bp[f]);
+        if (err < best_err) {
+            best_err = err;
+            best_fret = (int8_t)f;
+        }
+    }
+    return (best_err <= 3.0f) ? best_fret : -1;
+}
+
+/**
+ * @brief Public wrapper for GenericFreqToFret (used by calibration controller).
+ */
+int8_t TuningCtrl_FreqToFret(uint8_t string_id, float freq_hz)
+{
+    return GenericFreqToFret(string_id, freq_hz);
+}
+
+/**
+ * @brief Compute a transition-seeded absolute step target using relative deltas.
+ *
+ * Looks up calibrated transition deltas first (Cal_GetTransitionDelta).
+ * Falls back to LUT fret-to-fret delta if no calibrated data exists.
+ * The result is current_position + delta, making the move relative to
+ * where the motor actually is rather than an absolute LUT target.
+ *
+ * @param  string_id      String index 0–5
+ * @param  from_freq_hz   Previous note frequency
+ * @param  to_freq_hz     New note frequency
+ * @param  out_steps_abs  [out] Absolute step target (current_pos + delta)
+ * @return 1 if a transition seed was computed, 0 otherwise
+ */
+static uint8_t TryTransitionSeed(uint8_t string_id,
+                                 float from_freq_hz,
+                                 float to_freq_hz,
+                                 float *out_steps_abs)
+{
+    if (out_steps_abs == NULL) return 0u;
+
+    int8_t from_fret = GenericFreqToFret(string_id, from_freq_hz);
+    int8_t to_fret   = GenericFreqToFret(string_id, to_freq_hz);
+    if (from_fret < 0 || to_fret < 0) return 0u;
+
+    float delta_steps = 0.0f;
+    if (!Cal_GetTransitionDelta(string_id,
+                                (uint8_t)from_fret,
+                                (uint8_t)to_fret,
+                                &delta_steps)) {
+        /* Fallback: LUT fret-to-fret delta */
+        delta_steps = tuning_ff_steps_bp[string_id][to_fret]
+                    - tuning_ff_steps_bp[string_id][from_fret];
+    }
+
+    *out_steps_abs = (float)g_shared_memory.current_positions[string_id]
+                   + delta_steps;
+    return 1u;
+}
+
+/**
  * @brief Look up absolute feed-forward steps for a given target frequency.
  *
  * Performs piecewise-linear interpolation between the nearest measured LUT
@@ -370,7 +444,11 @@ void TuningCtrl_Update(uint8_t string_id,
         s->note_actuated = 0u;
 
         /* Update FF position immediately so motor starts moving */
-        s->ff_steps_abs        = FF_Interpolate(string_id, target_freq_hz);
+        s->ff_steps_abs = FF_Interpolate(string_id, target_freq_hz);
+        (void)TryTransitionSeed(string_id,
+                                s->last_target_freq_hz,
+                                target_freq_hz,
+                                &s->ff_steps_abs);
         s->last_target_freq_hz = target_freq_hz;
 
     } else if (s->delay_hold_counter > 0u) {
@@ -454,10 +532,10 @@ void TuningCtrl_Update(uint8_t string_id,
          * while still preventing overshoot when close to target. */
         float step_cap;
         if (abs_e > 40.0f)      step_cap = TUNING_OUT_LIMIT_STEPS;
-        else if (abs_e > 15.0f) step_cap = 1600.0f;
-        else if (abs_e > 5.0f)  step_cap = 640.0f;
-        else if (abs_e > 1.0f)  step_cap = 240.0f;
-        else                    step_cap = 120.0f;
+        else if (abs_e > 15.0f) step_cap = 3000.0f;
+        else if (abs_e > 5.0f)  step_cap = 1200.0f;
+        else if (abs_e > 1.0f)  step_cap = 420.0f;
+        else                    step_cap = 220.0f;
 
         /* Clamp output with adaptive step cap */
         float clamped_trim = Clampf(raw_trim, -step_cap, step_cap);
@@ -884,6 +962,10 @@ void TuningCtrl_RunHop(void)
     /* ------------------------------------------------------------------ */
     uint8_t new_note_primary = (fabsf(target - s_state[str].last_target_freq_hz)
                                  > 0.05f);
+
+    if (new_note_primary && SongSched_GetStringCount() == 1u) {
+        InterCore_SendMotorMaxSpeed(str, SONG_MOTOR_SPEED);
+    }
 
     /* --- Primary String FFT Lock --- */
     float measured = 0.0f;

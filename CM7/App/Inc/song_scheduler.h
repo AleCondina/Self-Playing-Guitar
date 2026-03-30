@@ -62,7 +62,10 @@ void SongSched_Init(void);
 
 /**
  * @brief Select a song and initialise the scheduler.
- * @param song_id  0 = Smoke on the Water (chords), 1 = Smoke on the Water (A2 single string)
+ * @param song_id  0 = Smoke on the Water (split strings),
+ *                 1 = Smoke on the Water (A2 single string),
+ *                 2 = Drop D fingerpicking,
+ *                 3 = Smoke on the Water (E2 single string)
  */
 void SongSched_InitSong(uint8_t song_id);
 
@@ -121,6 +124,11 @@ void SongSched_Restart(void);
  * @brief Return total number of notes in the current song.
  */
 uint32_t SongSched_GetNoteCount(void);
+
+/**
+ * @brief Return the active song ID selected by SongSched_InitSong().
+ */
+uint8_t SongSched_GetSongId(void);
 
 /**
  * @brief Return the index of the currently active note.

@@ -23,6 +23,7 @@ void App_RequestPlaySong(uint8_t song_id);
 void App_RequestPlayDual(void);
 void App_RequestLutBuild(uint8_t string_mask);
 void App_RequestTune(uint8_t string_mask);
+void App_RequestTransitionCal(uint8_t string_mask);
 
 /* Debug flags — toggled via 'debug' serial command */
 #define DEBUG_FLAG_HOP_TIMER   (1u << 0)  /* Print hop interval & proc time every 5s */

@@ -44,6 +44,7 @@ typedef enum {
     STATE_LUT_BUILDING,
     STATE_TUNING,
     STATE_RUNNING,
+    STATE_TRANSITION_CAL,
     STATE_ERROR
 } AppState_t;
 
@@ -60,6 +61,8 @@ static volatile uint8_t s_request_lutbuild_mask  = 0x3Fu;
 static volatile uint8_t s_request_tune           = 0u;
 static volatile uint8_t s_request_tune_mask      = 0x0Fu;
 static volatile uint8_t s_request_play_dual      = 0u;
+static volatile uint8_t s_request_transcal       = 0u;
+static volatile uint8_t s_request_transcal_mask  = 0x03u;
 
 /**
  * @brief CM7 application main function
@@ -247,6 +250,24 @@ void App_CM7_Main(void) {
                 }
                 break;
 
+            case STATE_TRANSITION_CAL:
+                SerialCmd_Process();
+
+                if (Audio_HasNewSamples()) {
+                    uint16_t *audio_buf = Audio_GetBuffer();
+                    FFT_ProcessBlock(audio_buf);
+                    Audio_MarkProcessed();
+                    Cal_TransitionCalHop();
+                }
+
+                if (Cal_TransitionCalGetStatus() == CAL_STATUS_DONE ||
+                    Cal_TransitionCalGetStatus() == CAL_STATUS_ERROR) {
+                    app_state = STATE_RUNNING;
+                    Debug_UART_ResetRx();
+                    printf("\r\n[CMD] Transition calibration finished. Ready.\r\n> ");
+                }
+                break;
+
             case STATE_RUNNING:
                 /* Process serial commands */
                 SerialCmd_Process();
@@ -293,6 +314,13 @@ void App_CM7_Main(void) {
                         Cal_TuneStart(mask);
                         app_state = STATE_TUNING;
                         Audio_MarkProcessed();
+                        break;
+                    }
+                    if (s_request_transcal) {
+                        uint8_t mask = s_request_transcal_mask;
+                        s_request_transcal = 0u;
+                        Cal_StartTransitionCal(mask);
+                        app_state = STATE_TRANSITION_CAL;
                         break;
                     }
                     if (s_request_play_dual) {
@@ -456,5 +484,13 @@ void App_RequestTune(uint8_t string_mask)
     if (app_state != STATE_TUNING) {
         s_request_tune_mask = string_mask;
         s_request_tune      = 1u;
+    }
+}
+
+void App_RequestTransitionCal(uint8_t string_mask)
+{
+    if (app_state != STATE_TRANSITION_CAL) {
+        s_request_transcal_mask = string_mask;
+        s_request_transcal      = 1u;
     }
 }

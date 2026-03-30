@@ -58,9 +58,9 @@ extern "C" {
 /* =========================================================================
  * Quadratic feed-forward polynomial  (steps = a + b·f + c·f²)
  *
- * Set by Cal_FitPolynomial() at the end of each string's calibration.
- * Accessible by the tuning controller for smoother feedforward between
- * LUT breakpoints.
+ * Still fitted and persisted at the end of each calibration pass for
+ * diagnostics/legacy consumers. Runtime song/tune feedforward now uses the
+ * measured LUT breakpoints directly.
  * ========================================================================= */
 extern float cal_poly_coeff[NUM_STRINGS][3];   /**< [str][0=a, 1=b, 2=c] */
 
@@ -120,6 +120,19 @@ void Cal_Start(uint8_t string_mask);
 void Cal_StartStr(uint8_t str_id);
 
 /**
+ * @brief Read a calibrated transition delta (target_steps - source_steps).
+ *
+ * Transition deltas are smoke1-specific relative moves measured during the
+ * dedicated transition-calibration pass after the standard fret-LUT pass.
+ * Returns 1 when a calibrated delta exists for the requested source/target
+ * fret pair, 0 otherwise.
+ */
+uint8_t Cal_GetTransitionDelta(uint8_t str_id,
+                               uint8_t from_fret,
+                               uint8_t to_fret,
+                               float  *out_delta_steps);
+
+/**
  * @brief Start calibration for all six strings (E2 → E4).
  */
 void Cal_StartAll(void);
@@ -137,6 +150,36 @@ void Cal_Hop(void);
  * @brief Return current calibration status.
  */
 CalStatus_t Cal_GetStatus(void);
+
+/* =========================================================================
+ * Iterative Transition Calibration API
+ *
+ * Runs the unique fret-to-fret jumps from Smoke on Water repeatedly until
+ * each delta converges, then verifies with a confirmation pass.
+ *
+ * Usage:
+ *   Cal_StartTransitionCal(mask) → route hops through Cal_TransitionCalHop()
+ *   Poll Cal_TransitionCalGetStatus() for completion.
+ * ========================================================================= */
+
+/**
+ * @brief Start iterative transition calibration for a bitmask of strings.
+ * @param string_mask  Bit N = 1 → calibrate string N transitions.
+ */
+void Cal_StartTransitionCal(uint8_t string_mask);
+
+/**
+ * @brief Advance the transition calibration state machine by one audio hop.
+ *
+ * Call every time Audio_HasNewSamples() fires, AFTER FFT_ProcessBlock().
+ * Do NOT call TuningCtrl_RunHop() while transition calibration is running.
+ */
+void Cal_TransitionCalHop(void);
+
+/**
+ * @brief Return current transition calibration status.
+ */
+CalStatus_t Cal_TransitionCalGetStatus(void);
 
 /* =========================================================================
  * Tune API — open-string pitch correction (bidirectional motor adjustment)

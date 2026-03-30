@@ -114,7 +114,8 @@ static void Cmd_Calibrate(char *args);
 static void Cmd_MapFrets(char *args);
 static void Cmd_PrintLut(char *args);
 static void Cmd_Smoke(char *args);
-static void Cmd_Smoke1(char *args);
+static void Cmd_Smoke1A2(char *args);
+static void Cmd_Smoke1E2(char *args);
 static void Cmd_Song2(char *args);
 static void Cmd_FftPrint(char *args);
 static void Cmd_Tune(char *args);
@@ -123,6 +124,7 @@ static void Cmd_DropD(char *args);
 static void Cmd_DropG2(char *args);
 static void Cmd_Standard(char *args);
 static void Cmd_Bpm(char *args);
+static void Cmd_TransCal(char *args);
 static void Demo_Tick(void);
 
 /* Command table entry */
@@ -154,7 +156,8 @@ static const CmdEntry_t command_table[] = {
     { "mapfrets",  Cmd_MapFrets,  "mapfrets [str ...]       Measure fret step positions for LUT (e.g. 'mapfrets 0 1')" },
     { "printlut",  Cmd_PrintLut,  "printlut                 Print current feed-forward LUT values" },
     { "smoke",     Cmd_Smoke,     "smoke                    Play Smoke on the Water (E2+G2 split, Drop G2)" },
-    { "smoke1",    Cmd_Smoke1,    "smoke1                   Play Smoke on the Water (A2 single string)" },
+    { "smoke1A2",  Cmd_Smoke1A2,  "smoke1A2                 Play Smoke on the Water (A2 single string)" },
+    { "smoke1E2",  Cmd_Smoke1E2,  "smoke1E2                 Play Smoke on the Water (E2 single string)" },
     { "song2",     Cmd_Song2,     "song2                    Play Drop D fingerpicking" },
     { "tune",      Cmd_Tune,      "tune [str ...]            Tune open strings 0-3 to standard pitch" },
     { "fftprint",  Cmd_FftPrint,  "fftprint                 Toggle live FFT peak output" },
@@ -167,6 +170,7 @@ static const CmdEntry_t command_table[] = {
     { "dropg2",    Cmd_DropG2,    "dropg2                  Switch to Drop G2 tuning (str1=G2)" },
     { "standard",  Cmd_Standard,  "standard                Switch to standard tuning" },
     { "bpm",       Cmd_Bpm,       "bpm [value]             Get/set dual-track playback BPM (20-200)" },
+    { "transcal",  Cmd_TransCal,  "transcal [str ...]      Iterative transition calibration (e.g. 'transcal 1')" },
     { NULL, NULL, NULL }
 };
 
@@ -791,6 +795,37 @@ static void Cmd_Calibrate(char *args)
     App_RequestCalibration(mask);
 }
 
+static void Cmd_TransCal(char *args)
+{
+    (void)args;
+
+    char *tok = strtok(NULL, " \t");
+
+    if (tok == NULL || strcmp(tok, "all") == 0) {
+        printf("  Requesting transition calibration (strings 0+1)...\r\n");
+        printf("  Watch [TRANSCAL] output.\r\n");
+        App_RequestTransitionCal(0x03u);
+        return;
+    }
+
+    /* Build a bitmask from the listed string IDs */
+    uint8_t mask = 0u;
+    do {
+        int id = atoi(tok);
+        if (id < 0 || id >= NUM_STRINGS) {
+            printf("  Error: string ID %d out of range (0-%d).\r\n",
+                   id, NUM_STRINGS - 1);
+            return;
+        }
+        mask |= (uint8_t)(1u << id);
+    } while ((tok = strtok(NULL, " \t")) != NULL);
+
+    printf("  Requesting transition calibration (mask 0x%02X)...\r\n",
+           (unsigned)mask);
+    printf("  Watch [TRANSCAL] output.\r\n");
+    App_RequestTransitionCal(mask);
+}
+
 static void Cmd_MapFrets(char *args)
 {
     (void)args;
@@ -903,15 +938,42 @@ static void Cmd_Smoke(char *args)
     App_RequestPlayDual();
 }
 
-static void Cmd_Smoke1(char *args)
+static void Cmd_Smoke1A2(char *args)
 {
     (void)args;
     /* Stop dual-track if running */
     if (DblString_IsActive()) {
         DblString_Stop();
     }
+    if (TuningCtrl_GetActiveTuning() != TUNING_STANDARD) {
+        g_shared_memory.tuning_id = TUNING_STANDARD;
+        g_shared_memory.motor_command_flags |= CMD_SET_TUNING;
+        InterCore_NotifyCM4();
+        TuningCtrl_SetTuning(TUNING_STANDARD);
+        TuningCtrl_ResetAll();
+        printf("  Auto-switched to Standard tuning (str0=E2, str1=A2)\r\n");
+    }
     printf("  Starting Smoke on the Water (single A2 string)...\r\n");
     App_RequestPlaySong(1u);
+}
+
+static void Cmd_Smoke1E2(char *args)
+{
+    (void)args;
+    /* Stop dual-track if running */
+    if (DblString_IsActive()) {
+        DblString_Stop();
+    }
+    if (TuningCtrl_GetActiveTuning() != TUNING_STANDARD) {
+        g_shared_memory.tuning_id = TUNING_STANDARD;
+        g_shared_memory.motor_command_flags |= CMD_SET_TUNING;
+        InterCore_NotifyCM4();
+        TuningCtrl_SetTuning(TUNING_STANDARD);
+        TuningCtrl_ResetAll();
+        printf("  Auto-switched to Standard tuning (str0=E2, str1=A2)\r\n");
+    }
+    printf("  Starting Smoke on the Water (single E2 string)...\r\n");
+    App_RequestPlaySong(3u);
 }
 
 static void Cmd_Song2(char *args)

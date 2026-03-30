@@ -171,6 +171,38 @@ static const SongNote_t song1_notes[] = {
 };
 
 /* =========================================================================
+ * Song 3: Smoke on the Water – single E2 string (string_id = 0)
+ * =========================================================================
+ * E2 fret frequencies:
+ *   fret 0 = 82.41 Hz (E2)     fret 3 = 98.00 Hz (G2)
+ *   fret 5 = 110.00 Hz (A2)    fret 6 = 116.54 Hz (As2)
+ * ========================================================================= */
+static const SongNote_t song3_notes[] = {
+
+    /* Exact same timing profile as song1_notes, but on the E2 string. */
+
+    /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
+    NOTE(0u, E2_HZ,   1700u, 100u),  /* #0  fret 0: cold start, rest=400   */
+    NOTE(0u, G2_HZ,   1700u, 100u),  /* #1  fret 3: G2,  rest=400          */
+    NOTE(0u, A2_HZ,   1950u, 100u),  /* #2  fret 5: A2,  rest=650          */
+
+    /* ── Phrase 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
+    NOTE(0u, E2_HZ,   1700u, 100u),          /* #3  fret 0: E2,  rest=400          */
+    NOTE(0u, G2_HZ,   1700u, 100u),          /* #4  fret 3: G2,  rest=400          */
+    NOTE(0u, As2_HZ,  1400u, 100u),          /* #5  fret 6: As2, rest=100          */
+    NOTE_AT(0u, A2_HZ, 1950u, 100u, 600u),   /* #6  fret 5: A2,  converge=600      */
+
+    /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
+    NOTE(0u, E2_HZ,   1700u, 100u),  /* #7  fret 0: E2,  rest=400          */
+    NOTE(0u, G2_HZ,   1700u, 100u),  /* #8  fret 3: G2,  rest=400          */
+    NOTE(0u, A2_HZ,   1950u, 100u),  /* #9  fret 5: A2,  rest=650          */
+
+    /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
+    NOTE(0u, G2_HZ,   1700u, 100u),  /* #10 fret 3: G2,  rest=400          */
+    NOTE(0u, E2_HZ,   1950u, 100u),  /* #11 fret 0: E2,  rest=650          */
+};
+
+/* =========================================================================
  * Song 2: Drop D fingerpicking pattern (played 4x via loop)
  * =========================================================================
  * Drop D tuning: str0=D2, str1=A2, str2=D3, str4=B3
@@ -235,6 +267,7 @@ static const SongDef_t s_songs[] = {
     { song0_notes, (uint32_t)(sizeof(song0_notes) / sizeof(song0_notes[0])) },
     { song1_notes, (uint32_t)(sizeof(song1_notes) / sizeof(song1_notes[0])) },
     { song2_notes, (uint32_t)(sizeof(song2_notes) / sizeof(song2_notes[0])) },
+    { song3_notes, (uint32_t)(sizeof(song3_notes) / sizeof(song3_notes[0])) },
 };
 
 #define NUM_SONGS  ((uint32_t)(sizeof(s_songs) / sizeof(s_songs[0])))
@@ -260,6 +293,7 @@ static uint8_t  s_active        = 0u;
 static uint8_t  s_initialised   = 0u;
 static uint8_t  s_first_tick    = 1u;
 static uint8_t  s_hold_note     = 0u;
+static uint8_t  s_song_id       = 0u;
 
 /* =========================================================================
  * API implementation
@@ -298,6 +332,7 @@ void SongSched_InitSong(uint8_t song_id)
     if (song_id < NUM_SONGS) {
         s_song_ptr   = s_songs[song_id].notes;
         s_song_count = s_songs[song_id].count;
+        s_song_id    = song_id;
     }
     SongSched_Init();
 }
@@ -373,6 +408,11 @@ void SongSched_Restart(void)
 uint32_t SongSched_GetNoteCount(void)
 {
     return s_song_count;
+}
+
+uint8_t SongSched_GetSongId(void)
+{
+    return s_song_id;
 }
 
 uint32_t SongSched_GetNoteIndex(void)
