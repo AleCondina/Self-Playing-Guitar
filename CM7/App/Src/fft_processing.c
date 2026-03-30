@@ -7,10 +7,10 @@
 #include <math.h>
 
 
-/* FFT_RESOLUTION = 6000/2048 = 2 (integer division, actual 2.929 Hz/bin).
- * E2 (82.41 Hz) is at bin ~28 — SEARCH_START_BIN must be < 28.
- * Starting at 40 Hz → bin 13 gives safe margin below E2.
- * Ending at 1200 Hz → bin 409 covers all 6 open strings + 2nd harmonics. */
+/* FFT_RESOLUTION = 6000/1024 = 5 (integer division, actual 5.859 Hz/bin).
+ * E2 (82.41 Hz) is at bin ~14 — SEARCH_START_BIN must be < 14.
+ * Starting at 40 Hz → bin 8 gives safe margin below E2.
+ * Ending at 302 Hz → bin 60 covers E2-E4 range. */
 #define SEARCH_START_BIN (40   / FFT_RESOLUTION) // ~40 Hz  (below E2 at 82 Hz)
 #define SEARCH_END_BIN   (302 / FFT_RESOLUTION) // ~1200 Hz (2nd harmonic of E4)
 
@@ -87,9 +87,10 @@ void FFT_ProcessBlock(uint16_t* audio_buf)
 
         /* Snapshot debug values only when noise floor debug is active */
         if (app_debug_flags & DEBUG_FLAG_NOISE_FLOOR) {
-            fft_dbg_mag[0] = fft_mag[28];  fft_dbg_nf[0] = noise_floor[28];
-            fft_dbg_mag[1] = fft_mag[67];  fft_dbg_nf[1] = noise_floor[67];
-            fft_dbg_mag[2] = fft_mag[112]; fft_dbg_nf[2] = noise_floor[112];
+            /* Debug bins: E2≈bin14, A2≈bin19, D3≈bin25 at 5.86 Hz/bin */
+            fft_dbg_mag[0] = fft_mag[14];  fft_dbg_nf[0] = noise_floor[14];
+            fft_dbg_mag[1] = fft_mag[19];  fft_dbg_nf[1] = noise_floor[19];
+            fft_dbg_mag[2] = fft_mag[25];  fft_dbg_nf[2] = noise_floor[25];
             float peak = 0.0f;
             for (uint32_t i = SEARCH_START_BIN; i < SEARCH_END_BIN; i++) {
                 if (fft_mag[i] > peak) peak = fft_mag[i];

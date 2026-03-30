@@ -18,8 +18,8 @@
 
 /* ===== Motor Control Parameters ===== */
 #define MOTOR_MIN_STEP_FREQ     200     /* Minimum steps/sec */
-#define MOTOR_MAX_STEP_FREQ     20000   /* Maximum steps/sec */
-#define MOTOR_MAX_ACCEL         100000    /* Max acceleration (steps/sec²) */
+#define MOTOR_MAX_STEP_FREQ     60000   /* Maximum steps/sec (was 20000) */
+#define MOTOR_MAX_ACCEL         300000  /* Max acceleration (steps/sec²) (was 100000) */
 #define MOTOR_STEPS_PER_REV     200     /* Stepper motor steps per revolution */
 
 /* ===== Solenoid Control Parameters ===== */
@@ -32,7 +32,7 @@
 
 /* ===== Audio Processing Parameters ===== */   //TODO: check and modify for FFT
 #define AUDIO_SAMPLE_RATE_HZ    6000   /* ADC sample rate, technically its at 5999.812 since the register counts to 10666+1*/ 
-#define FFT_SIZE                2048    //2048 for 341ms sampling time, halved by using an overlapping array to 170ms
+#define FFT_SIZE                1024    //1024 for 170ms sampling time, halved by overlapping to 85ms hops
 #define FFT_HALF_SIZE           (FFT_SIZE / 2)
 #define AUDIO_BUFFER_SIZE       FFT_SIZE   // same size as FFT for overlapping samples at every half-buffer
 #define MAX_HARMONICS           8

@@ -1,29 +1,26 @@
 /**
  ******************************************************************************
  * @file    tuning_controller.h
- * @brief   Semitone-domain FF+PI guitar string tuning controller
+ * @brief   Semitone-domain simple-linear-FF + PI guitar string tuning controller
  *
  * Architecture
  * ------------
- * Runs entirely on CM7 at the FFT hop rate (≈ 170 ms per hop at
- * 6 kHz / 2048-point half-buffer). For each active string the controller:
+ * Runs entirely on CM7 at the FFT hop rate (≈ 85 ms per hop at
+ * 6 kHz / 1024-point half-buffer). For each active string the controller:
  *
  *  1. Converts the target frequency to semitones relative to the string's
  *     open frequency for the active tuning mode.
- *  2. Computes a feedforward step command from a per-string quadratic
- *     polynomial in the semitone domain (steps = a·semi² + b·semi + c).
+ *  2. Computes a feedforward step command from a simple linear model:
+ *     steps = K * target_semi  (single constant, no calibration needed).
  *  3. Runs a gain-scheduled PI controller in the semitone domain with
- *     anti-windup. On note changes that fire a solenoid, the controller
- *     inserts a fixed resonance wait before feedforward, then only enables
- *     PI after the burst-clear window has expired and the motor has stopped.
- *  4. Fires the solenoid immediately on each note change (burst duration
- *     from song data), then lets the string breathe for one hop before FF.
+ *     anti-windup. On cold-start notes with solenoid burst, the controller
+ *     waits for FFT clear before enabling PI. On subsequent notes (no burst),
+ *     PI is active immediately.
  *
  * State machine:
- *   IDLE → RESONANCE_WAIT → FF_MOVE → FF_WAIT → PI_ACTIVE ↔ IN_TUNE
- *   IDLE → FF_MOVE → FF_WAIT → PI_ACTIVE ↔ IN_TUNE   (no solenoid fired)
- *   - FF_MOVE re-triggers if |error| > FF_LOCK threshold (0.5 semi)
- *   - IN_TUNE monitors for drift back above deadband (5 cents)
+ *   Cold-start:  IDLE → RESONANCE_WAIT (burst clear) → PI_ACTIVE ↔ IN_TUNE
+ *   Subsequent:  IDLE → PI_ACTIVE ↔ IN_TUNE  (no burst, immediate PI)
+ *   - IN_TUNE monitors for drift back above deadband (10 cents)
  ******************************************************************************
  */
 
@@ -44,17 +41,23 @@ extern "C" {
 #define TUNING_SAMPLE_TIME_S \
     ((float)(FFT_SIZE / 2) / (float)AUDIO_SAMPLE_RATE_HZ)
 
-#define TUNING_RESONANCE_WAIT_HOPS  1u
+#define TUNING_RESONANCE_WAIT_HOPS  0u  /* was 1 — no wait on non-burst notes */
 
 /* =========================================================================
  * Semitone-domain control constants
  * ========================================================================= */
 
-#define TUNING_KP              47.0f
-#define TUNING_KI_Z             4.699f
+#define TUNING_KP              400.0f   /* was 47.0 — 8.5x for responsive positioning */
+#define TUNING_KI_Z             40.0f   /* was 4.699 — scaled with Kp */
 #define TUNING_K_AVG            1.596e-03f
-#define TUNING_DEADBAND_SEMI    0.05f
+#define TUNING_DEADBAND_SEMI    0.05f   /* was 0.05 — 10 cents, musically acceptable */
 #define TUNING_FF_LOCK_SEMI     0.50f
+
+/* =========================================================================
+ * Simple linear feedforward (replaces calibrated polynomial)
+ * ========================================================================= */
+
+#define TUNING_SIMPLE_FF_STEPS_PER_SEMI  570.0f  /* avg from LUT: ~570 steps/semitone */
 
 /* =========================================================================
  * Mechanical limits and motor parameters

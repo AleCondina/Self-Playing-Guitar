@@ -24,6 +24,9 @@
 #define OPEN_STRING_REJECT_HZ   5.0f
 #define COLD_START_DEFER_HOPS   2u
 
+/* Forward declaration — used by StartNoteTransition before definition */
+static float simple_ff_steps(uint8_t str, float target_semi);
+
 /* =========================================================================
  * Feed-forward LUT data
  * ========================================================================= */
@@ -207,11 +210,16 @@ static void StartNoteTransition(uint8_t string_id,
     s->fft_clear_wait_hops_remaining = 0u;
 
     if (burst_fired) {
+        /* Cold-start: wait for FFT to clear solenoid contamination */
         s->state = TUNE_STATE_RESONANCE_WAIT;
         s->resonance_wait_hops_remaining = TUNING_RESONANCE_WAIT_HOPS;
         s->fft_clear_wait_hops_remaining = BurstClearWaitHops(burst_ms);
+        /* Apply simple FF even during burst wait so motor starts moving now */
+        s->ff_steps_abs = simple_ff_steps(string_id, target_semi);
     } else {
-        s->state = TUNE_STATE_FF_MOVE;
+        /* No burst: go straight to PI_ACTIVE, apply simple FF immediately */
+        s->state = TUNE_STATE_PI_ACTIVE;
+        s->ff_steps_abs = simple_ff_steps(string_id, target_semi);
     }
 }
 
@@ -224,6 +232,15 @@ static float feedforward_steps(uint8_t str, float target_semi)
 
     steps += (float)Cal_TuneGetOffset(str);
     return steps;
+}
+
+/* Simple linear feedforward — replaces polynomial for song playback.
+ * One constant (TUNING_SIMPLE_FF_STEPS_PER_SEMI) derived from LUT average.
+ * Gets motor ~90% correct; PI handles the remaining error. */
+static float simple_ff_steps(uint8_t str, float target_semi)
+{
+    return TUNING_SIMPLE_FF_STEPS_PER_SEMI * target_semi
+           + (float)Cal_TuneGetOffset(str);
 }
 
 static float plant_steps_to_semi(uint8_t str, float steps)
@@ -354,20 +371,20 @@ void TuningCtrl_Update(uint8_t string_id,
         if (s->resonance_wait_hops_remaining > 0u) {
             break;
         }
-        s->state = TUNE_STATE_FF_MOVE;
-        /* fallthrough */
+        /* Burst clear done — go straight to PI (FF already applied in StartNoteTransition) */
+        s->state = TUNE_STATE_PI_ACTIVE;
+        break;
 
     case TUNE_STATE_FF_MOVE:
-        s->integral_state = 0.0f;
-        s->ff_steps_abs = feedforward_steps(string_id, target_semi);
-        s->state = TUNE_STATE_FF_WAIT;
+        /* Legacy state — redirect to PI_ACTIVE */
+        s->ff_steps_abs = simple_ff_steps(string_id, target_semi);
+        s->state = TUNE_STATE_PI_ACTIVE;
         ff_command_issued = 1u;
         break;
 
     case TUNE_STATE_FF_WAIT:
-        if (measurement_trusted && !motor_busy) {
-            s->state = TUNE_STATE_PI_ACTIVE;
-        }
+        /* Legacy state — redirect to PI_ACTIVE */
+        s->state = TUNE_STATE_PI_ACTIVE;
         break;
 
     case TUNE_STATE_PI_ACTIVE:
@@ -375,25 +392,16 @@ void TuningCtrl_Update(uint8_t string_id,
             break;
         }
 
+        /* Recompute simple FF each hop (target may have changed) */
+        s->ff_steps_abs = simple_ff_steps(string_id, target_semi);
+
         {
             float e = target_semi - meas_semi;
             float abs_e = fabsf(e);
 
-            if (abs_e > TUNING_FF_LOCK_SEMI) {
-                s->integral_state = 0.0f;
-                s->resonance_wait_hops_remaining = 0u;
-                s->fft_clear_wait_hops_remaining = 0u;
-                s->state = TUNE_STATE_FF_MOVE;
-                break;
-            }
-
             if (abs_e < TUNING_DEADBAND_SEMI) {
                 s->lock_state = 1u;
                 s->state = TUNE_STATE_IN_TUNE;
-                printf("[TC-PI] str%u | LOCKED err=%.4f st, pos=%ld\r\n",
-                       (unsigned)string_id,
-                       (double)e,
-                       (long)s->current_abs_steps);
                 break;
             }
 
@@ -418,15 +426,6 @@ void TuningCtrl_Update(uint8_t string_id,
 
                 s->integral_state = Clampf(s->integral_state, int_min, int_max);
                 pi_delta = kp_actual * e + TUNING_KI_Z * s->integral_state;
-
-                printf("[TC-PI] str%u | err=%.3f st, Kp=%.1f, integ=%.1f, pi_delta=%.1f, ff=%.0f, cmd=%.0f\r\n",
-                       (unsigned)string_id,
-                       (double)e,
-                       (double)kp_actual,
-                       (double)s->integral_state,
-                       (double)pi_delta,
-                       (double)s->ff_steps_abs,
-                       (double)(s->ff_steps_abs + pi_delta));
             }
 
             s->lock_state = 0u;
@@ -457,9 +456,10 @@ void TuningCtrl_Update(uint8_t string_id,
         int32_t last_cmd_steps = s->cmd_steps_abs;
         float raw_cmd = s->ff_steps_abs + pi_delta;
 
-        if (s->state == TUNE_STATE_IDLE || s->state == TUNE_STATE_RESONANCE_WAIT) {
+        if (s->state == TUNE_STATE_IDLE) {
             raw_cmd = (float)last_cmd_steps;
         }
+        /* In RESONANCE_WAIT: let motor move to FF position (already set) */
 
         if (!ff_command_issued &&
             fabsf(raw_cmd - (float)last_cmd_steps) < TUNING_MIN_MOVE_STEPS) {
@@ -651,43 +651,45 @@ void TuningCtrl_RunHop(void)
             const SongNote_t *cur = SongSched_GetNoteAt(SongSched_GetNoteIndex());
             uint16_t burst_ms = (cur && cur->burst_ms > 0u) ? cur->burst_ms : 72u;
 
-            if (chord) {
-                uint8_t sol_mask = 0u;
-                float freqs[6] = {0.0f};
+            {
+                if (chord) {
+                    uint8_t sol_mask = 0u;
+                    float freqs[6] = {0.0f};
 
-                if (can_burst_primary) {
-                    sol_mask |= (uint8_t)(1u << str);
-                    freqs[str] = target;
+                    if (can_burst_primary) {
+                        sol_mask |= (uint8_t)(1u << str);
+                        freqs[str] = target;
+                        burst_fired_primary = 1u;
+                    }
+                    if (can_burst_secondary) {
+                        sol_mask |= (uint8_t)(1u << str2);
+                        freqs[str2] = target2;
+                        burst_fired_secondary = 1u;
+                    }
+                    if (sol_mask != 0u) {
+                        InterCore_TriggerSolenoidHzBatch(sol_mask,
+                                                         freqs,
+                                                         SOLENOID_DEFAULT_DUTY_CYCLE,
+                                                         SOLENOID_MODE_TIMED,
+                                                         burst_ms);
+                        printf("[TC] Chord actuate: %.1f/%.1f Hz burst=%ums\r\n",
+                               (double)target,
+                               (double)target2,
+                               (unsigned)burst_ms);
+                    }
+                } else if (can_burst_primary) {
+                    InterCore_TriggerSolenoidHz(str,
+                                                target,
+                                                SOLENOID_DEFAULT_DUTY_CYCLE,
+                                                SOLENOID_MODE_TIMED,
+                                                burst_ms,
+                                                0u);
                     burst_fired_primary = 1u;
-                }
-                if (can_burst_secondary) {
-                    sol_mask |= (uint8_t)(1u << str2);
-                    freqs[str2] = target2;
-                    burst_fired_secondary = 1u;
-                }
-                if (sol_mask != 0u) {
-                    InterCore_TriggerSolenoidHzBatch(sol_mask,
-                                                     freqs,
-                                                     SOLENOID_DEFAULT_DUTY_CYCLE,
-                                                     SOLENOID_MODE_TIMED,
-                                                     burst_ms);
-                    printf("[TC] Chord actuate: %.1f/%.1f Hz burst=%ums\r\n",
+                    printf("[TC] Actuate str%u: %.1f Hz burst=%ums\r\n",
+                           (unsigned)str,
                            (double)target,
-                           (double)target2,
                            (unsigned)burst_ms);
                 }
-            } else if (can_burst_primary) {
-                InterCore_TriggerSolenoidHz(str,
-                                            target,
-                                            SOLENOID_DEFAULT_DUTY_CYCLE,
-                                            SOLENOID_MODE_TIMED,
-                                            burst_ms,
-                                            0u);
-                burst_fired_primary = 1u;
-                printf("[TC] Actuate str%u: %.1f Hz burst=%ums\r\n",
-                       (unsigned)str,
-                       (double)target,
-                       (unsigned)burst_ms);
             }
 
             burst_ms_for_start = burst_ms;
@@ -724,13 +726,6 @@ void TuningCtrl_RunHop(void)
                         target,
                         &measured,
                         &confidence);
-        printf("[TC-DBG] str%u | tgt=%.2f exp=%.2f meas=%.2f mag=%.1f state=%u\r\n",
-               (unsigned)str,
-               (double)target,
-               (double)s_state[str].expected_freq_hz,
-               (double)measured,
-               (double)confidence,
-               (unsigned)s_state[str].state);
         TuningCtrl_Update(str, target, measured, confidence);
 
         if (chord) {
@@ -758,24 +753,6 @@ void TuningCtrl_RunHop(void)
             }
 
             InterCore_SendMotorGotoBatch(move_mask, positions);
-
-            printf("[SNG] %lu,%lu,%lu,%u,%.2f,%.2f,%.4f,%.0f,%.1f,%ld,%ld,%u,%u,%u,%u,%.0f\r\n",
-                   (unsigned long)HAL_GetTick(),
-                   (unsigned long)SongSched_GetNoteIndex(),
-                   (unsigned long)ds->hop_count,
-                   (unsigned)ds->state,
-                   (double)target,
-                   (double)measured,
-                   (double)err_semi,
-                   (double)ds->ff_steps_abs,
-                   (double)ds->last_pi_delta,
-                   (long)ds->cmd_steps_abs,
-                   (long)ds->current_abs_steps,
-                   (unsigned)g_shared_memory.motor_is_moving[str],
-                   (unsigned)ds->fft_clear_wait_hops_remaining,
-                   (unsigned)ds->resonance_wait_hops_remaining,
-                   (unsigned)ds->lock_state,
-                   (double)confidence);
         }
     }
 }

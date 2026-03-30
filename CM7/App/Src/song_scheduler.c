@@ -32,7 +32,7 @@
  * SONG_LOCK_WAIT_MODE in app_cm7.c for guaranteed accuracy at any BPM.
  * ========================================================================= */
 #define SONG_BPM_REF        60u   /**< Reference BPM of the durations below     */
-#define SONG_BPM            60u   /**< Playback BPM — 1:1 with reference tempo   */
+#define SONG_BPM            40u   /**< Playback BPM — conservative for PI tuning */
 #define SONG_LOOP_ENABLED    1u   /**< 1 = restart song automatically at end     */
 
 /* =========================================================================
@@ -109,31 +109,30 @@ static const SongNote_t song0_notes[] = {
 static const SongNote_t song1_notes[] = {
 
     /* ── Timing note ─────────────────────────────────────────────────── *
-     *  These durations are scheduler hold times. Runtime note flow is    *
-     *  burst -> 1 hop breathe -> FF -> PI after clean FFT + motor done.  *
-     *  Short notes may stay mostly feedforward-dominant by design.       *
+     *  Simple linear FF + PI mode. Solenoid fires short burst (72ms)    *
+     *  on each note to keep string vibrating. Cold start uses 125ms.    *
      * ────────────────────────────────────────────────────────────────── */
 
     /* ── Measure 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    NOTE(0u, E2_HZ,   1000u,  125u),  /* #0  fret 0: cold start    */
-    NOTE(0u, G2_HZ,   1000u,  125u),  /* #1  fret 3: G2            */
-    NOTE(0u, A2_HZ,   1500u,  125u),  /* #2  fret 5: A2            */
-    NOTE(0u, E2_HZ,   1000u,  125u),  /* #3  fret 0: E2            */
+    NOTE(0u, E2_HZ,   1000u,  125u),  /* #0  fret 0: cold start        */
+    NOTE(0u, G2_HZ,   1000u,  125u),   /* #1  fret 3: G2                */
+    NOTE(0u, A2_HZ,   1500u,  125u),   /* #2  fret 5: A2                */
+    NOTE(0u, E2_HZ,   1000u,  125u),   /* #3  fret 0: E2                */
 
     /* ── Measure 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
-    NOTE(0u, G2_HZ,   1000u,  125u),  /* #4  fret 3: G2            */
-    NOTE(0u, As2_HZ,  500u,   125u),  /* #5  fret 6: As2           */
-    NOTE(0u, A2_HZ,   2000u,  125u),  /* #6  fret 5: A2            */
+    NOTE(0u, G2_HZ,   1000u,  125u),   /* #4  fret 3: G2                */
+    NOTE(0u, As2_HZ,  500u,   125u),   /* #5  fret 6: As2               */
+    NOTE(0u, A2_HZ,   2000u,  125u),   /* #6  fret 5: A2                */
 
     /* ── Measure 3: same as measure 1 ─────────────────────────────────── */
-    NOTE(0u, E2_HZ,   1000u,  125u),  /* #7  fret 0: E2            */
-    NOTE(0u, G2_HZ,   1000u,  125u),  /* #8  fret 3: G2            */
-    NOTE(0u, A2_HZ,   1500u,  125u),  /* #9  fret 5: A2            */
-    NOTE(0u, G2_HZ,   1000u,  125u),  /* #10 fret 3: G2            */
+    NOTE(0u, E2_HZ,   1000u,  125u),   /* #7  fret 0: E2                */
+    NOTE(0u, G2_HZ,   1000u,  125u),   /* #8  fret 3: G2                */
+    NOTE(0u, A2_HZ,   1500u,  125u),   /* #9  fret 5: A2                */
+    NOTE(0u, G2_HZ,   1000u,  125u),   /* #10 fret 3: G2                */
 
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    NOTE(0u, E2_HZ,   4000u,  125u),  /* #11 fret 0: E2            */
-              
+    NOTE(0u, E2_HZ,   4000u,  125u),   /* #11 fret 0: E2                */
+
 };
 
 /* =========================================================================
