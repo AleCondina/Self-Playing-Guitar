@@ -246,8 +246,8 @@ static const TransitionSeedInit_t s_transition_seed_defaults[] = {
     { 1u, 3u, 5u, 1949.0f },
     { 1u, 3u, 6u, 3158.0f },
     { 1u, 6u, 5u, -1209.0f },
-    { 1u, 5u, 0u, -4747.0f },
-    { 1u, 5u, 3u, -2245.0f },
+    { 1u, 5u, 0u, -4782.0f },
+    { 1u, 5u, 3u, -2518.0f },
     { 1u, 3u, 0u, -2643.0f },
     { 0xFFu, 0u, 0u, 0.0f }  /* Sentinel: replace or append real seeds above */
 };

@@ -173,6 +173,11 @@ static uint32_t s_seen_song_cycle_generation = 0u;
 static uint8_t s_pi_master_enabled =
     (TUNING_PI_ENABLED_DEFAULT != 0u) ? 1u : 0u;
 
+/* Adaptive note mode: when enabled, the solenoid fires at the FFT-measured
+ * string frequency instead of the song scheduler's target frequency.
+ * Toggled at runtime via the 'adaptnote' serial command. */
+static uint8_t s_adaptive_note_enabled = 0u;
+
 /* Deferred cold-start burst: count down hops before firing the initial burst.
  * 0 = not pending.  Set to COLD_START_DEFER_HOPS on first note detection,
  * decremented each hop, burst fires when it reaches 1.  This gives CM4
@@ -1143,10 +1148,21 @@ void TuningCtrl_RunHop(void)
                 uint8_t sol_mask = 0u;
                 float   freqs[6] = {0.0f};
 
-                float f1 = s_state[str].lock_state
+                float f1, f2_freq;
+                if (s_adaptive_note_enabled) {
+                    /* Adaptive: use FFT-measured freq, fall back to FF estimate */
+                    f1 = (s_state[str].string_warm && s_state[str].last_valid_freq_hz > 0.0f)
+                       ? s_state[str].last_valid_freq_hz
+                       : s_state[str].expected_freq_hz;
+                    f2_freq = (s_state[str2].string_warm && s_state[str2].last_valid_freq_hz > 0.0f)
+                            ? s_state[str2].last_valid_freq_hz
+                            : s_state[str2].expected_freq_hz;
+                } else {
+                    f1 = s_state[str].lock_state
                          ? s_state[str].last_valid_freq_hz : target;
-                float f2_freq = s_state[str2].lock_state
+                    f2_freq = s_state[str2].lock_state
                               ? s_state[str2].last_valid_freq_hz : target2;
+                }
 
                 if (f1 >= 40.0f && f1 <= 800.0f) {
                     sol_mask |= (1u << str);  freqs[str] = f1;
@@ -1161,26 +1177,36 @@ void TuningCtrl_RunHop(void)
                 }
                 s_state[str].note_actuated  = 1u;
                 s_state[str2].note_actuated = 1u;
-                printf("[TC] Chord actuate @%lums: %.1f/%.1f Hz burst=%ums (lock=%u/%u)\r\n",
+                printf("[TC] Chord actuate @%lums: %.1f/%.1f Hz burst=%ums (lock=%u/%u%s)\r\n",
                        (unsigned long)note_elapsed,
                        (double)f1, (double)f2_freq,
                        (unsigned)burst_ms,
                        (unsigned)s_state[str].lock_state,
-                       (unsigned)s_state[str2].lock_state);
+                       (unsigned)s_state[str2].lock_state,
+                       s_adaptive_note_enabled ? " ADAPT" : "");
 
             } else {
                 /* Single string */
-                float f = s_state[str].lock_state
-                        ? s_state[str].last_valid_freq_hz : target;
+                float f;
+                if (s_adaptive_note_enabled) {
+                    /* Adaptive: use FFT-measured freq, fall back to FF estimate */
+                    f = (s_state[str].string_warm && s_state[str].last_valid_freq_hz > 0.0f)
+                      ? s_state[str].last_valid_freq_hz
+                      : s_state[str].expected_freq_hz;
+                } else {
+                    f = s_state[str].lock_state
+                            ? s_state[str].last_valid_freq_hz : target;
+                }
                 if (f >= 40.0f && f <= 800.0f) {
                     InterCore_TriggerSolenoidHz(str, f, SOLENOID_DEFAULT_DUTY_CYCLE,
                                                 SOLENOID_MODE_TIMED, burst_ms, 0u);
                 }
                 s_state[str].note_actuated = 1u;
-                printf("[TC] Actuate str%u @%lums: %.1f Hz burst=%ums (lock=%u)\r\n",
+                printf("[TC] Actuate str%u @%lums: %.1f Hz burst=%ums (lock=%u%s)\r\n",
                        (unsigned)str, (unsigned long)note_elapsed,
                        (double)f, (unsigned)burst_ms,
-                       (unsigned)s_state[str].lock_state);
+                       (unsigned)s_state[str].lock_state,
+                       s_adaptive_note_enabled ? " ADAPT" : "");
             }
         }
     }
@@ -1290,6 +1316,16 @@ void TuningCtrl_SetPiEnabled(uint8_t enable)
 uint8_t TuningCtrl_GetPiEnabled(void)
 {
     return TuningPiEnabled();
+}
+
+void TuningCtrl_SetAdaptiveNote(uint8_t enable)
+{
+    s_adaptive_note_enabled = enable ? 1u : 0u;
+}
+
+uint8_t TuningCtrl_GetAdaptiveNote(void)
+{
+    return s_adaptive_note_enabled;
 }
 
 void TuningCtrl_SetDualTrackMode(uint8_t enable)

@@ -129,6 +129,7 @@ static void Cmd_TransCal(char *args);
 static void Cmd_SongStop(char *args);
 static void Cmd_TransCalStop(char *args);
 static void Cmd_EnablePI(char *args);
+static void Cmd_AdaptNote(char *args);
 static void Demo_Tick(void);
 
 /* Command table entry */
@@ -178,6 +179,7 @@ static const CmdEntry_t command_table[] = {
     { "songstop",  Cmd_SongStop,  "songstop                Safely stop playback and return strings to open" },
     { "transcalstop", Cmd_TransCalStop, "transcalstop           Safely stop transition calibration and save current values" },
     { "enablePI",  Cmd_EnablePI,  "enablePI [on|off]       Toggle song PI trim (transcal-only vs transcal+PI)" },
+    { "adaptnote", Cmd_AdaptNote, "adaptnote [on|off]      Toggle adaptive note (solenoid fires at FFT-measured freq)" },
     { NULL, NULL, NULL }
 };
 
@@ -1076,6 +1078,40 @@ static void Cmd_EnablePI(char *args)
     printf("  Song PI: %s\r\n",
            enabled ? "ON (transcal relative jumps + PI)"
                    : "OFF (transcal relative jumps only)");
+}
+
+static void Cmd_AdaptNote(char *args)
+{
+    (void)args;
+
+    char *tok = strtok(NULL, " \t");
+    uint8_t enabled = TuningCtrl_GetAdaptiveNote();
+
+    if (tok == NULL) {
+        enabled = enabled ? 0u : 1u;
+    } else if ((strcmp(tok, "on") == 0) ||
+               (strcmp(tok, "1") == 0) ||
+               (strcmp(tok, "enable") == 0)) {
+        enabled = 1u;
+    } else if ((strcmp(tok, "off") == 0) ||
+               (strcmp(tok, "0") == 0) ||
+               (strcmp(tok, "disable") == 0)) {
+        enabled = 0u;
+    } else if (strcmp(tok, "status") == 0) {
+        printf("  Adaptive note: %s\r\n",
+               TuningCtrl_GetAdaptiveNote()
+                   ? "ON (solenoid fires at FFT-measured freq)"
+                   : "OFF (solenoid fires at target/locked freq)");
+        return;
+    } else {
+        printf("  Usage: adaptnote [on|off|status]\r\n");
+        return;
+    }
+
+    TuningCtrl_SetAdaptiveNote(enabled);
+    printf("  Adaptive note: %s\r\n",
+           enabled ? "ON (solenoid fires at FFT-measured freq)"
+                   : "OFF (solenoid fires at target/locked freq)");
 }
 
 /* ===== Demo Command & State Machine ===== */

@@ -358,6 +358,24 @@ void TuningCtrl_SetPiEnabled(uint8_t enable);
 uint8_t TuningCtrl_GetPiEnabled(void);
 
 /**
+ * @brief Enable or disable adaptive note mode at runtime.
+ *
+ * When enabled, the solenoid fires at the FFT-measured string frequency
+ * (whatever the string is actually vibrating at after the motor settles)
+ * instead of the song scheduler's perfect fretted note frequency.
+ * This increases the probability of exciting the string at its true
+ * resonance even when the feed-forward LUT is slightly off.
+ *
+ * @param enable  1 = fire at FFT-measured freq, 0 = original behaviour
+ */
+void TuningCtrl_SetAdaptiveNote(uint8_t enable);
+
+/**
+ * @brief Return whether adaptive note mode is currently enabled.
+ */
+uint8_t TuningCtrl_GetAdaptiveNote(void);
+
+/**
  * @brief  Get the most recently computed absolute motor step command.
  * @param  string_id  String index 0–5
  * @return Commanded position in microsteps (0 = open string / home).

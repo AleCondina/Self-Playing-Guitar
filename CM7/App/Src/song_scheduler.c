@@ -146,31 +146,31 @@ static const SongNote_t song0_notes[] = {
 static const SongNote_t song1_notes[] = {
 
     /* ── Timing budget per note ──────────────────────────────────────── *
-     *  Standard notes:         800ms pre-fire +  80ms burst + 400ms ring = 1280ms *
-     *  Held notes 2,9,11:      800ms pre-fire +  80ms burst + 650ms ring = 1530ms *
-     *  Note 5:                 800ms pre-fire +  80ms burst + 100ms ring =  980ms *
-     *  Note 6:                 400ms pre-fire +  80ms burst + 650ms ring = 1130ms *
+     *  Standard notes:         800ms pre-fire + 120ms burst + 400ms ring = 1320ms *
+     *  Held notes 2,9,11:      800ms pre-fire + 120ms burst + 650ms ring = 1570ms *
+     *  Note 5:                 800ms pre-fire + 120ms burst +  50ms ring =  970ms *
+     *  Note 6:                 500ms pre-fire + 120ms burst + 650ms ring = 1270ms *
      * ────────────────────────────────────────────────────────────────── */
 
     /* ── Phrase 1: fret 0 – fret 3 – fret 5 ──────────────────────────── */
-    NOTE_AT(1u, A2_HZ,   1280u,  80u, 800u),  /* #0  fret 0: rest=400  */
-    NOTE_AT(1u, C3_HZ,   1280u,  80u, 800u),  /* #1  fret 3: rest=400  */
-    NOTE_AT(1u, D3_HZ,   1530u,  80u, 800u),  /* #2  fret 5: rest=650  */
+    NOTE_AT(1u, A2_HZ,   1320u, 120u, 800u),  /* #0  fret 0: rest=400  */
+    NOTE_AT(1u, C3_HZ,   1320u, 120u, 800u),  /* #1  fret 3: rest=400  */
+    NOTE_AT(1u, D3_HZ,   1570u, 120u, 800u),  /* #2  fret 5: rest=650  */
 
     /* ── Phrase 2: fret 0 – fret 3, fret 6 – fret 5 ──────────────────── */
-    NOTE_AT(1u, A2_HZ,   1280u,  80u, 800u),  /* #3  fret 0: rest=400  */
-    NOTE_AT(1u, C3_HZ,   1280u,  80u, 800u),  /* #4  fret 3: rest=400  */
-    NOTE_AT(1u, Ds3_HZ,   980u,  80u, 800u),  /* #5  fret 6: rest=100  */
-    NOTE_AT(1u, D3_HZ,   1130u,  80u, 400u),  /* #6  fret 5: rest=650  */
+    NOTE_AT(1u, A2_HZ,   1320u, 120u, 800u),  /* #3  fret 0: rest=400  */
+    NOTE_AT(1u, C3_HZ,   1320u, 120u, 800u),  /* #4  fret 3: rest=400  */
+    NOTE_AT(1u, Ds3_HZ,   970u, 120u, 800u),  /* #5  fret 6: rest=50   */
+    NOTE_AT(1u, D3_HZ,   1270u, 120u, 500u),  /* #6  fret 5: rest=650  */
 
     /* ── Phrase 3: same as phrase 1 ─────────────────────────────────── */
-    NOTE_AT(1u, A2_HZ,   1280u,  80u, 800u),  /* #7  fret 0: rest=400  */
-    NOTE_AT(1u, C3_HZ,   1280u,  80u, 800u),  /* #8  fret 3: rest=400  */
-    NOTE_AT(1u, D3_HZ,   1530u,  80u, 800u),  /* #9  fret 5: rest=650  */
+    NOTE_AT(1u, A2_HZ,   1320u, 120u, 800u),  /* #7  fret 0: rest=400  */
+    NOTE_AT(1u, C3_HZ,   1320u, 120u, 800u),  /* #8  fret 3: rest=400  */
+    NOTE_AT(1u, D3_HZ,   1570u, 120u, 800u),  /* #9  fret 5: rest=650  */
 
     /* ── Phrase 4: fret 3 then fret 0 (ending) ───────────────────────── */
-    NOTE_AT(1u, C3_HZ,   1280u,  80u, 800u),  /* #10 fret 3: rest=400  */
-    NOTE_AT(1u, A2_HZ,   1530u,  80u, 800u),  /* #11 fret 0: rest=650  */
+    NOTE_AT(1u, C3_HZ,   1320u, 120u, 800u),  /* #10 fret 3: rest=400  */
+    NOTE_AT(1u, A2_HZ,   1570u, 120u, 800u),  /* #11 fret 0: rest=650  */
 };
 
 /* =========================================================================
