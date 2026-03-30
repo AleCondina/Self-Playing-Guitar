@@ -63,6 +63,16 @@ extern "C" {
  */
 #define TUNING_DELAY_FRAMES     3u
 
+/**
+ * @brief Master switch for song-playback PI trim.
+ *
+ * 1 = normal closed-loop feed-forward + PI playback.
+ * 0 = LUT/transition-seed only; no PI trim is applied to motor commands.
+ *
+ * Keep this at 0 while commissioning raw transition/LUT behavior.
+ */
+#define TUNING_PI_SWITCH        0u
+
 /* =========================================================================
  * Song playback mode parameters
  * =========================================================================

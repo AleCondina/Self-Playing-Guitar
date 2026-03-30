@@ -182,6 +182,11 @@ static uint8_t s_dual_track_mode = 0u;
  * Private helpers
  * ========================================================================= */
 
+static inline uint8_t TuningPiEnabled(void)
+{
+    return (TUNING_PI_SWITCH != 0u) ? 1u : 0u;
+}
+
 /**
  * @brief Clamp a float value between lo and hi.
  */
@@ -410,6 +415,7 @@ void TuningCtrl_Update(uint8_t string_id,
     if (string_id >= NUM_STRINGS) return;
 
     TuningStringState_t *s = &s_state[string_id];
+    uint8_t pi_master_enabled = TuningPiEnabled();
 
     /* ------------------------------------------------------------------ */
     /* 1. Note-change detection                                             */
@@ -431,8 +437,10 @@ void TuningCtrl_Update(uint8_t string_id,
          * Warm string → FFT already has live signal → PI can start after 1 hop.
          * Cold string → solenoid burst fires first (in TuningCtrl_RunHop) →
          *               keep full 3-hop hold while FFT acquires resonance.      */
-        uint16_t hold = s->string_warm ? (uint16_t)SONG_WARM_DELAY_FRAMES
-                                       : (uint16_t)SONG_COLD_DELAY_FRAMES;
+        uint16_t hold = pi_master_enabled
+                      ? (s->string_warm ? (uint16_t)SONG_WARM_DELAY_FRAMES
+                                        : (uint16_t)SONG_COLD_DELAY_FRAMES)
+                      : 0u;
         s->delay_hold_counter = hold;
 
         /* Reset per-note pluck tracking */
@@ -445,20 +453,24 @@ void TuningCtrl_Update(uint8_t string_id,
 
         /* Update FF position immediately so motor starts moving */
         s->ff_steps_abs = FF_Interpolate(string_id, target_freq_hz);
-        (void)TryTransitionSeed(string_id,
-                                s->last_target_freq_hz,
-                                target_freq_hz,
-                                &s->ff_steps_abs);
+        if (pi_master_enabled) {
+            (void)TryTransitionSeed(string_id,
+                                    s->last_target_freq_hz,
+                                    target_freq_hz,
+                                    &s->ff_steps_abs);
+        }
         s->last_target_freq_hz = target_freq_hz;
 
-    } else if (s->delay_hold_counter > 0u) {
+    } else if (pi_master_enabled && s->delay_hold_counter > 0u) {
         /* Still in post-note-change hold period */
         s->delay_hold_counter--;
         s->pi_enable = 0u;
 
-    } else {
+    } else if (pi_master_enabled) {
         /* Normal operation */
         s->pi_enable = 1u;
+    } else {
+        s->pi_enable = 0u;
     }
 
     /* ------------------------------------------------------------------ */
@@ -514,7 +526,7 @@ void TuningCtrl_Update(uint8_t string_id,
     /* 5. Discrete PI with anti-windup (back-calculation)                  */
     /* Integrator only accumulates when PI enabled AND measurement trusted  */
     /* ------------------------------------------------------------------ */
-    if (s->pi_enable && measurement_trusted) {
+    if (pi_master_enabled && s->pi_enable && measurement_trusted) {
         /* Only accumulate integral when error is already small (like tune).
          * This prevents windup from large transient errors. */
         if (abs_e <= TUNING_INTEGRAL_ENABLE_HZ) {
@@ -557,12 +569,14 @@ void TuningCtrl_Update(uint8_t string_id,
         /* else: keep s->trim_steps as-is this hop */
     }
     /* Count PI hops for convergence limit */
-    if (s->pi_enable && measurement_trusted) {
+    if (pi_master_enabled && s->pi_enable && measurement_trusted) {
         s->pi_hop_count++;
     }
 
-    /* When PI is disabled: hold trim_steps at its last value (do not zero it).
-     * This ensures the motor stays where it was, not at the FF position alone. */
+    if (!pi_master_enabled) {
+        s->integral_state = 0.0f;
+        s->trim_steps     = 0.0f;
+    }
 
     /* ------------------------------------------------------------------ */
     /* 6. Compute raw commanded position                                    */
@@ -609,7 +623,7 @@ void TuningCtrl_Update(uint8_t string_id,
     /* Large ongoing PI output with no measurable frequency change →        */
     /* motor may be stalled.                                                */
     /* ------------------------------------------------------------------ */
-    if (!s->lock_state && s->pi_enable && measurement_trusted) {
+    if (pi_master_enabled && !s->lock_state && s->pi_enable && measurement_trusted) {
         float abs_trim = fabsf(s->trim_steps);
         float freq_delta = fabsf(measured_freq_hz - s->last_valid_freq_hz);
 
@@ -1237,7 +1251,9 @@ void TuningCtrl_ResetAll(void)
 void TuningCtrl_SetDualTrackMode(uint8_t enable)
 {
     s_dual_track_mode = enable ? 1u : 0u;
-    printf("[TC] Dual-track mode %s\r\n", enable ? "ENABLED" : "DISABLED");
+    printf("[TC] Dual-track mode %s (PI %s)\r\n",
+           enable ? "ENABLED" : "DISABLED",
+           TuningPiEnabled() ? "ON" : "OFF");
 }
 
 void TuningCtrl_SetTuning(uint8_t tuning_id)

@@ -334,10 +334,8 @@ static int32_t CalEstimateSteps(uint8_t str, uint8_t fret)
     return (int32_t)CalClampf(estimate, 0.0f, (float)s_cal_steps_max[str]);
 }
 
-static void CalClearTransitionTable(uint8_t str)
+static void CalResetTransitionSamples(uint8_t str)
 {
-    memset(s_transition_delta[str], 0, sizeof(s_transition_delta[str]));
-    memset(s_transition_valid[str], 0, sizeof(s_transition_valid[str]));
     memset(s_transition_samples[str], 0, sizeof(s_transition_samples[str]));
 }
 
@@ -372,19 +370,43 @@ static float CalEstimateFreqFromSteps(uint8_t str, float steps)
     return freq_bp[CAL_NUM_FRETS - 1u];
 }
 
-static void CalStoreTransitionDelta(uint8_t str,
-                                    uint8_t from_fret,
-                                    uint8_t to_fret,
-                                    float delta_steps)
+static float CalStoreTransitionDelta(uint8_t str,
+                                     uint8_t from_fret,
+                                     uint8_t to_fret,
+                                     float delta_steps,
+                                     uint8_t strong_hit)
 {
+    uint8_t had_prior = s_transition_valid[str][from_fret][to_fret];
     uint8_t n = s_transition_samples[str][from_fret][to_fret];
     float prev = s_transition_delta[str][from_fret][to_fret];
+    float updated = delta_steps;
 
-    s_transition_delta[str][from_fret][to_fret] =
-        (n == 0u) ? delta_steps : ((prev * (float)n) + delta_steps) / (float)(n + 1u);
+    if (had_prior) {
+        float alpha;
 
-    s_transition_samples[str][from_fret][to_fret] = (uint8_t)(n + 1u);
-    s_transition_valid[str][from_fret][to_fret]   = 1u;
+        if (n == 0u) {
+            alpha = 0.60f; /* Warm-start from persisted transition seed */
+        } else if (n == 1u) {
+            alpha = 0.50f;
+        } else {
+            alpha = 0.35f;
+        }
+
+        if (strong_hit) {
+            alpha += 0.10f;
+        }
+
+        alpha = CalClampf(alpha, 0.20f, 0.80f);
+        updated = prev + alpha * (delta_steps - prev);
+    }
+
+    s_transition_delta[str][from_fret][to_fret] = updated;
+    if (n < 0xFFu) {
+        s_transition_samples[str][from_fret][to_fret] = (uint8_t)(n + 1u);
+    }
+    s_transition_valid[str][from_fret][to_fret] = 1u;
+
+    return updated;
 }
 
 static void CalResetLockState(float seed_freq)
@@ -1624,11 +1646,15 @@ void Cal_TuneHop(void)
 #define TRANSCAL_MOTOR_SPEED     20000  /* Same speed as song playback        */
 #define TRANSCAL_SETTLE_HOPS     3u     /* Hops to wait after motor move      */
 #define TRANSCAL_LOCK_TIMEOUT    30u    /* Max hops for PI to lock            */
+#define TRANSCAL_MIN_GOOD_HITS   3u     /* Good landings needed for fast accept */
+#define TRANSCAL_FAST_ACCEPT_STEPS 30.0f /* Max spread across clustered hits   */
 
-/* Magnitude-based hit confirmation (replaces PI lock at destination) */
+/* Magnitude-based hit confirmation for jump landing and final confirmation */
 #define TRANSCAL_HIT_MIN_MAG     1000000.0f /* Min FFT magnitude for "hit"   */
 #define TRANSCAL_HIT_FREQ_TOL    5.0f   /* Hz tolerance for frequency match   */
 #define TRANSCAL_HIT_CHECK_HOPS  5u     /* Hops to check after burst clears   */
+#define TRANSCAL_HIT_GAIN_RATIO  1.50f  /* Require post-burst gain vs baseline */
+#define TRANSCAL_HIT_GAIN_ABS    750000.0f /* Absolute gain floor vs baseline */
 
 /* Smoke on Water unique transitions (both directions) */
 typedef struct {
@@ -1662,6 +1688,7 @@ typedef enum {
     TC_PHASE_WAIT_JUMP,         /* Wait for jump motor move             */
     TC_PHASE_EXCITE_TO,         /* Re-excite string at to_fret          */
     TC_PHASE_BURST_REENABLE_TO, /* Re-enable FFT after to_fret burst    */
+    TC_PHASE_LAND_CHECK,        /* Check if jump already produced hit   */
     TC_PHASE_LOCK_TO,           /* PI lock at to_fret, measure delta    */
     TC_PHASE_RECORD,            /* Record delta, check convergence      */
     /* Confirmation phases */
@@ -1694,6 +1721,17 @@ static uint8_t     s_tc_converged      = 0u;
 static float       s_tc_converged_avg  = 0.0f;
 static int32_t     s_tc_confirm_start  = 0;
 static uint8_t     s_tc_hit_check_cnt  = 0u;
+static float       s_tc_cmd_delta      = 0.0f;
+static uint8_t     s_tc_last_jump_hit  = 0u;
+static float       s_tc_last_jump_mag  = 0.0f;
+static float       s_tc_last_jump_freq = 0.0f;
+static float       s_tc_best_hit_mag   = 0.0f;
+static float       s_tc_best_hit_freq  = 0.0f;
+static float       s_tc_best_hit_err   = 1.0e9f;
+static float       s_tc_hit_baseline_mag  = 0.0f;
+static float       s_tc_hit_baseline_freq = 0.0f;
+static float       s_tc_good_hit_delta[TRANSCAL_MIN_GOOD_HITS] = {0.0f};
+static uint8_t     s_tc_good_hit_count = 0u;
 
 /* PI lock state for transition cal (reuses same approach as Cal_Hop LOCK) */
 static float       s_tc_pi_integral    = 0.0f;
@@ -1703,6 +1741,7 @@ static uint8_t     s_tc_no_sig_cnt     = 0u;
 static uint8_t     s_tc_weak_sig_cnt   = 0u;
 static float       s_tc_last_valid_f   = 0.0f;
 static float       s_tc_target_freq    = 0.0f;
+static uint8_t     s_tc_target_fret    = 0u;
 static uint16_t    s_tc_wait_cnt       = 0u;
 static TcPhase_t   s_tc_after_wait     = TC_PHASE_IDLE;
 static uint8_t     s_tc_lock_hop_cnt   = 0u;
@@ -1723,6 +1762,134 @@ static void TcResetLockState(float seed_freq)
     s_tc_weak_sig_cnt = 0u;
     s_tc_last_valid_f = seed_freq;
     s_tc_lock_hop_cnt = 0u;
+}
+
+static void TcResetHitCheck(void)
+{
+    s_tc_hit_check_cnt = 0u;
+    s_tc_best_hit_mag  = 0.0f;
+    s_tc_best_hit_freq = 0.0f;
+    s_tc_best_hit_err  = 1.0e9f;
+}
+
+static void TcResetGoodHitWindow(void)
+{
+    memset(s_tc_good_hit_delta, 0, sizeof(s_tc_good_hit_delta));
+    s_tc_good_hit_count = 0u;
+}
+
+static void TcPushGoodHitDelta(float delta_steps)
+{
+    if (s_tc_good_hit_count < TRANSCAL_MIN_GOOD_HITS) {
+        s_tc_good_hit_delta[s_tc_good_hit_count++] = delta_steps;
+        return;
+    }
+
+    for (uint8_t i = 1u; i < TRANSCAL_MIN_GOOD_HITS; i++) {
+        s_tc_good_hit_delta[i - 1u] = s_tc_good_hit_delta[i];
+    }
+    s_tc_good_hit_delta[TRANSCAL_MIN_GOOD_HITS - 1u] = delta_steps;
+}
+
+static uint8_t TcGetGoodHitCluster(float *out_center, float *out_spread)
+{
+    if (s_tc_good_hit_count < TRANSCAL_MIN_GOOD_HITS) {
+        return 0u;
+    }
+
+    float sorted[TRANSCAL_MIN_GOOD_HITS];
+    float sum = 0.0f;
+
+    for (uint8_t i = 0u; i < TRANSCAL_MIN_GOOD_HITS; i++) {
+        sorted[i] = s_tc_good_hit_delta[i];
+        sum += sorted[i];
+    }
+
+    for (uint8_t i = 1u; i < TRANSCAL_MIN_GOOD_HITS; i++) {
+        float key = sorted[i];
+        int8_t j = (int8_t)i - 1;
+        while (j >= 0 && sorted[j] > key) {
+            sorted[j + 1] = sorted[j];
+            j--;
+        }
+        sorted[j + 1] = key;
+    }
+
+    float spread = sorted[TRANSCAL_MIN_GOOD_HITS - 1u] - sorted[0];
+    if (out_spread != NULL) {
+        *out_spread = spread;
+    }
+
+    if (spread > TRANSCAL_FAST_ACCEPT_STEPS) {
+        return 0u;
+    }
+
+    if (out_center != NULL) {
+        *out_center = sum / (float)TRANSCAL_MIN_GOOD_HITS;
+    }
+
+    return 1u;
+}
+
+static void TcCaptureHitBaseline(void)
+{
+    float meas_f   = 0.0f;
+    float meas_mag = 0.0f;
+
+    TrackClosestFreq(s_tc_target_freq,
+                     s_tc_target_freq * TUNE_TRACK_MIN_RATIO,
+                     s_tc_target_freq * TUNE_TRACK_MAX_RATIO,
+                     &meas_f, &meas_mag);
+
+    s_tc_hit_baseline_freq = meas_f;
+
+    if (meas_f > 0.0f && fabsf(meas_f - s_tc_target_freq) <= TRANSCAL_HIT_FREQ_TOL) {
+        s_tc_hit_baseline_mag = meas_mag;
+        s_tc_last_valid_f     = meas_f;
+    } else {
+        s_tc_hit_baseline_mag = 0.0f;
+    }
+}
+
+static uint8_t TcRunHitCheckHop(void)
+{
+    float meas_f   = 0.0f;
+    float meas_mag = 0.0f;
+
+    TrackClosestFreq(s_tc_target_freq,
+                     s_tc_target_freq * TUNE_TRACK_MIN_RATIO,
+                     s_tc_target_freq * TUNE_TRACK_MAX_RATIO,
+                     &meas_f, &meas_mag);
+
+    if (meas_f > 0.0f) {
+        float err = fabsf(meas_f - s_tc_target_freq);
+
+        if (meas_mag > s_tc_best_hit_mag ||
+            (fabsf(meas_mag - s_tc_best_hit_mag) < 1.0f && err < s_tc_best_hit_err)) {
+            s_tc_best_hit_mag  = meas_mag;
+            s_tc_best_hit_freq = meas_f;
+            s_tc_best_hit_err  = err;
+        }
+
+        s_tc_last_valid_f = meas_f;
+    }
+
+    s_tc_hit_check_cnt++;
+
+    if (meas_f > 0.0f &&
+        fabsf(meas_f - s_tc_target_freq) <= TRANSCAL_HIT_FREQ_TOL &&
+        meas_mag >= TRANSCAL_HIT_MIN_MAG) {
+        if (s_tc_hit_baseline_mag <= 0.0f) {
+            return 1u;
+        }
+
+        if (meas_mag >= (s_tc_hit_baseline_mag * TRANSCAL_HIT_GAIN_RATIO) ||
+            (meas_mag - s_tc_hit_baseline_mag) >= TRANSCAL_HIT_GAIN_ABS) {
+            return 1u;
+        }
+    }
+
+    return 0u;
 }
 
 /**
@@ -1773,9 +1940,12 @@ static uint8_t TcRunLockHop(TcPhase_t excite_phase)
                 float step_cap = StepCapForError(fabsf(error));
                 float delta_cmd = CalClampf(TUNE_PI_KP * error + s_tc_pi_integral,
                                             -step_cap, step_cap);
+                float cmd_lo = (s_tc_target_fret == 0u)
+                             ? (float)(-s_cal_steps_max[s_tc_str])
+                             : 0.0f;
                 int32_t cmd = (int32_t)CalClampf(
                     (float)s_tc_pi_cmd_steps + delta_cmd,
-                    0.0f, (float)s_cal_steps_max[s_tc_str]);
+                    cmd_lo, (float)s_cal_steps_max[s_tc_str]);
                 int32_t delta = cmd - s_tc_pi_cmd_steps;
                 if ((delta < 0 ? -delta : delta) >= (int32_t)TUNE_MIN_MOVE_STEPS) {
                     s_tc_pi_cmd_steps = cmd;
@@ -1803,10 +1973,11 @@ static uint8_t TcRunLockHop(TcPhase_t excite_phase)
     /* Timeout check */
     if (!motor_busy) s_tc_lock_hop_cnt++;
     if (s_tc_lock_hop_cnt >= TRANSCAL_LOCK_TIMEOUT) {
-        printf("[TRANSCAL] str%u: lock timeout at %.2f Hz (target %.2f Hz)\r\n",
+        printf("[TRANSCAL] str%u: lock timeout at %.2f Hz (target %.2f Hz, fret %u)\r\n",
                (unsigned)s_tc_str,
                (double)s_tc_last_valid_f,
-               (double)s_tc_target_freq);
+               (double)s_tc_target_freq,
+               (unsigned)s_tc_target_fret);
         s_tc_phase = excite_phase;  /* Re-excite and retry */
         s_tc_lock_hop_cnt = 0u;
     }
@@ -1863,10 +2034,10 @@ void Cal_StartTransitionCal(uint8_t string_mask)
         s_tc_str++;
     }
 
-    /* Clear existing transition data for selected strings */
+    /* Keep persisted transition seeds, but start this run with fresh weights. */
     for (uint8_t i = 0u; i < NUM_STRINGS; i++) {
         if ((s_tc_string_mask >> i) & 1u) {
-            CalClearTransitionTable(i);
+            CalResetTransitionSamples(i);
         }
     }
 
@@ -1885,6 +2056,10 @@ void Cal_StartTransitionCal(uint8_t string_mask)
            (unsigned)TRANSCAL_MAX_ITERS);
     printf("[TRANSCAL] Convergence threshold: +/-%.0f steps\r\n",
            (double)TRANSCAL_CONVERGE_STEPS);
+    printf("[TRANSCAL] Fast accept: %u good hits clustered within %.0f steps\r\n",
+           (unsigned)TRANSCAL_MIN_GOOD_HITS,
+           (double)TRANSCAL_FAST_ACCEPT_STEPS);
+    printf("[TRANSCAL] Existing transition seeds are retained when available.\r\n");
     printf("[TRANSCAL] ================================================\r\n");
 }
 
@@ -1936,6 +2111,14 @@ void Cal_TransitionCalHop(void)
         s_tc_iter      = 0u;
         s_tc_converged = 0u;
         s_tc_prev_delta = 0.0f;
+        s_tc_cmd_delta  = 0.0f;
+        s_tc_last_jump_hit  = 0u;
+        s_tc_last_jump_mag  = 0.0f;
+        s_tc_last_jump_freq = 0.0f;
+        s_tc_hit_baseline_mag  = 0.0f;
+        s_tc_hit_baseline_freq = 0.0f;
+        TcResetHitCheck();
+        TcResetGoodHitWindow();
 
         InterCore_SendMotorEnableMask((uint8_t)(1u << s_tc_str));
         InterCore_SendMotorMaxSpeed(s_tc_str, TRANSCAL_MOTOR_SPEED);
@@ -1960,6 +2143,7 @@ void Cal_TransitionCalHop(void)
             0.0f, (float)s_cal_steps_max[s_tc_str]);
 
         s_tc_target_freq = CalTargetFreq(s_tc_str, from);
+        s_tc_target_fret = from;
 
         printf("[TRANSCAL] str%u: moving to fret %u (pos %ld, %.2f Hz) iter %u/%u\r\n",
                (unsigned)s_tc_str,
@@ -2031,6 +2215,7 @@ void Cal_TransitionCalHop(void)
         }
 
         s_tc_target_freq = CalTargetFreq(s_tc_str, to);
+        s_tc_target_fret = to;
 
         printf("[TRANSCAL] str%u: jumping fret%u->%u delta=%.0f steps\r\n",
                (unsigned)s_tc_str,
@@ -2038,6 +2223,10 @@ void Cal_TransitionCalHop(void)
                (unsigned)to,
                (double)delta);
 
+        s_tc_cmd_delta     = delta;
+        s_tc_last_jump_hit = 0u;
+        s_tc_last_jump_mag = 0.0f;
+        s_tc_last_jump_freq = 0.0f;
         InterCore_SendMotorMoveRelative(s_tc_str, (int32_t)delta);
         s_tc_phase = TC_PHASE_WAIT_JUMP;
         break;
@@ -2057,6 +2246,7 @@ void Cal_TransitionCalHop(void)
     case TC_PHASE_EXCITE_TO:
     {
         TcResetLockState(s_tc_target_freq);
+        TcCaptureHitBaseline();
         TcExciteBurst(TC_PHASE_BURST_REENABLE_TO);
         break;
     }
@@ -2065,7 +2255,43 @@ void Cal_TransitionCalHop(void)
     case TC_PHASE_BURST_REENABLE_TO:
     {
         fft_sensing_enabled = 1u;
-        s_tc_phase = TC_PHASE_LOCK_TO;
+        TcResetHitCheck();
+        s_tc_phase = TC_PHASE_LAND_CHECK;
+        break;
+    }
+
+    /* ---- LAND_CHECK: use post-burst magnitude to detect a good jump early ---- */
+    case TC_PHASE_LAND_CHECK:
+    {
+        uint8_t from = s_smoke_transitions[s_tc_transition_idx].from_fret;
+        uint8_t to   = s_smoke_transitions[s_tc_transition_idx].to_fret;
+
+        if (TcRunHitCheckHop()) {
+            s_tc_last_jump_hit  = 1u;
+            s_tc_last_jump_mag  = s_tc_best_hit_mag;
+            s_tc_last_jump_freq = s_tc_best_hit_freq;
+
+            printf("[TRANSCAL] str%u: strong landing fret%u->%u "
+                   "(baseline=%.0f -> mag=%.0f, freq=%.2f Hz)\r\n",
+                   (unsigned)s_tc_str,
+                   (unsigned)from,
+                   (unsigned)to,
+                   (double)s_tc_hit_baseline_mag,
+                   (double)s_tc_last_jump_mag,
+                   (double)s_tc_last_jump_freq);
+
+            s_tc_phase = TC_PHASE_RECORD;
+        } else if (s_tc_hit_check_cnt >= TRANSCAL_HIT_CHECK_HOPS) {
+            printf("[TRANSCAL] str%u: weak landing fret%u->%u "
+                   "(baseline=%.0f best mag=%.0f freq=%.2f) -> recovery lock\r\n",
+                   (unsigned)s_tc_str,
+                   (unsigned)from,
+                   (unsigned)to,
+                   (double)s_tc_hit_baseline_mag,
+                   (double)s_tc_best_hit_mag,
+                   (double)s_tc_best_hit_freq);
+            s_tc_phase = TC_PHASE_LOCK_TO;
+        }
         break;
     }
 
@@ -2089,24 +2315,43 @@ void Cal_TransitionCalHop(void)
         uint8_t to   = s_smoke_transitions[s_tc_transition_idx].to_fret;
         int32_t end_pos = g_shared_memory.current_positions[s_tc_str];
         float actual_delta = (float)(end_pos - s_tc_start_pos);
+        float cluster_avg = 0.0f;
+        float cluster_spread = 0.0f;
 
-        /* Update running average */
-        CalStoreTransitionDelta(s_tc_str, from, to, actual_delta);
-
-        float avg = s_transition_delta[s_tc_str][from][to];
+        float avg = CalStoreTransitionDelta(s_tc_str,
+                                            from,
+                                            to,
+                                            actual_delta,
+                                            s_tc_last_jump_hit);
         uint8_t n = s_transition_samples[s_tc_str][from][to];
 
-        printf("[TRANSCAL] str%u fret%u->%u iter%u: delta=%.0f avg=%.0f (n=%u)\r\n",
+        if (s_tc_last_jump_hit) {
+            TcPushGoodHitDelta(actual_delta);
+        }
+
+        printf("[TRANSCAL] str%u fret%u->%u iter%u: delta=%.0f est=%.0f (n=%u%s)\r\n",
                (unsigned)s_tc_str,
                (unsigned)from,
                (unsigned)to,
                (unsigned)(s_tc_iter + 1u),
                (double)actual_delta,
                (double)avg,
-               (unsigned)n);
+               (unsigned)n,
+               s_tc_last_jump_hit ? ", hit" : "");
 
-        /* Check convergence: do last 2 measurements agree within threshold? */
-        if (s_tc_iter > 0u &&
+        if (s_tc_last_jump_hit &&
+            TcGetGoodHitCluster(&cluster_avg, &cluster_spread)) {
+            s_tc_converged     = 1u;
+            s_tc_converged_avg = cluster_avg;
+            printf("[TRANSCAL] Good-hit cluster accept! avg=%.0f spread=%.0f "
+                   "(baseline=%.0f mag=%.0f freq=%.2f Hz) — running confirmation...\r\n",
+                   (double)cluster_avg,
+                   (double)cluster_spread,
+                   (double)s_tc_hit_baseline_mag,
+                   (double)s_tc_last_jump_mag,
+                   (double)s_tc_last_jump_freq);
+            s_tc_phase = TC_PHASE_CONFIRM_GOTO;
+        } else if (s_tc_iter > 0u &&
             fabsf(actual_delta - s_tc_prev_delta) <= TRANSCAL_CONVERGE_STEPS) {
             s_tc_converged     = 1u;
             s_tc_converged_avg = avg;
@@ -2129,6 +2374,7 @@ void Cal_TransitionCalHop(void)
             0.0f, (float)s_cal_steps_max[s_tc_str]);
 
         s_tc_target_freq = CalTargetFreq(s_tc_str, from);
+        s_tc_target_fret = from;
 
         printf("[TRANSCAL] Confirmation: moving to fret %u (pos %ld)\r\n",
                (unsigned)from, (long)target_pos);
@@ -2180,6 +2426,7 @@ void Cal_TransitionCalHop(void)
         uint8_t to   = s_smoke_transitions[s_tc_transition_idx].to_fret;
 
         s_tc_target_freq = CalTargetFreq(s_tc_str, to);
+        s_tc_target_fret = to;
 
         printf("[TRANSCAL] Confirm: jumping with converged delta=%.0f\r\n",
                (double)s_tc_converged_avg);
@@ -2202,6 +2449,7 @@ void Cal_TransitionCalHop(void)
     case TC_PHASE_CONFIRM_EXCITE_TO:
     {
         TcResetLockState(s_tc_target_freq);
+        TcCaptureHitBaseline();
         TcExciteBurst(TC_PHASE_CONFIRM_BURST_RE2);
         break;
     }
@@ -2209,7 +2457,7 @@ void Cal_TransitionCalHop(void)
     case TC_PHASE_CONFIRM_BURST_RE2:
     {
         fft_sensing_enabled = 1u;
-        s_tc_hit_check_cnt  = 0u;   /* Reset hop counter for magnitude check */
+        TcResetHitCheck();
         s_tc_phase = TC_PHASE_CONFIRM_LOCK_TO;
         break;
     }
@@ -2220,23 +2468,13 @@ void Cal_TransitionCalHop(void)
         uint8_t from = s_smoke_transitions[s_tc_transition_idx].from_fret;
         uint8_t to   = s_smoke_transitions[s_tc_transition_idx].to_fret;
 
-        float meas_f   = 0.0f;
-        float meas_mag = 0.0f;
-        TrackClosestFreq(s_tc_target_freq,
-                         s_tc_target_freq * TUNE_TRACK_MIN_RATIO,
-                         s_tc_target_freq * TUNE_TRACK_MAX_RATIO,
-                         &meas_f, &meas_mag);
-
-        s_tc_hit_check_cnt++;
-
-        if (meas_f > 0.0f &&
-            fabsf(meas_f - s_tc_target_freq) <= TRANSCAL_HIT_FREQ_TOL &&
-            meas_mag >= TRANSCAL_HIT_MIN_MAG) {
+        if (TcRunHitCheckHop()) {
             /* Strong peak near target frequency → confirmed hit */
-            printf("[TRANSCAL] CONFIRMED fret%u->%u: mag=%.0f freq=%.2f Hz "
+            printf("[TRANSCAL] CONFIRMED fret%u->%u: baseline=%.0f mag=%.0f freq=%.2f Hz "
                    "(target %.2f Hz) delta=%.0f steps\r\n",
                    (unsigned)from, (unsigned)to,
-                   (double)meas_mag, (double)meas_f,
+                   (double)s_tc_hit_baseline_mag,
+                   (double)s_tc_best_hit_mag, (double)s_tc_best_hit_freq,
                    (double)s_tc_target_freq,
                    (double)s_tc_converged_avg);
 
@@ -2246,12 +2484,14 @@ void Cal_TransitionCalHop(void)
         } else if (s_tc_hit_check_cnt >= TRANSCAL_HIT_CHECK_HOPS) {
             /* No strong hit detected within allowed hops */
             printf("[TRANSCAL] Confirmation FAILED — no hit at fret%u "
-                   "(best mag=%.0f freq=%.2f, target=%.2f Hz) "
+                   "(baseline=%.0f best mag=%.0f freq=%.2f, target=%.2f Hz) "
                    "— resuming iterations\r\n",
                    (unsigned)to,
-                   (double)meas_mag, (double)meas_f,
+                   (double)s_tc_hit_baseline_mag,
+                   (double)s_tc_best_hit_mag, (double)s_tc_best_hit_freq,
                    (double)s_tc_target_freq);
             s_tc_converged = 0u;
+            TcResetGoodHitWindow();
             s_tc_phase = TC_PHASE_NEXT;
         }
         /* else: keep waiting for more hops */
